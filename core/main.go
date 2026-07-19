@@ -44,6 +44,7 @@ func main() {
 	setupHandler := handlers.NewSetupHandler(dbConn)
 	moduleHandler := handlers.NewModuleHandler(dbConn)
 	crudHandler := handlers.NewGenericCRUDHandler(dbConn, cfg.Modules.Path)
+	docsHandler := handlers.NewDocsHandler(cfg.Modules.Path)
 
 	// Configurar router
 	mux := http.NewServeMux()
@@ -177,6 +178,12 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"status":"ok","database":"connected"}`))
 	})
+
+	// Documentación de la API generada desde los manifiestos.
+	// Se registra antes del dispatcher: en Go 1.22+ los segmentos literales
+	// ganan sobre los comodines, pero dejarlo explícito evita sorpresas.
+	mux.HandleFunc("/api/openapi.json", docsHandler.OpenAPI)
+	mux.HandleFunc("/api/docs", docsHandler.Docs)
 
 	// Dispatcher genérico para /api/{module}/{model}[/{id}]
 	// Go 1.22+ path parameter syntax

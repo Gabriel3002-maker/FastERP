@@ -196,6 +196,55 @@ func TestSQLLiteral(t *testing.T) {
 	}
 }
 
+// La documentación sale del manifest: si el módulo declara un modelo, aparece.
+func TestBuildOpenAPIDerivaLasRutasDelManifest(t *testing.T) {
+	manifests := map[string]*Manifest{
+		"contacts": {
+			Name: "contacts",
+			Models: map[string]*ModelDef{
+				"contact": {Fields: map[string]*FieldDef{
+					"name":  {Type: "string", Required: true, Length: 120},
+					"email": {Type: "email"},
+				}},
+			},
+		},
+	}
+
+	spec := BuildOpenAPI(manifests, "http://localhost:7071")
+
+	paths, ok := spec["paths"].(map[string]any)
+	if !ok {
+		t.Fatal("la especificación no tiene paths")
+	}
+	for _, want := range []string{"/api/contacts/contact", "/api/contacts/contact/{id}"} {
+		if _, exists := paths[want]; !exists {
+			t.Errorf("falta la ruta %q", want)
+		}
+	}
+
+	components := spec["components"].(map[string]any)
+	schemas := components["schemas"].(map[string]any)
+
+	input, ok := schemas["contacts_contact_input"].(map[string]any)
+	if !ok {
+		t.Fatal("falta el schema de entrada")
+	}
+	required, _ := input["required"].([]string)
+	if len(required) != 1 || required[0] != "name" {
+		t.Errorf("required = %v, want [name]", required)
+	}
+
+	props := input["properties"].(map[string]any)
+	nameProp := props["name"].(map[string]any)
+	if nameProp["maxLength"] != 120 {
+		t.Errorf("maxLength = %v, want 120 (el largo declarado en el manifest)", nameProp["maxLength"])
+	}
+	emailProp := props["email"].(map[string]any)
+	if emailProp["format"] != "email" {
+		t.Errorf("format = %v, want email", emailProp["format"])
+	}
+}
+
 // El manifest manda, pero nunca a costa de truncar datos ya guardados.
 func TestIsSafeWidening(t *testing.T) {
 	tests := []struct {
