@@ -43,7 +43,7 @@ func main() {
 	auditHandler := handlers.NewAuditHandler(auditLogger)
 	setupHandler := handlers.NewSetupHandler(dbConn)
 	moduleHandler := handlers.NewModuleHandler(dbConn)
-	contactHandler := handlers.NewContactHandler(dbConn)
+	contactHandler := handlers.NewContactHandler(dbConn) // SDK se inicializa dentro
 
 	// Configurar router
 	mux := http.NewServeMux()

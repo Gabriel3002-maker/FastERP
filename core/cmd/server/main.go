@@ -56,7 +56,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
-		Handler:           api.SetupRouter(cfg, modManager, WebDist),
+		Handler:           api.SetupRouter(cfg, modManager),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}

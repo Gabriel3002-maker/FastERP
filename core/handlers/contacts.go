@@ -7,10 +7,12 @@ import (
 	"net/http"
 
 	"github.com/fasterp/backend/db"
+	"github.com/fasterp/backend/sdk"
 )
 
 type ContactHandler struct {
 	dbConn *db.DB
+	sdk    *sdk.ModuleSDK
 }
 
 type Contact struct {
@@ -37,8 +39,46 @@ type Contact struct {
 	CreatedAt             string `json:"created_at"`
 }
 
+// Manifest del módulo contacts (embebido)
+const contactsManifest = `{
+	"name": "contacts",
+	"models": {
+		"contact": {
+			"name": "contact",
+			"fields": {
+				"name": {"type": "string", "required": true},
+				"email": {"type": "string", "required": false},
+				"phone": {"type": "string", "required": false},
+				"mobile": {"type": "string", "required": false},
+				"company": {"type": "string", "required": false},
+				"job_title": {"type": "string", "required": false},
+				"tax_id_type": {"type": "string", "required": false},
+				"tax_id": {"type": "string", "required": false},
+				"person_type": {"type": "string", "required": false},
+				"tax_regime": {"type": "string", "required": false},
+				"accounting_obligation": {"type": "string", "required": false},
+				"retention_agent": {"type": "string", "required": false},
+				"address": {"type": "text", "required": false},
+				"city": {"type": "string", "required": false},
+				"province": {"type": "string", "required": false},
+				"country": {"type": "string", "required": false},
+				"postal_code": {"type": "string", "required": false},
+				"website": {"type": "string", "required": false},
+				"notes": {"type": "text", "required": false}
+			}
+		}
+	}
+}`
+
 func NewContactHandler(dbConn *db.DB) *ContactHandler {
-	return &ContactHandler{dbConn: dbConn}
+	// Crear SDK para el módulo contacts
+	moduleSdk := sdk.NewModuleSDK("contacts", "", "", dbConn.Pool())
+	moduleSdk.LoadManifest(contactsManifest)
+
+	return &ContactHandler{
+		dbConn: dbConn,
+		sdk:    moduleSdk,
+	}
 }
 
 // ListContacts GET /api/contacts/list
@@ -46,17 +86,9 @@ func (ch *ContactHandler) ListContacts(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
 	tenantID := r.Header.Get("X-Tenant-ID")
 
-	query := `
-		SELECT id, name, email, phone, mobile, company, job_title,
-		       tax_id_type, tax_id, person_type, tax_regime, accounting_obligation,
-		       retention_agent, address, city, province, country, postal_code,
-		       website, notes, created_at
-		FROM mod_contacts_contact
-		WHERE tenant_id = $1
-		ORDER BY created_at DESC
-	`
-
-	rows, err := ch.dbConn.Query(ctx, query, tenantID)
+	// Usar SDK en lugar de SQL directo
+	ch.sdk.TenantID = tenantID
+	results, err := ch.sdk.List(ctx, "contact")
 	if err != nil {
 		fmt.Printf("[ContactHandler] Error listing: %v\n", err)
 		w.Header().Set("Content-Type", "application/json")
@@ -66,23 +98,10 @@ func (ch *ContactHandler) ListContacts(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	defer rows.Close()
-
-	var contacts []Contact
-	for rows.Next() {
-		var c Contact
-		err := rows.Scan(&c.ID, &c.Name, &c.Email, &c.Phone, &c.Mobile, &c.Company,
-			&c.JobTitle, &c.TaxIDType, &c.TaxID, &c.PersonType, &c.TaxRegime,
-			&c.AccountingObligation, &c.RetentionAgent, &c.Address, &c.City,
-			&c.Province, &c.Country, &c.PostalCode, &c.Website, &c.Notes, &c.CreatedAt)
-		if err == nil {
-			contacts = append(contacts, c)
-		}
-	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"contacts": contacts,
+		"contacts": results,
 	})
 }
 
@@ -99,22 +118,29 @@ func (ch *ContactHandler) CreateContact(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	query := `
-		INSERT INTO mod_contacts_contact
-		(tenant_id, name, email, phone, mobile, company, job_title, tax_id_type, tax_id,
-		 person_type, tax_regime, accounting_obligation, retention_agent, address, city,
-		 province, country, postal_code, website, notes)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
-		RETURNING id
-	`
-
-	var id string
-	err := ch.dbConn.QueryRow(ctx, query,
-		tenantID, c.Name, c.Email, c.Phone, c.Mobile, c.Company, c.JobTitle,
-		c.TaxIDType, c.TaxID, c.PersonType, c.TaxRegime, c.AccountingObligation,
-		c.RetentionAgent, c.Address, c.City, c.Province, c.Country, c.PostalCode,
-		c.Website, c.Notes,
-	).Scan(&id)
+	// Usar SDK en lugar de SQL directo
+	ch.sdk.TenantID = tenantID
+	id, err := ch.sdk.Create(ctx, "contact", map[string]interface{}{
+		"name":                    c.Name,
+		"email":                   c.Email,
+		"phone":                   c.Phone,
+		"mobile":                  c.Mobile,
+		"company":                 c.Company,
+		"job_title":               c.JobTitle,
+		"tax_id_type":             c.TaxIDType,
+		"tax_id":                  c.TaxID,
+		"person_type":             c.PersonType,
+		"tax_regime":              c.TaxRegime,
+		"accounting_obligation":   c.AccountingObligation,
+		"retention_agent":         c.RetentionAgent,
+		"address":                 c.Address,
+		"city":                    c.City,
+		"province":                c.Province,
+		"country":                 c.Country,
+		"postal_code":             c.PostalCode,
+		"website":                 c.Website,
+		"notes":                   c.Notes,
+	})
 
 	if err != nil {
 		fmt.Printf("[ContactHandler] Error creating: %v\n", err)
@@ -151,22 +177,29 @@ func (ch *ContactHandler) UpdateContact(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	query := `
-		UPDATE mod_contacts_contact
-		SET name = $1, email = $2, phone = $3, mobile = $4, company = $5, job_title = $6,
-		    tax_id_type = $7, tax_id = $8, person_type = $9, tax_regime = $10,
-		    accounting_obligation = $11, retention_agent = $12, address = $13, city = $14,
-		    province = $15, country = $16, postal_code = $17, website = $18, notes = $19,
-		    updated_at = CURRENT_TIMESTAMP
-		WHERE id = $20 AND tenant_id = $21
-	`
-
-	_, err := ch.dbConn.Exec(ctx, query,
-		c.Name, c.Email, c.Phone, c.Mobile, c.Company, c.JobTitle,
-		c.TaxIDType, c.TaxID, c.PersonType, c.TaxRegime, c.AccountingObligation,
-		c.RetentionAgent, c.Address, c.City, c.Province, c.Country, c.PostalCode,
-		c.Website, c.Notes, id, tenantID,
-	)
+	// Usar SDK en lugar de SQL directo
+	ch.sdk.TenantID = tenantID
+	err := ch.sdk.Update(ctx, "contact", id, map[string]interface{}{
+		"name":                    c.Name,
+		"email":                   c.Email,
+		"phone":                   c.Phone,
+		"mobile":                  c.Mobile,
+		"company":                 c.Company,
+		"job_title":               c.JobTitle,
+		"tax_id_type":             c.TaxIDType,
+		"tax_id":                  c.TaxID,
+		"person_type":             c.PersonType,
+		"tax_regime":              c.TaxRegime,
+		"accounting_obligation":   c.AccountingObligation,
+		"retention_agent":         c.RetentionAgent,
+		"address":                 c.Address,
+		"city":                    c.City,
+		"province":                c.Province,
+		"country":                 c.Country,
+		"postal_code":             c.PostalCode,
+		"website":                 c.Website,
+		"notes":                   c.Notes,
+	})
 
 	if err != nil {
 		fmt.Printf("[ContactHandler] Error updating: %v\n", err)
@@ -193,9 +226,10 @@ func (ch *ContactHandler) DeleteContact(w http.ResponseWriter, r *http.Request) 
 		id = r.PathValue("id") // Go 1.22+
 	}
 
-	query := `DELETE FROM mod_contacts_contact WHERE id = $1 AND tenant_id = $2`
+	// Usar SDK en lugar de SQL directo
+	ch.sdk.TenantID = tenantID
+	err := ch.sdk.Delete(ctx, "contact", id)
 
-	_, err := ch.dbConn.Exec(ctx, query, id, tenantID)
 	if err != nil {
 		fmt.Printf("[ContactHandler] Error deleting: %v\n", err)
 		w.Header().Set("Content-Type", "application/json")

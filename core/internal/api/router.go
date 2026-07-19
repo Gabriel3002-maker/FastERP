@@ -1,8 +1,6 @@
 package api
 
 import (
-	"embed"
-	"io/fs"
 	"log"
 	"net/http"
 	"strings"
@@ -14,7 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func SetupRouter(cfg *config.Config, modManager *module.ModuleManager, webDist embed.FS) *gin.Engine {
+func SetupRouter(cfg *config.Config, modManager *module.ModuleManager) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Recovery())
@@ -100,23 +98,6 @@ func SetupRouter(cfg *config.Config, modManager *module.ModuleManager, webDist e
 
 	// Public site host (sitio_web): CMS pages + public storefront feed
 	h.RegisterWebRoutes()
-
-	// SPA fallback: serve embedded frontend assets or index.html for SPA routing
-	if distFS, err := fs.Sub(webDist, "webdist"); err == nil {
-		r.NoRoute(func(c *gin.Context) {
-			path := c.Request.URL.Path
-			if strings.HasPrefix(path, "/api") || strings.HasPrefix(path, "/uploads") || strings.HasPrefix(path, "/site") || strings.HasPrefix(path, "/health") {
-				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
-				return
-			}
-			if file, err := distFS.Open(path); err == nil {
-				file.Close()
-				c.FileFromFS(path, http.FS(distFS))
-				return
-			}
-			c.FileFromFS("index.html", http.FS(distFS))
-		})
-	}
 
 	return r
 }
