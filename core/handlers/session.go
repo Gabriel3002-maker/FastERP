@@ -86,6 +86,25 @@ func (sm *SessionManager) ValidateToken(tokenString string) (*Claims, error) {
 	return claims, nil
 }
 
+// ExtractTenantIDFromCookie extrae el tenant_id del JWT en la cookie
+func (sm *SessionManager) ExtractTenantIDFromCookie(r *http.Request) string {
+	cookie, err := r.Cookie("access_token")
+	if err != nil {
+		return ""
+	}
+
+	claims := &Claims{}
+	token, err := jwt.ParseWithClaims(cookie.Value, claims, func(token *jwt.Token) (interface{}, error) {
+		return sm.jwtSecret, nil
+	})
+
+	if err != nil || !token.Valid {
+		return ""
+	}
+
+	return claims.TenantID
+}
+
 func (sm *SessionManager) SetSessionCookie(w http.ResponseWriter, tokenResponse *TokenResponse) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     "access_token",

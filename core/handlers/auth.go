@@ -134,3 +134,8 @@ func (ah *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"status":"ok","message":"Logout successful"}`))
 }
+
+// ExtractTenantIDFromCookie extrae el tenant_id del JWT en la cookie
+func (ah *AuthHandler) ExtractTenantIDFromCookie(r *http.Request) string {
+	return ah.sessionManager.ExtractTenantIDFromCookie(r)
+}
