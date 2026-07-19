@@ -343,6 +343,21 @@ func (h *GenericCRUDHandler) sdkFor(ctx context.Context, module, tenantID, userI
 	return moduleSdk, nil
 }
 
+// InvalidateModule limpia el manifest y el estado de esquema en caché de un
+// módulo, para que la próxima petición relea manifest.json desde disco.
+//
+// Studio-Flujo la llama después de escribir un manifest nuevo o extendido:
+// sin esto, un módulo que ya estaba "caliente" en memoria (el caso típico al
+// EXTENDER uno existente, que por definición ya se usó antes) seguiría
+// sirviendo la versión vieja — el modelo recién agregado quedaría invisible
+// hasta reiniciar el servidor, contradiciendo la idea de "generar y usar".
+func (h *GenericCRUDHandler) InvalidateModule(module string) {
+	h.mu.Lock()
+	delete(h.manifestCache, module)
+	delete(h.schemaEnsured, module)
+	h.mu.Unlock()
+}
+
 // manifest lee (y cachea) el manifest.json del módulo.
 func (h *GenericCRUDHandler) manifest(module string) (string, error) {
 	h.mu.RLock()

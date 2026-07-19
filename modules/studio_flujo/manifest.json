@@ -1,0 +1,8 @@
+{
+  "name": "studio_flujo",
+  "label": "Studio-Flujo",
+  "version": "1.0.0",
+  "author": "EcuaByte",
+  "description": "Diseñá el flujo de un módulo con un diagrama y generalo listo para instalar.",
+  "icon": "🧩"
+}

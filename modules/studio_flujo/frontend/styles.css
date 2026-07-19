@@ -1,0 +1,284 @@
+.sf-module {
+  --sf-border: var(--border, #e5e7eb);
+  --sf-surface: var(--surface, #fff);
+  --sf-muted: var(--text-muted, #6b7280);
+  --sf-accent: var(--accent, #2563eb);
+  --sf-radius: var(--radius, 10px);
+  --sf-ok: #16a34a;
+  --sf-error: #dc2626;
+
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  max-width: 960px;
+}
+
+.sf-subtitle {
+  margin: .3rem 0 0;
+  color: var(--sf-muted);
+  font-size: .9rem;
+  max-width: 65ch;
+}
+
+.sf-card {
+  border: 1px solid var(--sf-border);
+  border-radius: var(--sf-radius);
+  background: var(--sf-surface);
+  padding: 1.25rem;
+}
+
+.sf-card h2 {
+  margin: 0 0 .9rem;
+  font-size: 1rem;
+}
+
+.sf-hint {
+  margin: -.4rem 0 .9rem;
+  font-size: .85rem;
+  color: var(--sf-muted);
+}
+
+.sf-hint code {
+  background: rgba(127, 127, 127, .12);
+  padding: .1rem .35rem;
+  border-radius: 4px;
+  font-size: .85em;
+}
+
+/* --- Formularios genéricos --- */
+.sf-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: .8rem;
+  margin-bottom: .8rem;
+}
+
+.sf-field {
+  display: flex;
+  flex-direction: column;
+  gap: .3rem;
+}
+
+.sf-field.sf-wide {
+  grid-column: 1 / -1;
+}
+
+.sf-field label {
+  font-size: .8rem;
+  font-weight: 600;
+  color: var(--sf-muted);
+}
+
+.sf-field input,
+.sf-field select {
+  padding: .45rem .6rem;
+  border: 1px solid var(--sf-border);
+  border-radius: 6px;
+  font: inherit;
+  font-size: .88rem;
+  background: transparent;
+  color: inherit;
+}
+
+.sf-field small {
+  font-size: .75rem;
+  color: var(--sf-muted);
+}
+
+.sf-radio-group {
+  display: flex;
+  gap: 1.5rem;
+  margin-bottom: 1rem;
+  font-size: .9rem;
+}
+
+.sf-radio-group label {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  cursor: pointer;
+}
+
+/* --- Diagrama --- */
+.sf-diagram-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  align-items: start;
+}
+
+.sf-diagram-layout .sf-field {
+  grid-column: 1 / -1;
+}
+
+.sf-diagram-input {
+  grid-column: 1;
+  min-height: 220px;
+  padding: .75rem;
+  border: 1px solid var(--sf-border);
+  border-radius: 8px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: .85rem;
+  background: rgba(127, 127, 127, .04);
+  color: inherit;
+  resize: vertical;
+}
+
+.sf-diagram-input:focus {
+  outline: 2px solid var(--sf-accent);
+  outline-offset: -1px;
+}
+
+.sf-mermaid-preview {
+  grid-column: 2;
+  min-height: 220px;
+  border: 1px dashed var(--sf-border);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  padding: .5rem;
+}
+
+.sf-mermaid-preview svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.sf-empty {
+  color: var(--sf-muted);
+  font-size: .85rem;
+  text-align: center;
+  padding: 1rem;
+}
+
+@media (max-width: 720px) {
+  .sf-diagram-layout {
+    grid-template-columns: 1fr;
+  }
+  .sf-diagram-input,
+  .sf-mermaid-preview {
+    grid-column: 1;
+  }
+}
+
+/* --- Resultados --- */
+.sf-result {
+  margin-top: .9rem;
+  padding: .6rem .9rem;
+  border-radius: 8px;
+  font-size: .85rem;
+  background: rgba(127, 127, 127, .08);
+}
+
+.sf-result-ok {
+  background: rgba(22, 163, 74, .1);
+  color: var(--sf-ok);
+}
+
+.sf-result-error {
+  background: rgba(220, 38, 38, .1);
+  color: var(--sf-error);
+}
+
+/* --- Editor de campos --- */
+.sf-fields-list {
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+  margin-bottom: .8rem;
+}
+
+.sf-field-row {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1.2fr auto 1.5fr auto;
+  gap: .5rem;
+  align-items: center;
+}
+
+.sf-field-row input,
+.sf-field-row select {
+  padding: .4rem .55rem;
+  border: 1px solid var(--sf-border);
+  border-radius: 6px;
+  font: inherit;
+  font-size: .85rem;
+  background: transparent;
+  color: inherit;
+  width: 100%;
+}
+
+.sf-f-required {
+  display: flex;
+  align-items: center;
+  gap: .3rem;
+  font-size: .8rem;
+  color: var(--sf-muted);
+  white-space: nowrap;
+}
+
+.sf-f-remove {
+  border: 1px solid var(--sf-border);
+  background: transparent;
+  color: var(--sf-error);
+  border-radius: 6px;
+  width: 2rem;
+  height: 2rem;
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+
+.sf-f-remove:hover {
+  background: var(--sf-error);
+  color: #fff;
+}
+
+@media (max-width: 720px) {
+  .sf-field-row {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* --- Botones --- */
+.sf-btn-secondary,
+.sf-btn-primary {
+  padding: .55rem 1.1rem;
+  border-radius: var(--sf-radius);
+  font: inherit;
+  font-size: .88rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sf-btn-secondary {
+  border: 1px solid var(--sf-border);
+  background: transparent;
+  color: inherit;
+}
+
+.sf-btn-secondary:hover {
+  border-color: var(--sf-accent);
+  color: var(--sf-accent);
+}
+
+.sf-btn-primary {
+  border: 0;
+  background: var(--sf-accent);
+  color: #fff;
+}
+
+.sf-btn-primary:hover {
+  filter: brightness(1.08);
+}
+
+.sf-btn-primary:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+}
+
+.sf-generate-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
