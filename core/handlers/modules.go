@@ -16,15 +16,15 @@ type ModuleHandler struct {
 }
 
 type ModuleInfo struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Label       string `json:"label"`
-	Version     string `json:"version"`
-	Author      string `json:"author"`
-	Description string `json:"description"`
-	Icon        string `json:"icon"`
-	Installed   bool   `json:"installed"`
-	Active      bool   `json:"active"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Label       string   `json:"label"`
+	Version     string   `json:"version"`
+	Author      string   `json:"author"`
+	Description string   `json:"description"`
+	Icon        string   `json:"icon"`
+	Installed   bool     `json:"installed"`
+	Active      bool     `json:"active"`
 	Depends     []string `json:"depends,omitempty"`
 }
 
@@ -117,7 +117,18 @@ func (mh *ModuleHandler) loadModulesFromFilesystem() []ModuleInfo {
 // GetAvailableModules devuelve módulos disponibles y su estado
 func (mh *ModuleHandler) GetAvailableModules(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
-	tenantID := r.Header.Get("X-Tenant-ID")
+	tenantSlug := r.Header.Get("X-Tenant-ID")
+
+	// Resolver slug a UUID si es necesario
+	tenantID, err := mh.resolveTenantID(ctx, tenantSlug)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": fmt.Sprintf("Invalid tenant: %v", err),
+		})
+		return
+	}
 
 	// Leer módulos desde el filesystem
 	available := mh.loadModulesFromFilesystem()
@@ -162,10 +173,35 @@ func (mh *ModuleHandler) GetAvailableModules(w http.ResponseWriter, r *http.Requ
 // InstallModule instala/activa un módulo
 func (mh *ModuleHandler) InstallModule(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
-	tenantID := r.Header.Get("X-Tenant-ID")
-	moduleName := r.URL.Query().Get("name")
+	tenantSlug := r.Header.Get("X-Tenant-ID")
 
-	fmt.Printf("[InstallModule] Starting - tenantID: %s, moduleName: %s\n", tenantID, moduleName)
+	// Leer JSON body
+	var payload struct {
+		ModuleName string `json:"module_name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": "Invalid JSON",
+		})
+		return
+	}
+
+	moduleName := payload.ModuleName
+
+	// Resolver slug a UUID si es necesario
+	tenantID, err := mh.resolveTenantID(ctx, tenantSlug)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": fmt.Sprintf("Invalid tenant: %v", err),
+		})
+		return
+	}
+
+	fmt.Printf("[InstallModule] Starting - tenantID: %s (slug: %s), moduleName: %s\n", tenantID, tenantSlug, moduleName)
 
 	if moduleName == "" {
 		w.Header().Set("Content-Type", "application/json")
@@ -205,12 +241,12 @@ func (mh *ModuleHandler) InstallModule(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("[InstallModule] Checking if module already installed...\n")
 	row := mh.dbConn.QueryRow(ctx, "SELECT COUNT(*) FROM installed_modules WHERE tenant_id = $1 AND name = $2", tenantID, moduleName)
 	var count int
-	if err := row.Scan(&count); err != nil {
-		fmt.Printf("[InstallModule] Error checking installation: %v\n", err)
+	if scanErr := row.Scan(&count); scanErr != nil {
+		fmt.Printf("[InstallModule] Error checking installation: %v\n", scanErr)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"error": fmt.Sprintf("Database error: %v", err),
+			"error": fmt.Sprintf("Database error: %v", scanErr),
 		})
 		return
 	}
@@ -219,9 +255,8 @@ func (mh *ModuleHandler) InstallModule(w http.ResponseWriter, r *http.Request) {
 		fmt.Printf("[InstallModule] Module already installed, activating...\n")
 		// Ya existe, solo activar
 		query := `UPDATE installed_modules SET active = true, updated_at = CURRENT_TIMESTAMP WHERE tenant_id = $1 AND name = $2`
-		_, err := mh.dbConn.Exec(ctx, query, tenantID, moduleName)
-		if err != nil {
-			fmt.Printf("[InstallModule] Error activating module: %v\n", err)
+		if _, activateErr := mh.dbConn.Exec(ctx, query, tenantID, moduleName); activateErr != nil {
+			fmt.Printf("[InstallModule] Error activating module: %v\n", activateErr)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -244,13 +279,12 @@ func (mh *ModuleHandler) InstallModule(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("[InstallModule] SQL Params - ID: %s, TenantID: %s, Name: %s, Version: %s, Label: %s\n",
 		moduleID, tenantID, moduleName, module.Version, module.Label)
 
-	_, err := mh.dbConn.Exec(ctx, query, moduleID, tenantID, moduleName, module.Version, module.Label)
-	if err != nil {
-		fmt.Printf("[InstallModule] Error installing module: %v\n", err)
+	if _, insertErr := mh.dbConn.Exec(ctx, query, moduleID, tenantID, moduleName, module.Version, module.Label); insertErr != nil {
+		fmt.Printf("[InstallModule] Error installing module: %v\n", insertErr)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"error": fmt.Sprintf("Error installing module: %v", err),
+			"error": fmt.Sprintf("Error installing module: %v", insertErr),
 		})
 		return
 	}
@@ -267,8 +301,33 @@ func (mh *ModuleHandler) InstallModule(w http.ResponseWriter, r *http.Request) {
 // UninstallModule desactiva/desinstala un módulo
 func (mh *ModuleHandler) UninstallModule(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
-	tenantID := r.Header.Get("X-Tenant-ID")
-	moduleName := r.URL.Query().Get("name")
+	tenantSlug := r.Header.Get("X-Tenant-ID")
+
+	// Leer JSON body
+	var payload struct {
+		ModuleName string `json:"module_name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": "Invalid JSON",
+		})
+		return
+	}
+
+	moduleName := payload.ModuleName
+
+	// Resolver slug a UUID si es necesario
+	tenantID, err := mh.resolveTenantID(ctx, tenantSlug)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": fmt.Sprintf("Invalid tenant: %v", err),
+		})
+		return
+	}
 
 	if moduleName == "" {
 		w.Header().Set("Content-Type", "application/json")
@@ -282,13 +341,12 @@ func (mh *ModuleHandler) UninstallModule(w http.ResponseWriter, r *http.Request)
 	// Eliminar completamente
 	fmt.Printf("[UninstallModule] Deleting module %s for tenant %s\n", moduleName, tenantID)
 	query := `DELETE FROM installed_modules WHERE tenant_id = $1 AND name = $2`
-	_, err := mh.dbConn.Exec(ctx, query, tenantID, moduleName)
-	if err != nil {
-		fmt.Printf("[UninstallModule] Error: %v\n", err)
+	if _, execErr := mh.dbConn.Exec(ctx, query, tenantID, moduleName); execErr != nil {
+		fmt.Printf("[UninstallModule] Error: %v\n", execErr)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"error": fmt.Sprintf("Error uninstalling module: %v", err),
+			"error": fmt.Sprintf("Error uninstalling module: %v", execErr),
 		})
 		return
 	}
@@ -300,4 +358,22 @@ func (mh *ModuleHandler) UninstallModule(w http.ResponseWriter, r *http.Request)
 		"success": true,
 		"message": fmt.Sprintf("Module %s uninstalled successfully", moduleName),
 	})
+}
+
+// resolveTenantID convierte un slug o UUID a UUID real
+func (mh *ModuleHandler) resolveTenantID(ctx context.Context, tenantSlugOrID string) (string, error) {
+	// Intenta primero como UUID directo
+	row := mh.dbConn.QueryRow(ctx, "SELECT id FROM tenants WHERE id = $1 LIMIT 1", tenantSlugOrID)
+	var tenantID string
+	if err := row.Scan(&tenantID); err == nil {
+		return tenantID, nil
+	}
+
+	// Si no es UUID, intenta como slug
+	row = mh.dbConn.QueryRow(ctx, "SELECT id FROM tenants WHERE slug = $1 LIMIT 1", tenantSlugOrID)
+	if err := row.Scan(&tenantID); err != nil {
+		return "", fmt.Errorf("tenant not found: %s", tenantSlugOrID)
+	}
+
+	return tenantID, nil
 }

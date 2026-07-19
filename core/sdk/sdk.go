@@ -1,3 +1,11 @@
+// Package sdk expone el API @fast que usan TODOS los módulos.
+//
+// Un módulo NUNCA escribe SQL ni toca el core. Solo:
+//  1. Declara su esquema en manifest.json
+//  2. Llama a los métodos @fast (Create/Get/Update/Delete/List/Search)
+//
+// El SDK se encarga de: crear la tabla, validar campos, aislar por tenant,
+// paginar, y sanear cualquier identificador antes de tocar SQL.
 package sdk
 
 import (
@@ -6,10 +14,28 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 )
 
-// ModuleSDK es la interfaz que los módulos usan para hablar con el core
+// PageSizes son los únicos tamaños de página que el usuario puede elegir.
+var PageSizes = []int{10, 20, 50, 100}
+
+const DefaultPageSize = 20
+
+// identRe valida nombres de módulo, modelo y campo antes de interpolarlos en SQL.
+// Sin esto, un manifest malicioso podría inyectar SQL vía el nombre de un campo.
+var identRe = regexp.MustCompile(`^[a-z][a-z0-9_]{0,62}$`)
+
+// Columnas que el SDK administra y el módulo no puede declarar ni sobrescribir.
+var reservedFields = map[string]bool{
+	"id":         true,
+	"tenant_id":  true,
+	"created_at": true,
+	"updated_at": true,
+}
+
+// ModuleSDK es la interfaz que los módulos usan para hablar con el core.
 type ModuleSDK struct {
 	ModuleID string
 	TenantID string
@@ -18,250 +44,431 @@ type ModuleSDK struct {
 	Manifest *Manifest
 }
 
-// Manifest define la estructura de un módulo
+// Manifest define la estructura de un módulo.
 type Manifest struct {
-	Name   string                     `json:"name"`
-	Models map[string]*ModelDef       `json:"models"`
+	Name   string               `json:"name"`
+	Models map[string]*ModelDef `json:"models"`
 }
 
-// ModelDef define una tabla en el módulo
+// ModelDef define una tabla en el módulo.
 type ModelDef struct {
-	Name   string `json:"name"`
+	Name   string               `json:"name"`
+	Label  string               `json:"label,omitempty"`
 	Fields map[string]*FieldDef `json:"fields"`
 }
 
-// FieldDef define una columna
+// FieldDef define una columna. TODO lo que el motor necesita saber sobre un
+// campo viene de aquí: el SDK no asume tamaños, precisiones ni defaults.
 type FieldDef struct {
 	Type     string `json:"type"`
-	Required bool   `json:"required"`
+	Required bool   `json:"required,omitempty"`
+
+	// Dimensiones — las decide el módulo, no el core.
+	// Length acepta también el alias "value" usado en algunos manifiestos.
+	Length    int `json:"length,omitempty"`
+	Precision int `json:"precision,omitempty"`
+	Scale     int `json:"scale,omitempty"`
+
+	// Restricciones
+	Default any  `json:"default,omitempty"`
+	Unique  bool `json:"unique,omitempty"`
+	Index   bool `json:"index,omitempty"`
+
+	// Metadatos para la UI y la documentación OpenAPI
+	Label    string   `json:"label,omitempty"`
+	Help     string   `json:"help,omitempty"`
+	Options  []string `json:"options,omitempty"`
+	Readonly bool     `json:"readonly,omitempty"`
+	Example  any      `json:"example,omitempty"`
 }
 
-// NewModuleSDK crea una instancia del SDK para un módulo
-func NewModuleSDK(moduleID, tenantID, userID string, db *sql.DB) *ModuleSDK {
-	return &ModuleSDK{
-		ModuleID: moduleID,
-		TenantID: tenantID,
-		UserID:   userID,
-		DB:       db,
-	}
-}
+// UnmarshalJSON acepta "length" y su alias "value" para el tamaño del campo.
+func (f *FieldDef) UnmarshalJSON(data []byte) error {
+	type alias FieldDef // evita recursión infinita
+	aux := struct {
+		*alias
+		Value *int `json:"value,omitempty"`
+	}{alias: (*alias)(f)}
 
-// LoadManifest carga el manifest.json del módulo
-func (sdk *ModuleSDK) LoadManifest(manifestJSON string) error {
-	manifest := &Manifest{}
-	if err := json.Unmarshal([]byte(manifestJSON), manifest); err != nil {
-		return fmt.Errorf("failed to parse manifest: %w", err)
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
 	}
-	sdk.Manifest = manifest
+	if f.Length == 0 && aux.Value != nil {
+		f.Length = *aux.Value
+	}
 	return nil
 }
 
-// getTableName retorna el nombre de tabla prefijado (mod_moduleid_modelname)
-func (sdk *ModuleSDK) getTableName(modelName string) string {
-	return fmt.Sprintf("mod_%s_%s", sdk.ModuleID, modelName)
+// ListOptions controla paginación, búsqueda y orden de List().
+type ListOptions struct {
+	Page     int               // 1-based
+	Limit    int               // se ajusta al PageSize permitido más cercano
+	Search   string            // busca en todos los campos de texto
+	OrderBy  string            // campo del manifest, o created_at por defecto
+	OrderDir string            // asc | desc
+	Filters  map[string]string // igualdad exacta: campo → valor
 }
 
-// Create inserta un registro genérico basado en el manifest
-func (sdk *ModuleSDK) Create(ctx context.Context, modelName string, data map[string]interface{}) (string, error) {
-	if sdk.Manifest == nil {
-		return "", fmt.Errorf("manifest not loaded")
+// Page es la respuesta paginada estándar de todos los módulos.
+type Page struct {
+	Data       []map[string]any `json:"data"`
+	Total      int              `json:"total"`
+	Page       int              `json:"page"`
+	Limit      int              `json:"limit"`
+	TotalPages int              `json:"total_pages"`
+	PageSizes  []int            `json:"page_sizes"`
+}
+
+// NewModuleSDK crea una instancia del SDK para un módulo.
+func NewModuleSDK(moduleID, tenantID, userID string, db *sql.DB) *ModuleSDK {
+	return &ModuleSDK{ModuleID: moduleID, TenantID: tenantID, UserID: userID, DB: db}
+}
+
+// LoadManifest carga y valida el manifest.json del módulo.
+func (s *ModuleSDK) LoadManifest(manifestJSON string) error {
+	m := &Manifest{}
+	if err := json.Unmarshal([]byte(manifestJSON), m); err != nil {
+		return fmt.Errorf("manifest inválido: %w", err)
 	}
 
-	model, ok := sdk.Manifest.Models[modelName]
-	if !ok {
-		return "", fmt.Errorf("model %s not found in manifest", modelName)
+	if !identRe.MatchString(s.ModuleID) {
+		return fmt.Errorf("nombre de módulo inválido: %q", s.ModuleID)
 	}
 
-	// Validar que los datos coincidan con el manifest
-	columns := []string{"tenant_id"}
-	values := []interface{}{sdk.TenantID}
-	placeholders := []string{"$1"}
-
-	i := 2
-	for fieldName, fieldValue := range data {
-		if _, exists := model.Fields[fieldName]; !exists {
-			log.Printf("[SDK] Warning: field %s not in manifest for model %s", fieldName, modelName)
-			continue
+	for modelName, model := range m.Models {
+		if !identRe.MatchString(modelName) {
+			return fmt.Errorf("nombre de modelo inválido: %q", modelName)
 		}
-		columns = append(columns, fieldName)
-		values = append(values, fieldValue)
-		placeholders = append(placeholders, fmt.Sprintf("$%d", i))
-		i++
+		for fieldName, def := range model.Fields {
+			if !identRe.MatchString(fieldName) {
+				return fmt.Errorf("campo inválido %q en modelo %q", fieldName, modelName)
+			}
+			if reservedFields[fieldName] {
+				return fmt.Errorf("campo %q en modelo %q está reservado por el core", fieldName, modelName)
+			}
+			if _, known := resolveType(def.Type); !known {
+				log.Printf("[SDK] %s.%s.%s: tipo %q desconocido, se usará TEXT (tipos válidos: %s)",
+					s.ModuleID, modelName, fieldName, def.Type, strings.Join(KnownTypes(), ", "))
+			}
+		}
 	}
 
-	tableName := sdk.getTableName(modelName)
-	query := fmt.Sprintf(
-		"INSERT INTO %s (%s) VALUES (%s) RETURNING id",
-		tableName,
-		strings.Join(columns, ", "),
-		strings.Join(placeholders, ", "),
-	)
+	s.Manifest = m
+	return nil
+}
 
-	var id string
-	err := sdk.DB.QueryRowContext(ctx, query, values...).Scan(&id)
+// model resuelve un modelo del manifest, validando que exista.
+func (s *ModuleSDK) model(modelName string) (*ModelDef, error) {
+	if s.Manifest == nil {
+		return nil, fmt.Errorf("manifest no cargado")
+	}
+	m, ok := s.Manifest.Models[modelName]
+	if !ok {
+		return nil, fmt.Errorf("modelo %q no existe en el manifest de %q", modelName, s.ModuleID)
+	}
+	return m, nil
+}
+
+// tableName retorna el nombre de tabla prefijado: mod_<modulo>_<modelo>.
+func (s *ModuleSDK) tableName(modelName string) string {
+	return fmt.Sprintf("mod_%s_%s", s.ModuleID, modelName)
+}
+
+// Create inserta un registro validando contra el manifest. → @fast.create()
+func (s *ModuleSDK) Create(ctx context.Context, modelName string, data map[string]any) (string, error) {
+	model, err := s.model(modelName)
 	if err != nil {
-		log.Printf("[SDK] Create error: %v", err)
 		return "", err
 	}
 
+	cols := []string{"tenant_id"}
+	vals := []any{s.TenantID}
+	holders := []string{"$1"}
+
+	for fieldName, def := range model.Fields {
+		raw, present := data[fieldName]
+		if !present || isEmpty(raw) {
+			if def.Required {
+				return "", fmt.Errorf("el campo %q es obligatorio", fieldName)
+			}
+			continue
+		}
+		cols = append(cols, fieldName)
+		vals = append(vals, raw)
+		holders = append(holders, fmt.Sprintf("$%d", len(vals)))
+	}
+
+	query := fmt.Sprintf(
+		"INSERT INTO %s (%s) VALUES (%s) RETURNING id",
+		s.tableName(modelName), strings.Join(cols, ", "), strings.Join(holders, ", "),
+	)
+
+	var id string
+	if err := s.DB.QueryRowContext(ctx, query, vals...).Scan(&id); err != nil {
+		log.Printf("[SDK] Create %s: %v", s.tableName(modelName), err)
+		return "", err
+	}
 	return id, nil
 }
 
-// Update actualiza un registro
-func (sdk *ModuleSDK) Update(ctx context.Context, modelName string, id string, data map[string]interface{}) error {
-	if sdk.Manifest == nil {
-		return fmt.Errorf("manifest not loaded")
-	}
-
-	model, ok := sdk.Manifest.Models[modelName]
-	if !ok {
-		return fmt.Errorf("model %s not found in manifest", modelName)
-	}
-
-	sets := []string{}
-	values := []interface{}{sdk.TenantID, id}
-	i := 3
-
-	for fieldName, fieldValue := range data {
-		if _, exists := model.Fields[fieldName]; !exists {
-			log.Printf("[SDK] Warning: field %s not in manifest for model %s", fieldName, modelName)
-			continue
-		}
-		sets = append(sets, fmt.Sprintf("%s = $%d", fieldName, i))
-		values = append(values, fieldValue)
-		i++
-	}
-
-	if len(sets) == 0 {
-		return fmt.Errorf("no fields to update")
-	}
-
-	tableName := sdk.getTableName(modelName)
-	query := fmt.Sprintf(
-		"UPDATE %s SET %s, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND tenant_id = $1",
-		tableName,
-		strings.Join(sets, ", "),
-	)
-
-	_, err := sdk.DB.ExecContext(ctx, query, values...)
+// Get retorna un registro por ID. → @fast.read()
+func (s *ModuleSDK) Get(ctx context.Context, modelName, id string) (map[string]any, error) {
+	model, err := s.model(modelName)
 	if err != nil {
-		log.Printf("[SDK] Update error: %v", err)
-		return err
-	}
-
-	return nil
-}
-
-// Delete borra un registro
-func (sdk *ModuleSDK) Delete(ctx context.Context, modelName string, id string) error {
-	if sdk.Manifest == nil {
-		return fmt.Errorf("manifest not loaded")
-	}
-
-	_, ok := sdk.Manifest.Models[modelName]
-	if !ok {
-		return fmt.Errorf("model %s not found in manifest", modelName)
-	}
-
-	tableName := sdk.getTableName(modelName)
-	query := fmt.Sprintf("DELETE FROM %s WHERE id = $1 AND tenant_id = $2", tableName)
-
-	_, err := sdk.DB.ExecContext(ctx, query, id, sdk.TenantID)
-	if err != nil {
-		log.Printf("[SDK] Delete error: %v", err)
-		return err
-	}
-
-	return nil
-}
-
-// List retorna todos los registros de un modelo
-func (sdk *ModuleSDK) List(ctx context.Context, modelName string) ([]map[string]interface{}, error) {
-	if sdk.Manifest == nil {
-		return nil, fmt.Errorf("manifest not loaded")
-	}
-
-	_, ok := sdk.Manifest.Models[modelName]
-	if !ok {
-		return nil, fmt.Errorf("model %s not found in manifest", modelName)
-	}
-
-	tableName := sdk.getTableName(modelName)
-	query := fmt.Sprintf("SELECT * FROM %s WHERE tenant_id = $1 ORDER BY created_at DESC", tableName)
-
-	rows, err := sdk.DB.QueryContext(ctx, query, sdk.TenantID)
-	if err != nil {
-		log.Printf("[SDK] List error: %v", err)
 		return nil, err
 	}
-	defer rows.Close()
 
-	cols, _ := rows.Columns()
-	var results []map[string]interface{}
+	cols := selectColumns(model)
+	query := fmt.Sprintf(
+		"SELECT %s FROM %s WHERE id = $1 AND tenant_id = $2 LIMIT 1",
+		strings.Join(cols, ", "), s.tableName(modelName),
+	)
 
-	for rows.Next() {
-		values := make([]interface{}, len(cols))
-		valuePtrs := make([]interface{}, len(cols))
-		for i := range cols {
-			valuePtrs[i] = &values[i]
-		}
-
-		if err := rows.Scan(valuePtrs...); err != nil {
-			log.Printf("[SDK] Scan error: %v", err)
-			continue
-		}
-
-		entry := make(map[string]interface{})
-		for i, col := range cols {
-			entry[col] = values[i]
-		}
-		results = append(results, entry)
-	}
-
-	return results, nil
-}
-
-// Get retorna un registro por ID
-func (sdk *ModuleSDK) Get(ctx context.Context, modelName string, id string) (map[string]interface{}, error) {
-	if sdk.Manifest == nil {
-		return nil, fmt.Errorf("manifest not loaded")
-	}
-
-	_, ok := sdk.Manifest.Models[modelName]
-	if !ok {
-		return nil, fmt.Errorf("model %s not found in manifest", modelName)
-	}
-
-	tableName := sdk.getTableName(modelName)
-	query := fmt.Sprintf("SELECT * FROM %s WHERE id = $1 AND tenant_id = $2 LIMIT 1", tableName)
-
-	rows, err := sdk.DB.QueryContext(ctx, query, id, sdk.TenantID)
+	rows, err := s.DB.QueryContext(ctx, query, id, s.TenantID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
 	if !rows.Next() {
-		return nil, fmt.Errorf("record not found")
+		return nil, fmt.Errorf("registro no encontrado")
+	}
+	return scanRow(rows, cols)
+}
+
+// Update actualiza un registro. → @fast.update()
+func (s *ModuleSDK) Update(ctx context.Context, modelName, id string, data map[string]any) error {
+	model, err := s.model(modelName)
+	if err != nil {
+		return err
 	}
 
-	cols, _ := rows.Columns()
-	values := make([]interface{}, len(cols))
-	valuePtrs := make([]interface{}, len(cols))
-	for i := range cols {
-		valuePtrs[i] = &values[i]
+	sets := []string{}
+	vals := []any{s.TenantID, id}
+
+	for fieldName, def := range model.Fields {
+		raw, present := data[fieldName]
+		if !present {
+			continue
+		}
+		if def.Required && isEmpty(raw) {
+			return fmt.Errorf("el campo %q es obligatorio", fieldName)
+		}
+		vals = append(vals, raw)
+		sets = append(sets, fmt.Sprintf("%s = $%d", fieldName, len(vals)))
 	}
 
-	if err := rows.Scan(valuePtrs...); err != nil {
+	if len(sets) == 0 {
+		return fmt.Errorf("no hay campos válidos para actualizar")
+	}
+
+	query := fmt.Sprintf(
+		"UPDATE %s SET %s, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND tenant_id = $1",
+		s.tableName(modelName), strings.Join(sets, ", "),
+	)
+
+	res, err := s.DB.ExecContext(ctx, query, vals...)
+	if err != nil {
+		log.Printf("[SDK] Update %s: %v", s.tableName(modelName), err)
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("registro no encontrado")
+	}
+	return nil
+}
+
+// Delete borra un registro. → @fast.delete()
+func (s *ModuleSDK) Delete(ctx context.Context, modelName, id string) error {
+	if _, err := s.model(modelName); err != nil {
+		return err
+	}
+
+	query := fmt.Sprintf("DELETE FROM %s WHERE id = $1 AND tenant_id = $2", s.tableName(modelName))
+	res, err := s.DB.ExecContext(ctx, query, id, s.TenantID)
+	if err != nil {
+		log.Printf("[SDK] Delete %s: %v", s.tableName(modelName), err)
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("registro no encontrado")
+	}
+	return nil
+}
+
+// List retorna registros paginados. → @fast.list() / @fast.search()
+func (s *ModuleSDK) List(ctx context.Context, modelName string, opts ListOptions) (*Page, error) {
+	model, err := s.model(modelName)
+	if err != nil {
 		return nil, err
 	}
 
-	entry := make(map[string]interface{})
-	for i, col := range cols {
-		entry[col] = values[i]
+	limit := normalizeLimit(opts.Limit)
+	page := opts.Page
+	if page < 1 {
+		page = 1
 	}
 
+	where := []string{"tenant_id = $1"}
+	args := []any{s.TenantID}
+
+	// Filtros de igualdad exacta, solo sobre campos declarados en el manifest.
+	for field, value := range opts.Filters {
+		if _, ok := model.Fields[field]; !ok {
+			return nil, fmt.Errorf("no se puede filtrar por %q: no existe en el manifest", field)
+		}
+		args = append(args, value)
+		where = append(where, fmt.Sprintf("%s = $%d", field, len(args)))
+	}
+
+	// Búsqueda libre sobre los campos de texto del modelo.
+	if q := strings.TrimSpace(opts.Search); q != "" {
+		var ors []string
+		args = append(args, "%"+q+"%")
+		pos := len(args)
+		for fieldName, def := range model.Fields {
+			if def.IsSearchable() {
+				ors = append(ors, fmt.Sprintf("%s ILIKE $%d", fieldName, pos))
+			}
+		}
+		if len(ors) > 0 {
+			where = append(where, "("+strings.Join(ors, " OR ")+")")
+		}
+	}
+
+	whereSQL := strings.Join(where, " AND ")
+	table := s.tableName(modelName)
+
+	var total int
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s", table, whereSQL)
+	if err := s.DB.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
+		log.Printf("[SDK] Count %s: %v", table, err)
+		return nil, err
+	}
+
+	totalPages := (total + limit - 1) / limit
+	if totalPages > 0 && page > totalPages {
+		page = totalPages
+	}
+	offset := (page - 1) * limit
+
+	orderBy, orderDir := s.normalizeOrder(model, opts.OrderBy, opts.OrderDir)
+	cols := selectColumns(model)
+
+	query := fmt.Sprintf(
+		"SELECT %s FROM %s WHERE %s ORDER BY %s %s LIMIT %d OFFSET %d",
+		strings.Join(cols, ", "), table, whereSQL, orderBy, orderDir, limit, offset,
+	)
+
+	rows, err := s.DB.QueryContext(ctx, query, args...)
+	if err != nil {
+		log.Printf("[SDK] List %s: %v", table, err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	records := make([]map[string]any, 0, limit)
+	for rows.Next() {
+		entry, err := scanRow(rows, cols)
+		if err != nil {
+			return nil, err
+		}
+		records = append(records, entry)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return &Page{
+		Data:       records,
+		Total:      total,
+		Page:       page,
+		Limit:      limit,
+		TotalPages: totalPages,
+		PageSizes:  PageSizes,
+	}, nil
+}
+
+// Search es azúcar sintáctico sobre List con un término de búsqueda.
+func (s *ModuleSDK) Search(ctx context.Context, modelName, query string, opts ListOptions) (*Page, error) {
+	opts.Search = query
+	return s.List(ctx, modelName, opts)
+}
+
+// Count retorna el total de registros del modelo para el tenant actual.
+func (s *ModuleSDK) Count(ctx context.Context, modelName string) (int, error) {
+	if _, err := s.model(modelName); err != nil {
+		return 0, err
+	}
+	var total int
+	query := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE tenant_id = $1", s.tableName(modelName))
+	err := s.DB.QueryRowContext(ctx, query, s.TenantID).Scan(&total)
+	return total, err
+}
+
+// normalizeOrder valida el campo de orden contra el manifest para evitar inyección.
+func (s *ModuleSDK) normalizeOrder(model *ModelDef, orderBy, orderDir string) (string, string) {
+	col := "created_at"
+	if orderBy != "" {
+		if _, ok := model.Fields[orderBy]; ok {
+			col = orderBy
+		} else if orderBy == "created_at" || orderBy == "updated_at" {
+			col = orderBy
+		}
+	}
+
+	dir := "DESC"
+	if strings.EqualFold(orderDir, "asc") {
+		dir = "ASC"
+	}
+	return col, dir
+}
+
+// normalizeLimit ajusta cualquier valor al PageSize permitido más cercano.
+func normalizeLimit(limit int) int {
+	for _, allowed := range PageSizes {
+		if limit == allowed {
+			return limit
+		}
+	}
+	return DefaultPageSize
+}
+
+// selectColumns lista las columnas a devolver: nunca incluye tenant_id.
+func selectColumns(model *ModelDef) []string {
+	cols := []string{"id"}
+	for fieldName := range model.Fields {
+		cols = append(cols, fieldName)
+	}
+	return append(cols, "created_at", "updated_at")
+}
+
+// scanRow convierte una fila en map, normalizando []byte a string.
+func scanRow(rows *sql.Rows, cols []string) (map[string]any, error) {
+	values := make([]any, len(cols))
+	ptrs := make([]any, len(cols))
+	for i := range cols {
+		ptrs[i] = &values[i]
+	}
+	if err := rows.Scan(ptrs...); err != nil {
+		return nil, err
+	}
+
+	entry := make(map[string]any, len(cols))
+	for i, col := range cols {
+		if b, ok := values[i].([]byte); ok {
+			entry[col] = string(b)
+			continue
+		}
+		entry[col] = values[i]
+	}
 	return entry, nil
 }
 
-
+func isEmpty(v any) bool {
+	if v == nil {
+		return true
+	}
+	s, ok := v.(string)
+	return ok && strings.TrimSpace(s) == ""
+}

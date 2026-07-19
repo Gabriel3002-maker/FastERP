@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -44,7 +43,7 @@ func main() {
 	auditHandler := handlers.NewAuditHandler(auditLogger)
 	setupHandler := handlers.NewSetupHandler(dbConn)
 	moduleHandler := handlers.NewModuleHandler(dbConn)
-	contactHandler := handlers.NewContactHandler(dbConn) // SDK se inicializa dentro
+	crudHandler := handlers.NewGenericCRUDHandler(dbConn, cfg.Modules.Path)
 
 	// Configurar router
 	mux := http.NewServeMux()
@@ -104,40 +103,6 @@ func main() {
 	mux.HandleFunc("/api/modules/available", moduleHandler.GetAvailableModules)
 	mux.HandleFunc("/api/modules/install", moduleHandler.InstallModule)
 	mux.HandleFunc("/api/modules/uninstall", moduleHandler.UninstallModule)
-
-	// API Contacts
-	mux.HandleFunc("/api/contacts/list", contactHandler.ListContacts)
-	mux.HandleFunc("/api/contacts", func(w http.ResponseWriter, r *http.Request) {
-		// GET /api/contacts → list (pero no usado en UI)
-		// POST /api/contacts → create
-		if r.Method == http.MethodPost {
-			contactHandler.CreateContact(w, r)
-		} else {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
-	})
-	// Catch /api/contacts/{id} con trailing slash pattern
-	mux.HandleFunc("/api/contacts/", func(w http.ResponseWriter, r *http.Request) {
-		// Extraer ID del path: /api/contacts/xxx/
-		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/contacts/"), "/")
-		if len(parts) == 0 || parts[0] == "" {
-			http.Error(w, "ID required", http.StatusBadRequest)
-			return
-		}
-		id := parts[0]
-
-		// Inyectar ID en query string para que lo encuentre el handler
-		r.URL.RawQuery = fmt.Sprintf("id=%s&%s", id, r.URL.RawQuery)
-
-		switch r.Method {
-		case http.MethodPut:
-			contactHandler.UpdateContact(w, r)
-		case http.MethodDelete:
-			contactHandler.DeleteContact(w, r)
-		default:
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
-	})
 
 	// Admin Dashboard
 	mux.HandleFunc("/admin", func(w http.ResponseWriter, r *http.Request) {
@@ -212,6 +177,11 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"status":"ok","database":"connected"}`))
 	})
+
+	// Dispatcher genérico para /api/{module}/{model}[/{id}]
+	// Go 1.22+ path parameter syntax
+	mux.HandleFunc("/api/{module}/{model}", crudHandler.HandleCRUD)
+	mux.HandleFunc("/api/{module}/{model}/{id}", crudHandler.HandleCRUD)
 
 	// Iniciar servidor
 	addr := cfg.Server.Host + ":" + cfg.Server.Port

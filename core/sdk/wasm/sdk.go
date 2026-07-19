@@ -9,12 +9,12 @@ import (
 type FieldType string
 
 const (
-	FieldString FieldType = "string"
-	FieldText   FieldType = "text"
-	FieldInt    FieldType = "int"
-	FieldFloat  FieldType = "float"
-	FieldBool   FieldType = "bool"
-	FieldDate   FieldType = "date"
+	FieldString   FieldType = "string"
+	FieldText     FieldType = "text"
+	FieldInt      FieldType = "int"
+	FieldFloat    FieldType = "float"
+	FieldBool     FieldType = "bool"
+	FieldDate     FieldType = "date"
 	FieldDateTime FieldType = "datetime"
 )
 
@@ -50,13 +50,13 @@ type RouteDef struct {
 
 // Manifest is the module metadata (mirrors internal/module/manifest.go).
 type Manifest struct {
-	Name        string    `json:"name"`
-	Version     string    `json:"version"`
-	Label       string    `json:"label"`
-	Description string    `json:"description,omitempty"`
-	Author      string    `json:"author,omitempty"`
-	Icon        string    `json:"icon,omitempty"`
-	Depends     []string  `json:"depends,omitempty"`
+	Name        string     `json:"name"`
+	Version     string     `json:"version"`
+	Label       string     `json:"label"`
+	Description string     `json:"description,omitempty"`
+	Author      string     `json:"author,omitempty"`
+	Icon        string     `json:"icon,omitempty"`
+	Depends     []string   `json:"depends,omitempty"`
 	Models      []ModelDef `json:"models"`
 	Menus       []MenuDef  `json:"menus"`
 	Routes      []RouteDef `json:"routes,omitempty"`

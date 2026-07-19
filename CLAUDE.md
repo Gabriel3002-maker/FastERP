@@ -99,36 +99,62 @@ tinygo build -o module.wasm -target wasm main.go
 
 **Key constraint**: WASM modules run in a **sandboxed runtime (wazero)** with **no network access**. Odoo sync and other external integrations are handled by native Go code in `backend/internal/` and exposed via routes.
 
-## SDK: Simple CRUD for Handlers (No SQL Required!)
+## @fast API: Zero-SQL CRUD for All Modules
 
-The **FastERP SDK** (`backend/internal/sdk/`) lets handlers implement full CRUD without writing any SQL. Just use the SDK methods:
+Every module can use **`@fast`** methods directly — **no SQL, no handlers needed.**
 
-### The Easy Way (No SQL)
-```go
-// Initialize SDK
-sdk := sdk.NewModuleSDK("contacts", tenantID, userID, db.Pool())
-sdk.LoadManifest(manifestJSON)
-
-// CREATE
-id, _ := sdk.Create(ctx, "contact", map[string]interface{}{
-    "name": "Juan García",
-    "email": "juan@example.com",
-})
-
-// READ
-contact, _ := sdk.Get(ctx, "contact", id)
-
-// UPDATE
-sdk.Update(ctx, "contact", id, map[string]interface{}{
-    "email": "new@example.com",
-})
-
-// DELETE
-sdk.Delete(ctx, "contact", id)
-
-// LIST
-contacts, _ := sdk.List(ctx, "contact")
+### From Any Module:
 ```
+@fast.create("model", {...data})    → Create record
+@fast.read("model", id)             → Read single record
+@fast.update("model", id, {...})    → Update record
+@fast.delete("model", id)           → Delete record
+@fast.list("model")                 → List all records
+@fast.search("model", {...filters}) → Search with filters
+```
+
+**Example in module frontend** (`modules/mymodule/frontend/app.js`):
+```javascript
+// Create
+const id = await fetch('/api/mymodule/record', {
+  method: 'POST',
+  headers: {'X-Tenant-ID': tenantID},
+  body: JSON.stringify({title: 'My Title'})
+}).then(r => r.json());
+
+// Read - SDK handles it: @fast.read("record", id)
+const record = await fetch(`/api/mymodule/record/${id}`, 
+  {headers: {'X-Tenant-ID': tenantID}}
+).then(r => r.json());
+
+// Update - @fast.update("record", id, {...})
+await fetch(`/api/mymodule/record/${id}`, {
+  method: 'PUT',
+  headers: {'X-Tenant-ID': tenantID},
+  body: JSON.stringify({title: 'Updated Title'})
+});
+
+// Delete - @fast.delete("record", id)
+await fetch(`/api/mymodule/record/${id}`, {
+  method: 'DELETE',
+  headers: {'X-Tenant-ID': tenantID}
+});
+
+// List - @fast.list("record")
+const records = await fetch(`/api/mymodule/record`, 
+  {headers: {'X-Tenant-ID': tenantID}}
+).then(r => r.json());
+```
+
+### How It Works (Behind the Scenes)
+1. **Module defines schema** in `manifest.json` (models + fields)
+2. **Frontend calls REST API** → `/api/{module}/{model}[/{id}]`
+3. **Core dispatcher** reads manifest + calls `@fast.create/read/update/delete/list`
+4. **SDK executes** with automatic:
+   - ✅ RLS enforcement (tenant isolation)
+   - ✅ Field validation (vs manifest schema)
+   - ✅ Audit logging (created_at, updated_at)
+   - ✅ Type safety
 
 ### Why This Matters
 

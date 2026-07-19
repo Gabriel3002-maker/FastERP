@@ -1,0 +1,255 @@
+package sdk
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
+
+// El motor no debe imponer dimensiones: si el manifest declara un largo o una
+// precisión, el DDL tiene que respetarlos.
+func TestSQLTypeUsaLasDimensionesDelManifest(t *testing.T) {
+	tests := []struct {
+		name     string
+		fieldRaw string
+		want     string
+	}{
+		{"string sin largo cae al default", `{"type":"string"}`, "VARCHAR(255)"},
+		{"string con largo del manifest", `{"type":"string","length":60}`, "VARCHAR(60)"},
+		{"alias value tambien define el largo", `{"type":"string","value":255}`, "VARCHAR(255)"},
+		{"alias value con largo propio", `{"type":"string","value":40}`, "VARCHAR(40)"},
+		{"decimal con precision y escala", `{"type":"decimal","precision":12,"scale":2}`, "NUMERIC(12,2)"},
+		{"decimal sin dimensiones", `{"type":"decimal"}`, "NUMERIC(18,4)"},
+		{"money default a 2 decimales", `{"type":"money"}`, "NUMERIC(18,2)"},
+		{"text ignora el largo", `{"type":"text","length":10}`, "TEXT"},
+		{"alias varchar resuelve a string", `{"type":"varchar","length":30}`, "VARCHAR(30)"},
+		{"alias int resuelve a integer", `{"type":"int"}`, "INTEGER"},
+		{"alias bool resuelve a boolean", `{"type":"bool"}`, "BOOLEAN"},
+		{"tipo desconocido cae a TEXT", `{"type":"inventado"}`, "TEXT"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var f FieldDef
+			if err := json.Unmarshal([]byte(tc.fieldRaw), &f); err != nil {
+				t.Fatalf("manifest inválido: %v", err)
+			}
+			if got := f.SQLType(); got != tc.want {
+				t.Errorf("SQLType() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// Nada que venga del manifest puede entrar crudo al SQL.
+func TestLoadManifestRechazaIdentificadoresPeligrosos(t *testing.T) {
+	tests := []struct {
+		name     string
+		manifest string
+	}{
+		{
+			"campo con inyección SQL",
+			`{"name":"m","models":{"item":{"fields":{"x; DROP TABLE users--":{"type":"string"}}}}}`,
+		},
+		{
+			"modelo con inyección SQL",
+			`{"name":"m","models":{"item; DROP TABLE users":{"fields":{"x":{"type":"string"}}}}}`,
+		},
+		{
+			"campo con mayúsculas y espacios",
+			`{"name":"m","models":{"item":{"fields":{"Mi Campo":{"type":"string"}}}}}`,
+		},
+		{
+			"campo reservado tenant_id",
+			`{"name":"m","models":{"item":{"fields":{"tenant_id":{"type":"uuid"}}}}}`,
+		},
+		{
+			"campo reservado id",
+			`{"name":"m","models":{"item":{"fields":{"id":{"type":"uuid"}}}}}`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s := NewModuleSDK("mimodulo", "tenant", "", nil)
+			if err := s.LoadManifest(tc.manifest); err == nil {
+				t.Fatal("se esperaba un error, el manifest fue aceptado")
+			}
+		})
+	}
+}
+
+func TestLoadManifestRechazaModuloInvalido(t *testing.T) {
+	s := NewModuleSDK("mod; DROP TABLE users", "tenant", "", nil)
+	err := s.LoadManifest(`{"name":"m","models":{"item":{"fields":{"x":{"type":"string"}}}}}`)
+	if err == nil {
+		t.Fatal("se esperaba rechazo del nombre de módulo")
+	}
+	if !strings.Contains(err.Error(), "módulo") {
+		t.Errorf("el error debería mencionar el módulo: %v", err)
+	}
+}
+
+// El usuario elige entre 10/20/50/100; cualquier otra cosa cae al default.
+func TestNormalizeLimit(t *testing.T) {
+	tests := []struct {
+		in, want int
+	}{
+		{10, 10}, {20, 20}, {50, 50}, {100, 100},
+		{0, DefaultPageSize},     // no vino en la query
+		{7, DefaultPageSize},     // valor arbitrario
+		{-5, DefaultPageSize},    // negativo
+		{10000, DefaultPageSize}, // intento de traer toda la tabla
+	}
+
+	for _, tc := range tests {
+		if got := normalizeLimit(tc.in); got != tc.want {
+			t.Errorf("normalizeLimit(%d) = %d, want %d", tc.in, got, tc.want)
+		}
+	}
+}
+
+// El orden sólo puede apuntar a campos que el manifest declaró.
+func TestNormalizeOrderRechazaCamposNoDeclarados(t *testing.T) {
+	s := NewModuleSDK("contacts", "tenant", "", nil)
+	manifest := `{"name":"contacts","models":{"contact":{"fields":{"name":{"type":"string"}}}}}`
+	if err := s.LoadManifest(manifest); err != nil {
+		t.Fatalf("manifest válido rechazado: %v", err)
+	}
+	model := s.Manifest.Models["contact"]
+
+	tests := []struct {
+		orderBy, orderDir string
+		wantCol, wantDir  string
+	}{
+		{"name", "asc", "name", "ASC"},
+		{"name", "desc", "name", "DESC"},
+		{"created_at", "asc", "created_at", "ASC"},
+		{"updated_at", "", "updated_at", "DESC"},
+		{"", "", "created_at", "DESC"},
+		{"password; DROP TABLE users", "asc", "created_at", "ASC"}, // no declarado → default
+		{"name", "; DROP TABLE users", "name", "DESC"},             // dirección inválida → DESC
+	}
+
+	for _, tc := range tests {
+		col, dir := s.normalizeOrder(model, tc.orderBy, tc.orderDir)
+		if col != tc.wantCol || dir != tc.wantDir {
+			t.Errorf("normalizeOrder(%q, %q) = (%q, %q), want (%q, %q)",
+				tc.orderBy, tc.orderDir, col, dir, tc.wantCol, tc.wantDir)
+		}
+	}
+}
+
+// tenant_id nunca debe salir en las respuestas de la API.
+func TestSelectColumnsNoExponeTenantID(t *testing.T) {
+	model := &ModelDef{Fields: map[string]*FieldDef{
+		"name":  {Type: "string"},
+		"email": {Type: "email"},
+	}}
+
+	for _, col := range selectColumns(model) {
+		if col == "tenant_id" {
+			t.Fatal("selectColumns expone tenant_id")
+		}
+	}
+
+	got := strings.Join(selectColumns(model), ",")
+	for _, want := range []string{"id", "name", "email", "created_at", "updated_at"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("falta la columna %q en %q", want, got)
+		}
+	}
+}
+
+// Los defaults del manifest se escapan antes de tocar el DDL.
+func TestSQLLiteral(t *testing.T) {
+	tests := []struct {
+		in      any
+		want    string
+		wantErr bool
+	}{
+		{true, "true", false},
+		{float64(42), "42", false},
+		{float64(1.5), "1.5", false},
+		{"hola", "'hola'", false},
+		{"O'Brien", "'O''Brien'", false},                             // comilla escapada
+		{"'; DROP TABLE users--", "'''; DROP TABLE users--'", false}, // inyección neutralizada
+		{"NOW()", "NOW()", false},                                    // palabra clave permitida
+		{[]string{"a"}, "", true},                                    // tipo no soportado
+	}
+
+	for _, tc := range tests {
+		got, err := sqlLiteral(tc.in)
+		if tc.wantErr {
+			if err == nil {
+				t.Errorf("sqlLiteral(%v): se esperaba error", tc.in)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("sqlLiteral(%v): error inesperado: %v", tc.in, err)
+			continue
+		}
+		if got != tc.want {
+			t.Errorf("sqlLiteral(%v) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// El manifest manda, pero nunca a costa de truncar datos ya guardados.
+func TestIsSafeWidening(t *testing.T) {
+	tests := []struct {
+		name    string
+		current columnInfo
+		desired string
+		want    bool
+	}{
+		{"varchar mas ancho es seguro",
+			columnInfo{DataType: "character varying", MaxLength: 160}, "VARCHAR(255)", true},
+		{"varchar mas angosto NO es seguro",
+			columnInfo{DataType: "character varying", MaxLength: 255}, "VARCHAR(160)", false},
+		{"varchar a text es seguro",
+			columnInfo{DataType: "character varying", MaxLength: 255}, "TEXT", true},
+		{"numeric con mas escala y enteros es seguro",
+			columnInfo{DataType: "numeric", Precision: 14, Scale: 2}, "NUMERIC(18,4)", true},
+		{"numeric perdiendo enteros NO es seguro",
+			columnInfo{DataType: "numeric", Precision: 18, Scale: 2}, "NUMERIC(10,2)", false},
+		{"numeric perdiendo decimales NO es seguro",
+			columnInfo{DataType: "numeric", Precision: 18, Scale: 4}, "NUMERIC(18,2)", false},
+		{"cambiar de familia NO es seguro",
+			columnInfo{DataType: "character varying", MaxLength: 50}, "INTEGER", false},
+		{"numeric a text NO es seguro",
+			columnInfo{DataType: "numeric", Precision: 10, Scale: 2}, "TEXT", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isSafeWidening(tc.current, tc.desired); got != tc.want {
+				t.Errorf("isSafeWidening(%s → %s) = %v, want %v",
+					tc.current.SQLType(), tc.desired, got, tc.want)
+			}
+		})
+	}
+}
+
+// El tipo actual debe reconstruirse igual que lo produce FieldDef.SQLType(),
+// si no toda comparación daría falso positivo y migraría en cada arranque.
+func TestColumnInfoSQLTypeCoincideConFieldDef(t *testing.T) {
+	tests := []struct {
+		current columnInfo
+		field   FieldDef
+	}{
+		{columnInfo{DataType: "character varying", MaxLength: 160}, FieldDef{Type: "string", Length: 160}},
+		{columnInfo{DataType: "numeric", Precision: 14, Scale: 2}, FieldDef{Type: "money", Precision: 14, Scale: 2}},
+		{columnInfo{DataType: "text"}, FieldDef{Type: "text"}},
+		{columnInfo{DataType: "boolean"}, FieldDef{Type: "boolean"}},
+		{columnInfo{DataType: "uuid"}, FieldDef{Type: "uuid"}},
+		{columnInfo{DataType: "timestamp without time zone"}, FieldDef{Type: "datetime"}},
+	}
+
+	for _, tc := range tests {
+		if got, want := tc.current.SQLType(), tc.field.SQLType(); got != want {
+			t.Errorf("columnInfo.SQLType() = %q, FieldDef.SQLType() = %q", got, want)
+		}
+	}
+}

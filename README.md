@@ -123,33 +123,58 @@ r.GET("/api/mynewmodule/item", mymoduleHandler.ListItems)
 
 ---
 
-## SDK API Cheat Sheet
+## @fast API — No SQL Needed!
 
-**No SQL required — just use these methods:**
+From **any module**, just use `@fast.*` methods:
 
-```go
-sdk := sdk.NewModuleSDK("modulename", tenantID, userID, db.Pool())
-sdk.LoadManifest(manifestJSON)
+```javascript
+// Frontend (or module code) — HTTP calls automatically use @fast under the hood
 
 // CREATE
-id, err := sdk.Create(ctx, "model", map[string]interface{}{
-    "field1": value1,
-    "field2": value2,
-})
+POST /api/{module}/{model}
+{"field1": value1, "field2": value2}
 
-// READ
-record, err := sdk.Get(ctx, "model", id)
+// READ  
+GET /api/{module}/{model}/{id}
 
 // UPDATE
-err := sdk.Update(ctx, "model", id, map[string]interface{}{
-    "field1": newValue,
-})
+PUT /api/{module}/{model}/{id}
+{"field1": newValue}
 
 // DELETE
-err := sdk.Delete(ctx, "model", id)
+DELETE /api/{module}/{model}/{id}
 
 // LIST
-records, err := sdk.List(ctx, "model")
+GET /api/{module}/{model}
+```
+
+**Example in module:**
+```javascript
+// Create via @fast.create()
+const resp = await fetch('/api/contacts/contact', {
+  method: 'POST',
+  headers: {'X-Tenant-ID': tenantID},
+  body: JSON.stringify({name: 'Juan', email: 'juan@example.com'})
+});
+const {id} = await resp.json();
+
+// Read via @fast.read()
+const contact = await fetch(`/api/contacts/contact/${id}`, 
+  {headers: {'X-Tenant-ID': tenantID}}
+).then(r => r.json());
+
+// Update via @fast.update()
+await fetch(`/api/contacts/contact/${id}`, {
+  method: 'PUT',
+  headers: {'X-Tenant-ID': tenantID},
+  body: JSON.stringify({name: 'Juan Updated'})
+});
+
+// Delete via @fast.delete()
+await fetch(`/api/contacts/contact/${id}`, {
+  method: 'DELETE',
+  headers: {'X-Tenant-ID': tenantID}
+});
 ```
 
 ---

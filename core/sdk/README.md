@@ -1,66 +1,118 @@
-# FastERP SDK
+# @fast API — Zero-SQL CRUD for FastERP
 
-Biblioteca genérica para que módulos WASM interactúen con la BD sin escribir SQL.
+The **@fast** namespace provides automatic CRUD for all modules.
 
-## Concepto
+## Concept
 
-En lugar de que cada módulo escriba queries SQL, el SDK lee el `manifest.json` y proporciona métodos genéricos:
+Modules define schema in `manifest.json`. Core automatically provides CRUD via HTTP — **no SQL writing needed.**
 
-```go
-// Sin SDK (antes)
-query := `INSERT INTO mod_contacts_contact (tenant_id, name, email) VALUES ($1, $2, $3)`
-var id string
-sdk.DB.QueryRow(ctx, query, tenantID, name, email).Scan(&id)
-
-// Con SDK (ahora)
-id, _ := sdk.Create(ctx, "contact", map[string]interface{}{
-    "name": name,
-    "email": email,
-})
+```
+Module defines:  manifest.json
+                 ↓
+Core reads:      schema + field types
+                 ↓
+@fast provides:  Create, Read, Update, Delete, List (automatic)
+                 ↓
+Frontend calls:  /api/{module}/{model} (REST endpoints)
+                 ↓
+SDK executes:    Type-safe queries with RLS + audit
 ```
 
-## API
+## Usage: From Any Module
 
-### Inicializar
+### REST API (Frontend calls)
 
-```go
-import "github.com/fasterp/backend/sdk"
+```javascript
+// @fast.create() — INSERT
+POST /api/contacts/contact
+{"name": "Juan", "email": "juan@example.com"}
+→ {id: "uuid"}
 
-sdk := sdk.NewModuleSDK(
-    "contacts",           // módulo ID
-    "tenant-uuid",        // tenant ID
-    "user-uuid",          // user ID (para auditoría)
-    db,                   // *sql.DB
-)
+// @fast.read() — SELECT by ID
+GET /api/contacts/contact/{id}
+→ {id: "uuid", name: "Juan", ...}
 
-// Cargar manifest (en producción desde archivo)
-sdk.LoadManifest(manifestJSON)
+// @fast.update() — UPDATE
+PUT /api/contacts/contact/{id}
+{"name": "Juan Updated"}
+→ {message: "Updated"}
+
+// @fast.delete() — DELETE
+DELETE /api/contacts/contact/{id}
+→ {message: "Deleted"}
+
+// @fast.list() — SELECT all
+GET /api/contacts/contact
+→ {data: [{id: "...", name: "...", ...}]}
 ```
 
-### CRUD Genérico
+### Example: Complete Module Flow
 
-```go
-ctx := context.Background()
+**1. Define schema** (`modules/mymodule/manifest.json`):
+```json
+{
+  "name": "mymodule",
+  "models": {
+    "item": {
+      "fields": {
+        "title": {"type": "string", "required": true},
+        "price": {"type": "decimal"}
+      }
+    }
+  }
+}
+```
 
-// CREATE
-id, err := sdk.Create(ctx, "contact", map[string]interface{}{
-    "name": "Juan",
-    "email": "juan@example.com",
-})
+**2. Frontend uses @fast** (`modules/mymodule/frontend/app.js`):
+```javascript
+const tenantID = getTenantID(); // from JWT
 
-// READ
-contact, err := sdk.Get(ctx, "contact", id)
+// @fast.create()
+const {id} = await fetch('/api/mymodule/item', {
+  method: 'POST',
+  headers: {'X-Tenant-ID': tenantID},
+  body: JSON.stringify({title: 'Product', price: 99.99})
+}).then(r => r.json());
 
-// UPDATE
-err := sdk.Update(ctx, "contact", id, map[string]interface{}{
-    "email": "nuevo@example.com",
-})
+// @fast.list()
+const items = await fetch('/api/mymodule/item',
+  {headers: {'X-Tenant-ID': tenantID}}
+).then(r => r.json());
 
-// DELETE
-err := sdk.Delete(ctx, "contact", id)
+// @fast.update()
+await fetch(`/api/mymodule/item/${id}`, {
+  method: 'PUT',
+  headers: {'X-Tenant-ID': tenantID},
+  body: JSON.stringify({price: 109.99})
+});
 
-// LIST
-contacts, err := sdk.List(ctx, "contact")
+// @fast.delete()
+await fetch(`/api/mymodule/item/${id}`, {
+  method: 'DELETE',
+  headers: {'X-Tenant-ID': tenantID}
+});
+```
+
+**3. Core does the rest** (automatic):
+- ✅ Reads `manifest.json`
+- ✅ Validates fields
+- ✅ Executes via SDK
+- ✅ Enforces RLS (tenant isolation)
+- ✅ Logs audit trail
+
+## Manifest Format
+
+```json
+{
+  "name": "mymodule",
+  "models": {
+    "model_name": {
+      "fields": {
+        "field_name": {"type": "string|text|decimal|...", "required": true|false}
+      }
+    }
+  }
+}
 ```
 
 ## Manifest Format
