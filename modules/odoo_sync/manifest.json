@@ -1,0 +1,43 @@
+{
+  "name": "odoo_sync",
+  "version": "2.0.1",
+  "label": "Odoo Sync",
+  "description": "Sincronización bidireccional con Odoo: productos, precios, leads, quotations",
+  "author": "FastERP Solar Team",
+  "icon": "refresh-cw",
+  "main": "module.wasm",
+  "permissions": [
+    "database.read",
+    "database.write",
+    "network.http",
+    "external.odoo"
+  ],
+  "config": {
+    "sync_interval_minutes": 30,
+    "auto_sync_enabled": true,
+    "max_retry_attempts": 3,
+    "timeout_seconds": 30,
+    "batch_size": 100
+  },
+  "dependencies": [
+    "products",
+    "sites"
+  ],
+  "api_endpoints": {
+    "sync_products": "POST /api/modules/odoo_sync/sync/products",
+    "sync_prices": "POST /api/modules/odoo_sync/sync/prices",
+    "sync_inventory": "POST /api/modules/odoo_sync/sync/inventory",
+    "push_quotation": "POST /api/modules/odoo_sync/push/quotation",
+    "create_lead": "POST /api/modules/odoo_sync/push/lead",
+    "get_config": "GET /api/modules/odoo_sync/config",
+    "update_config": "PUT /api/modules/odoo_sync/config",
+    "sync_logs": "GET /api/modules/odoo_sync/logs"
+  },
+  "webhooks": {
+    "incoming": [
+      "POST /api/modules/odoo_sync/webhook/product-update",
+      "POST /api/modules/odoo_sync/webhook/price-change",
+      "POST /api/modules/odoo_sync/webhook/inventory-update"
+    ]
+  }
+}

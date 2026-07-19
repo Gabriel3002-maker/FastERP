@@ -1,0 +1,33 @@
+# Secretos — NUNCA commitear. Usar .env.example como plantilla.
+.env
+.env.*
+!.env.example
+backend/.env
+backend/.env.*
+!backend/.env.example
+.default-tenant-id
+
+# Binarios compilados
+bin/
+*.so
+
+# Los .wasm compilados sí se versionan: docker-compose monta ./modules y el backend
+# los carga al arrancar, así que un clon limpio necesita tenerlos.
+*.wasm
+!modules/**/*.wasm
+
+# Datos en tiempo de ejecución
+uploads/
+backend/server.log
+*.log
+
+# Frontend
+node_modules/
+dist/
+
+# Paquetes de módulos
+*.zip
+
+# Editor / SO
+.DS_Store
+*.swp

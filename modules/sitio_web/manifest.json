@@ -1,0 +1,32 @@
+{
+  "name": "sitio_web",
+  "version": "2.0.1",
+  "label": "Sitio Web",
+  "description": "Constructor de p\u00e1ginas web (HTML/CSS/JS) hospedadas y p\u00fablicas, tipo WordPress",
+  "author": "Ecuabyte",
+  "icon": "globe",
+  "main": "module.wasm",
+  "permissions": [
+    "database.read",
+    "database.write"
+  ],
+  "depends": [
+    "tienda_web"
+  ],
+  "api_endpoints": {
+    "public_home": "GET /site",
+    "public_page": "GET /site/:slug",
+    "public_products": "GET /api/public/products"
+  },
+  "frontend": {
+    "entry": "frontend/index.ts",
+    "pages": [
+      {
+        "name": "SiteBuilder",
+        "path": "/admin/sitio",
+        "label": "Sitio Web",
+        "icon": "globe"
+      }
+    ]
+  }
+}

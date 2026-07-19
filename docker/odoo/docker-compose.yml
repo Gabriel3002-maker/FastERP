@@ -1,0 +1,86 @@
+version: '3.9'
+
+# FastERP + Odoo Complete Stack
+# Uso: docker-compose up -d
+# Acceso: Odoo http://localhost:8069 | FastERP http://localhost:5173
+
+services:
+  # ===========================
+  # PostgreSQL para FastERP
+  # ===========================
+  fasterp-db:
+    image: postgres:16-alpine
+    container_name: fasterp-postgres
+    environment:
+      POSTGRES_DB: fasterp
+      POSTGRES_USER: fasterp
+      POSTGRES_PASSWORD: fasterp123
+    ports:
+      - "5432:5432"
+    volumes:
+      - fasterp-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fasterp"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - solar-net
+
+  # ===========================
+  # PostgreSQL para Odoo
+  # ===========================
+  odoo-db:
+    image: postgres:15-alpine
+    container_name: odoo-postgres
+    environment:
+      POSTGRES_DB: odoo
+      POSTGRES_USER: odoo
+      POSTGRES_PASSWORD: odoo123
+    ports:
+      - "5433:5432"
+    volumes:
+      - odoo-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U odoo"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - solar-net
+
+  # ===========================
+  # Odoo Community v16
+  # ===========================
+  odoo:
+    image: odoo:16-latest
+    container_name: odoo-server
+    depends_on:
+      odoo-db:
+        condition: service_healthy
+    environment:
+      HOST: odoo-db
+      PORT: 5432
+      USER: odoo
+      PASSWORD: odoo123
+    ports:
+      - "8069:8069"
+      - "8072:8072"
+    volumes:
+      - odoo-data:/var/lib/odoo
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8069/web/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - solar-net
+
+volumes:
+  fasterp-db-data:
+  odoo-db-data:
+  odoo-data:
+
+networks:
+  solar-net:
+    driver: bridge

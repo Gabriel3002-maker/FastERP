@@ -1,0 +1,11 @@
+{
+  "recommendations": [
+    "golang.go",
+    "ms-vscode.go",
+    "esbenp.prettier-vscode",
+    "dbaeumer.vscode-eslint",
+    "bradlc.vscode-tailwindcss",
+    "GraphQL.vscode-graphql",
+    "ms-azuretools.vscode-docker"
+  ]
+}

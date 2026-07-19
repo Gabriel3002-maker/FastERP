@@ -1,0 +1,30 @@
+{
+  "name": "sites",
+  "version": "2.0.1",
+  "label": "Solar Sites",
+  "description": "Gesti\u00f3n de sitios de proyecto: cliente, ubicaci\u00f3n, consumo hist\u00f3rico",
+  "author": "FastERP Solar Team",
+  "icon": "map-pin",
+  "main": "module.wasm",
+  "permissions": [
+    "database.read",
+    "database.write",
+    "geo.access"
+  ],
+  "config": {
+    "enable_geolocation": true,
+    "map_provider": "openstreetmap",
+    "consumption_history_months": 12
+  },
+  "frontend": {
+    "entry": "frontend/index.ts",
+    "pages": [
+      {
+        "name": "SitesPage",
+        "path": "/admin/sites",
+        "label": "Solar Sites",
+        "icon": "map-pin"
+      }
+    ]
+  }
+}
