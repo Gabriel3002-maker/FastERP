@@ -200,7 +200,15 @@
 
 /* --- Formulario generado desde el manifest --- */
 .fv-dialog {
+  /* El navegador centra un <dialog> modal con "margin: auto", pero el reset
+     global del core (* { margin: 0 }) lo anula y lo deja pegado arriba.
+     Se restablece acá junto con inset, que fija el área de centrado. */
+  position: fixed;
+  inset: 0;
+  margin: auto;
+
   width: min(640px, 92vw);
+  max-height: 88vh;
   padding: 0;
   border: 1px solid var(--fv-border);
   border-radius: var(--fv-radius);
@@ -212,6 +220,13 @@
   background: rgba(15, 23, 42, .45);
 }
 
+/* Cabecera y pie fijos; sólo los campos hacen scroll. */
+.fv-form {
+  display: flex;
+  flex-direction: column;
+  max-height: 88vh;
+}
+
 .fv-form header {
   display: flex;
   align-items: center;
@@ -219,6 +234,7 @@
   gap: 1rem;
   padding: 1rem 1.25rem;
   border-bottom: 1px solid var(--fv-border);
+  flex-shrink: 0;
 }
 
 .fv-form-title {
@@ -240,6 +256,7 @@
 
 .fv-form-error {
   margin: 0;
+  flex-shrink: 0;
   padding: .7rem 1.25rem;
   background: rgba(220, 38, 38, .08);
   color: #dc2626;
@@ -253,8 +270,9 @@
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: .9rem 1rem;
   padding: 1.25rem;
-  max-height: 60vh;
   overflow-y: auto;
+  flex: 1;
+  min-height: 0; /* sin esto flex no deja encoger y el scroll no aparece */
 }
 
 .fv-wide { grid-column: 1 / -1; }
@@ -312,6 +330,7 @@
   gap: .6rem;
   padding: 1rem 1.25rem;
   border-top: 1px solid var(--fv-border);
+  flex-shrink: 0;
 }
 
 .fv-form footer button {
