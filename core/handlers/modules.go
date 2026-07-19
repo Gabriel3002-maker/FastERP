@@ -104,7 +104,7 @@ func (mh *ModuleHandler) GetAvailableModules(w http.ResponseWriter, r *http.Requ
 	// Obtener módulos instalados
 	query := `
 		SELECT name, active FROM installed_modules
-		WHERE tenant_id = $1::uuid
+		WHERE tenant_id = $1
 	`
 
 	rows, err := mh.dbConn.Query(ctx, query, tenantID)
@@ -175,7 +175,14 @@ func (mh *ModuleHandler) InstallModule(w http.ResponseWriter, r *http.Request) {
 	// Verificar si ya está instalado
 	row := mh.dbConn.QueryRow(ctx, "SELECT COUNT(*) FROM installed_modules WHERE tenant_id = $1 AND name = $2", tenantID, moduleName)
 	var count int
-	row.Scan(&count)
+	if err := row.Scan(&count); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": fmt.Sprintf("Database error: %v", err),
+		})
+		return
+	}
 
 	if count > 0 {
 		// Ya existe, solo activar

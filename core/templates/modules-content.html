@@ -7,6 +7,22 @@
 <!-- Alert -->
 <div id="alert" class="alert"></div>
 
+<!-- Installation Progress Modal -->
+<div id="installModal" class="modal" style="display:none;">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>⏳ Instalando Módulo</h3>
+        </div>
+        <div class="modal-body">
+            <p id="moduleName">Contacts</p>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+            </div>
+            <p id="progressText">0%</p>
+        </div>
+    </div>
+</div>
+
 <!-- Stats -->
 <div class="quick-stats" id="stats">
     <div class="stat-card">
@@ -295,6 +311,78 @@
     color: #AE2A19;
     border: 1px solid rgba(174, 42, 25, 0.3);
 }
+
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+}
+
+.modal-content {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 30px;
+    max-width: 400px;
+    width: 90%;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+}
+
+.modal-header {
+    margin-bottom: 20px;
+}
+
+.modal-header h3 {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.modal-body {
+    text-align: center;
+}
+
+.modal-body p {
+    color: var(--text-secondary);
+    margin-bottom: 20px;
+    font-size: 14px;
+}
+
+#moduleName {
+    font-weight: 600;
+    color: var(--primary);
+    font-size: 16px;
+    margin-bottom: 15px;
+}
+
+.progress-bar {
+    width: 100%;
+    height: 8px;
+    background: var(--bg-primary);
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 15px;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--primary) 0%, #667eea 100%);
+    border-radius: 10px;
+    transition: width 0.3s ease;
+}
+
+#progressText {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--primary);
+}
 </style>
 
 <script>
@@ -398,6 +486,25 @@ function renderModules() {
 }
 
 async function installModule(moduleId) {
+    const modal = document.getElementById('installModal');
+    const moduleName = document.getElementById('moduleName');
+    const progressFill = document.getElementById('progressFill');
+    const progressText = document.getElementById('progressText');
+
+    // Mostrar modal
+    modal.style.display = 'flex';
+    const module = allModules.find(m => m.id === moduleId);
+    moduleName.textContent = module?.label || moduleId;
+
+    // Simular progreso
+    let progress = 0;
+    const progressInterval = setInterval(() => {
+        progress += Math.random() * 30;
+        if (progress > 90) progress = 90;
+        progressFill.style.width = progress + '%';
+        progressText.textContent = Math.floor(progress) + '%';
+    }, 200);
+
     try {
         const response = await fetch(`/api/modules/install?name=${moduleId}`, {
             method: 'POST',
@@ -406,15 +513,30 @@ async function installModule(moduleId) {
             }
         });
 
+        clearInterval(progressInterval);
+        progress = 100;
+        progressFill.style.width = '100%';
+        progressText.textContent = '100%';
+
         const data = await response.json();
 
         if (response.ok) {
-            showAlert(`✓ ${data.message}`, 'success');
-            loadModules();
+            // Esperar 1 segundo antes de reiniciar
+            setTimeout(() => {
+                modal.style.display = 'none';
+                showAlert(`✓ ${data.message} - Recargando...`, 'success');
+                // Reiniciar la página después de 2 segundos
+                setTimeout(() => {
+                    location.reload();
+                }, 2000);
+            }, 1000);
         } else {
+            modal.style.display = 'none';
             showAlert(data.error || 'Error installing module', 'error');
         }
     } catch (error) {
+        clearInterval(progressInterval);
+        modal.style.display = 'none';
         showAlert('Error installing module', 'error');
     }
 }

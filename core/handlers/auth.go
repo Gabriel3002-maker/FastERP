@@ -24,6 +24,7 @@ type LoginResponse struct {
 	Status       string `json:"status"`
 	Message      string `json:"message"`
 	UserID       string `json:"user_id"`
+	TenantID     string `json:"tenant_id"`
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
 	ExpiresIn    int64  `json:"expires_in"`
@@ -121,6 +122,7 @@ func (ah *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		Status:       "ok",
 		Message:      "Login successful",
 		UserID:       userID,
+		TenantID:     tenantID,
 		AccessToken:  tokenResp.AccessToken,
 		RefreshToken: tokenResp.RefreshToken,
 		ExpiresIn:    tokenResp.ExpiresIn,
