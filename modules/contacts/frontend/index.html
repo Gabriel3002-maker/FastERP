@@ -1,30 +1,15 @@
 <div class="contacts-module">
     <div class="module-header">
         <h1>👥 Contactos</h1>
-        <button id="addContactBtn" class="btn-primary">+ Nuevo Contacto</button>
     </div>
 
-    <div class="search-bar">
-        <input type="text" id="searchInput" placeholder="Buscar contactos..." />
-        <label class="page-size">
-            Mostrar
-            <select id="pageSizeSelect"></select>
-            por página
-        </label>
-    </div>
+    <!-- Toda la tabla, paginación, búsqueda global y búsqueda por columna las
+         resuelve el core leyendo modules/contacts/manifest.json. Este módulo
+         no declara columnas ni escribe UI de listado. -->
+    <div data-fast-view data-model="contacts/contact"></div>
 
-    <div id="contactsList" class="contacts-list">
-        <div class="loading">Cargando contactos...</div>
-    </div>
-
-    <!-- Paginación: los tamaños vienen del SDK (page_sizes), no del módulo -->
-    <div id="pagination" class="pagination" hidden>
-        <button id="prevPage" class="btn-secondary">‹ Anterior</button>
-        <span id="pageInfo" class="page-info"></span>
-        <button id="nextPage" class="btn-secondary">Siguiente ›</button>
-    </div>
-
-    <!-- Modal para crear/editar -->
+    <!-- Modal propio: temporal, hasta que el core genere el formulario desde
+         el manifest. Hoy expone 5 de los 19 campos declarados. -->
     <div id="contactModal" class="modal" style="display: none;">
         <div class="modal-content">
             <div class="modal-header">

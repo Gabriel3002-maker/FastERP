@@ -302,3 +302,152 @@ func TestColumnInfoSQLTypeCoincideConFieldDef(t *testing.T) {
 		}
 	}
 }
+
+// El orden en que el módulo declara sus campos es información: define el orden
+// de las columnas. Un map de Go lo perdería.
+func TestFieldOrderRespetaElManifest(t *testing.T) {
+	manifest := `{"name":"m","models":{"item":{"fields":{
+		"zeta":{"type":"string"},
+		"alfa":{"type":"string"},
+		"medio":{"type":"string"}
+	}}}}`
+
+	s := NewModuleSDK("m", "t", "", nil)
+	if err := s.LoadManifest(manifest); err != nil {
+		t.Fatalf("manifest rechazado: %v", err)
+	}
+
+	got := s.Manifest.Models["item"].OrderedFields()
+	want := []string{"zeta", "alfa", "medio"} // declaración, no alfabético
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("OrderedFields() = %v, want %v", got, want)
+	}
+}
+
+// Sin bloque "views", el motor deduce las tres vistas del propio esquema.
+func TestMetaDeduceLasVistasSinConfiguracion(t *testing.T) {
+	manifest := `{"name":"crm","models":{"lead":{"label":"Oportunidad","fields":{
+		"title":{"type":"string","required":true,"label":"Título"},
+		"contact":{"type":"string"},
+		"stage":{"type":"string","options":["NUEVO","GANADO"]},
+		"notes":{"type":"text"},
+		"amount":{"type":"money"}
+	}}}}`
+
+	s := NewModuleSDK("crm", "t", "", nil)
+	if err := s.LoadManifest(manifest); err != nil {
+		t.Fatalf("manifest rechazado: %v", err)
+	}
+
+	meta, err := s.Meta("lead")
+	if err != nil {
+		t.Fatalf("Meta() falló: %v", err)
+	}
+
+	if meta.Label != "Oportunidad" {
+		t.Errorf("Label = %q, want Oportunidad", meta.Label)
+	}
+
+	// "notes" es text: no cabe en una celda, queda fuera de la tabla.
+	for _, col := range meta.Views.List.Columns {
+		if col == "notes" {
+			t.Error("un campo text no debería ser columna de la tabla")
+		}
+	}
+
+	// El identificador es el primer campo obligatorio de texto.
+	if meta.Views.Card.Title != "title" {
+		t.Errorf("card.title = %q, want title", meta.Views.Card.Title)
+	}
+	// Kanban agrupa por el campo con opciones, así el conteo por columna es real.
+	if meta.Views.Kanban == nil || meta.Views.Kanban.GroupBy != "stage" {
+		t.Errorf("kanban.group_by = %v, want stage", meta.Views.Kanban)
+	}
+	if meta.Views.Default != "list" {
+		t.Errorf("default = %q, want list", meta.Views.Default)
+	}
+}
+
+// Sin ningún campo agrupable no se ofrece kanban: mejor no darla que darla mal.
+func TestMetaSinCamposAgrupablesNoOfreceKanban(t *testing.T) {
+	manifest := `{"name":"m","models":{"item":{"fields":{
+		"name":{"type":"string","required":true},
+		"qty":{"type":"integer"}
+	}}}}`
+
+	s := NewModuleSDK("m", "t", "", nil)
+	if err := s.LoadManifest(manifest); err != nil {
+		t.Fatalf("manifest rechazado: %v", err)
+	}
+
+	meta, _ := s.Meta("item")
+	if meta.Views.Kanban != nil {
+		t.Errorf("no debería ofrecer kanban sin campos con options: %+v", meta.Views.Kanban)
+	}
+}
+
+// Lo que el módulo declara en "views" gana sobre la deducción.
+func TestMetaRespetaLasVistasDeclaradas(t *testing.T) {
+	manifest := `{"name":"m","models":{"item":{
+		"views":{"default":"card","list":{"columns":["sku"]}},
+		"fields":{
+			"name":{"type":"string","required":true},
+			"sku":{"type":"string"}
+		}}}}`
+
+	s := NewModuleSDK("m", "t", "", nil)
+	if err := s.LoadManifest(manifest); err != nil {
+		t.Fatalf("manifest rechazado: %v", err)
+	}
+
+	meta, _ := s.Meta("item")
+	if len(meta.Views.List.Columns) != 1 || meta.Views.List.Columns[0] != "sku" {
+		t.Errorf("columns = %v, want [sku] (lo declarado gana)", meta.Views.List.Columns)
+	}
+	if meta.Views.Default != "card" {
+		t.Errorf("default = %q, want card", meta.Views.Default)
+	}
+	// Lo no declarado se sigue deduciendo.
+	if meta.Views.Card == nil || meta.Views.Card.Title != "name" {
+		t.Errorf("card debería deducirse igual: %+v", meta.Views.Card)
+	}
+}
+
+// El control HTML sale del tipo declarado: el módulo no elige inputs.
+func TestInputControlDerivaDelTipo(t *testing.T) {
+	tests := []struct {
+		field FieldDef
+		want  string
+	}{
+		{FieldDef{Type: "string"}, "text"},
+		{FieldDef{Type: "text"}, "textarea"},
+		{FieldDef{Type: "email"}, "email"},
+		{FieldDef{Type: "phone"}, "tel"},
+		{FieldDef{Type: "money"}, "number"},
+		{FieldDef{Type: "boolean"}, "checkbox"},
+		{FieldDef{Type: "date"}, "date"},
+		{FieldDef{Type: "string", Options: []string{"A", "B"}}, "select"}, // options gana
+	}
+
+	for _, tc := range tests {
+		if got := inputControl(&tc.field); got != tc.want {
+			t.Errorf("inputControl(%s, options=%v) = %q, want %q",
+				tc.field.Type, tc.field.Options, got, tc.want)
+		}
+	}
+}
+
+// Los ILIKE necesitan comodines; el resto de operadores pasa el valor tal cual.
+func TestFilterValue(t *testing.T) {
+	tests := []struct{ op, in, want string }{
+		{"contains", "juan", "%juan%"},
+		{"starts", "juan", "juan%"},
+		{"eq", "juan", "juan"},
+		{"gte", "1000", "1000"},
+	}
+	for _, tc := range tests {
+		if got := filterValue(tc.op, tc.in); got != tc.want {
+			t.Errorf("filterValue(%q, %q) = %q, want %q", tc.op, tc.in, got, tc.want)
+		}
+	}
+}

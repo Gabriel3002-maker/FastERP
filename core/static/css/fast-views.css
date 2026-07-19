@@ -1,0 +1,199 @@
+/**
+ * fast-views — estilos del motor de vistas del core.
+ *
+ * Sólo variables CSS, sin librerías: cada módulo puede redefinir los tokens
+ * para que la tabla siga su identidad visual sin tocar estas reglas.
+ */
+.fv {
+  --fv-border: var(--border, #e5e7eb);
+  --fv-surface: var(--surface, #fff);
+  --fv-muted: var(--text-muted, #6b7280);
+  --fv-accent: var(--accent, #2563eb);
+  --fv-hover: var(--hover, rgba(37, 99, 235, .06));
+  --fv-radius: var(--radius, 10px);
+
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* --- Barra superior --- */
+.fv-toolbar {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  flex-wrap: wrap;
+}
+
+.fv-search {
+  flex: 1;
+  min-width: 220px;
+  padding: .5rem .75rem;
+  border: 1px solid var(--fv-border);
+  border-radius: var(--fv-radius);
+  font: inherit;
+  background: var(--fv-surface);
+  color: inherit;
+}
+
+.fv-size {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  font-size: .85rem;
+  color: var(--fv-muted);
+  white-space: nowrap;
+}
+
+.fv-new {
+  padding: .5rem 1rem;
+  border: 0;
+  border-radius: var(--fv-radius);
+  background: var(--fv-accent);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.fv-new:hover { filter: brightness(1.08); }
+
+/* --- Tabla --- */
+/* El scroll horizontal vive acá dentro: la página nunca se desborda. */
+.fv-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--fv-border);
+  border-radius: var(--fv-radius);
+  background: var(--fv-surface);
+}
+
+.fv-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .9rem;
+}
+
+.fv-table th,
+.fv-table td {
+  text-align: left;
+  padding: .6rem .75rem;
+  border-bottom: 1px solid var(--fv-border);
+  white-space: nowrap;
+}
+
+.fv-labels th {
+  font-size: .78rem;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--fv-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.fv-labels th:hover { color: var(--fv-accent); }
+
+/* Flecha de orden: sólo aparece en la columna activa. */
+.fv-arrow {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  margin-left: .35rem;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-bottom: 5px solid currentColor;
+  opacity: 0;
+  transition: transform .15s;
+}
+
+.fv-sorted { color: var(--fv-accent); }
+.fv-sorted .fv-arrow { opacity: 1; }
+.fv-sorted.fv-desc .fv-arrow { transform: rotate(180deg); }
+
+/* Fila de filtros por columna */
+.fv-filters th { padding: .35rem .5rem .6rem; }
+
+.fv-filters input,
+.fv-filters select {
+  width: 100%;
+  min-width: 90px;
+  padding: .3rem .45rem;
+  border: 1px solid var(--fv-border);
+  border-radius: 6px;
+  font: inherit;
+  font-size: .82rem;
+  background: transparent;
+  color: inherit;
+}
+
+.fv-filters input:focus,
+.fv-filters select:focus,
+.fv-search:focus {
+  outline: 2px solid var(--fv-accent);
+  outline-offset: -1px;
+}
+
+.fv-table tbody tr:hover { background: var(--fv-hover); }
+.fv-table tbody tr:last-child td { border-bottom: 0; }
+
+.fv-actions-col { width: 1px; }
+
+.fv-actions {
+  display: flex;
+  gap: .4rem;
+}
+
+.fv-actions button {
+  padding: .28rem .6rem;
+  border: 1px solid var(--fv-border);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: .8rem;
+  cursor: pointer;
+}
+
+.fv-actions button:hover { border-color: var(--fv-accent); color: var(--fv-accent); }
+.fv-actions [data-action="delete"]:hover { border-color: #dc2626; color: #dc2626; }
+
+.fv-empty {
+  padding: 2.5rem 1rem;
+  text-align: center;
+  color: var(--fv-muted);
+  white-space: normal;
+}
+
+.fv-error { color: #dc2626; }
+
+/* --- Pie --- */
+.fv-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.fv-info {
+  font-size: .85rem;
+  color: var(--fv-muted);
+}
+
+.fv-pager {
+  display: flex;
+  gap: .5rem;
+}
+
+.fv-pager button {
+  padding: .4rem .8rem;
+  border: 1px solid var(--fv-border);
+  border-radius: var(--fv-radius);
+  background: var(--fv-surface);
+  color: inherit;
+  font: inherit;
+  font-size: .85rem;
+  cursor: pointer;
+}
+
+.fv-pager button:hover:not(:disabled) { border-color: var(--fv-accent); color: var(--fv-accent); }
+.fv-pager button:disabled { opacity: .45; cursor: not-allowed; }

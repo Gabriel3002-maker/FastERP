@@ -9,12 +9,14 @@
 package sdk
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -55,6 +57,80 @@ type ModelDef struct {
 	Name   string               `json:"name"`
 	Label  string               `json:"label,omitempty"`
 	Fields map[string]*FieldDef `json:"fields"`
+	Views  *ViewsDef            `json:"views,omitempty"`
+
+	// FieldOrder conserva el orden en que el módulo declaró los campos.
+	// Un map de Go no tiene orden, y ese orden es información: quien escribió
+	// el manifest puso el campo identificador primero por algo. Las columnas
+	// de la tabla y la documentación lo respetan.
+	FieldOrder []string `json:"-"`
+}
+
+// UnmarshalJSON carga el modelo conservando el orden de declaración.
+func (m *ModelDef) UnmarshalJSON(data []byte) error {
+	type alias ModelDef
+	if err := json.Unmarshal(data, (*alias)(m)); err != nil {
+		return err
+	}
+
+	order, err := jsonKeyOrder(data, "fields")
+	if err != nil {
+		return err
+	}
+	m.FieldOrder = order
+	return nil
+}
+
+// OrderedFields devuelve los campos en el orden del manifest.
+// Si por algo faltara el orden, cae a orden alfabético para ser determinista.
+func (m *ModelDef) OrderedFields() []string {
+	if len(m.FieldOrder) == len(m.Fields) {
+		return m.FieldOrder
+	}
+
+	names := make([]string, 0, len(m.Fields))
+	for name := range m.Fields {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// jsonKeyOrder lee las claves de un objeto anidado en el orden en que aparecen.
+func jsonKeyOrder(data []byte, key string) ([]string, error) {
+	var wrapper map[string]json.RawMessage
+	if err := json.Unmarshal(data, &wrapper); err != nil {
+		return nil, err
+	}
+
+	raw, ok := wrapper[key]
+	if !ok {
+		return nil, nil
+	}
+
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if _, err := dec.Token(); err != nil { // consume '{'
+		return nil, err
+	}
+
+	var order []string
+	for dec.More() {
+		token, err := dec.Token()
+		if err != nil {
+			return nil, err
+		}
+		name, ok := token.(string)
+		if !ok {
+			return nil, fmt.Errorf("clave inesperada en %q", key)
+		}
+		order = append(order, name)
+
+		var skip json.RawMessage // descarta el valor y avanza
+		if err := dec.Decode(&skip); err != nil {
+			return nil, err
+		}
+	}
+	return order, nil
 }
 
 // FieldDef define una columna. TODO lo que el motor necesita saber sobre un
@@ -101,12 +177,44 @@ func (f *FieldDef) UnmarshalJSON(data []byte) error {
 
 // ListOptions controla paginación, búsqueda y orden de List().
 type ListOptions struct {
-	Page     int               // 1-based
-	Limit    int               // se ajusta al PageSize permitido más cercano
-	Search   string            // busca en todos los campos de texto
-	OrderBy  string            // campo del manifest, o created_at por defecto
-	OrderDir string            // asc | desc
-	Filters  map[string]string // igualdad exacta: campo → valor
+	Page     int      // 1-based
+	Limit    int      // se ajusta al PageSize permitido más cercano
+	Search   string   // busca en todos los campos de texto
+	OrderBy  string   // campo del manifest, o created_at por defecto
+	OrderDir string   // asc | desc
+	Filters  []Filter // filtros por columna
+}
+
+// Filter es una condición sobre un campo declarado en el manifest.
+type Filter struct {
+	Field string
+	Op    string // ver filterOps
+	Value string
+}
+
+// filterOps son los operadores que un módulo puede usar por columna.
+// La plantilla SQL es fija: del exterior sólo entra el valor, como parámetro.
+var filterOps = map[string]string{
+	"eq":       "%s = $%d",
+	"ne":       "%s <> $%d",
+	"contains": "%s ILIKE $%d",
+	"starts":   "%s ILIKE $%d",
+	"gt":       "%s > $%d",
+	"gte":      "%s >= $%d",
+	"lt":       "%s < $%d",
+	"lte":      "%s <= $%d",
+}
+
+// filterValue adapta el valor al operador (los ILIKE necesitan comodines).
+func filterValue(op, value string) string {
+	switch op {
+	case "contains":
+		return "%" + value + "%"
+	case "starts":
+		return value + "%"
+	default:
+		return value
+	}
 }
 
 // Page es la respuesta paginada estándar de todos los módulos.
@@ -312,13 +420,23 @@ func (s *ModuleSDK) List(ctx context.Context, modelName string, opts ListOptions
 	where := []string{"tenant_id = $1"}
 	args := []any{s.TenantID}
 
-	// Filtros de igualdad exacta, solo sobre campos declarados en el manifest.
-	for field, value := range opts.Filters {
-		if _, ok := model.Fields[field]; !ok {
-			return nil, fmt.Errorf("no se puede filtrar por %q: no existe en el manifest", field)
+	// Filtros por columna, sólo sobre campos declarados en el manifest.
+	for _, filter := range opts.Filters {
+		if _, ok := model.Fields[filter.Field]; !ok {
+			return nil, fmt.Errorf("no se puede filtrar por %q: no existe en el manifest", filter.Field)
 		}
-		args = append(args, value)
-		where = append(where, fmt.Sprintf("%s = $%d", field, len(args)))
+
+		op := filter.Op
+		if op == "" {
+			op = "eq"
+		}
+		template, ok := filterOps[op]
+		if !ok {
+			return nil, fmt.Errorf("operador %q no soportado en %q", op, filter.Field)
+		}
+
+		args = append(args, filterValue(op, filter.Value))
+		where = append(where, fmt.Sprintf(template, filter.Field, len(args)))
 	}
 
 	// Búsqueda libre sobre los campos de texto del modelo.

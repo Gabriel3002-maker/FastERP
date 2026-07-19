@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/fasterp/backend/db"
@@ -27,6 +29,9 @@ type GenericCRUDHandler struct {
 	schemaEnsured map[string]bool   // módulo → tablas ya materializadas
 	tenantCache   map[string]string // slug → uuid
 }
+
+// metaSegment es el pseudo-id que devuelve la metadata del modelo.
+const metaSegment = "_meta"
 
 func NewGenericCRUDHandler(dbConn *db.DB, modulesDir string) *GenericCRUDHandler {
 	return &GenericCRUDHandler{
@@ -77,8 +82,20 @@ func (h *GenericCRUDHandler) HandleCRUD(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
-// handleGet: un registro si viene id, o una página de resultados si no.
+// handleGet: metadata, un registro si viene id, o una página de resultados.
 func (h *GenericCRUDHandler) handleGet(ctx context.Context, w http.ResponseWriter, r *http.Request, s *sdk.ModuleSDK, model, id string) {
+	// _meta ocupa el lugar del {id} en la ruta: se intercepta antes de que
+	// llegue al SDK, que lo trataría como un UUID.
+	if id == metaSegment {
+		meta, err := s.Meta(model)
+		if err != nil {
+			writeErr(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, meta)
+		return
+	}
+
 	if id != "" {
 		record, err := s.Get(ctx, model, id)
 		if err != nil {
@@ -145,8 +162,10 @@ func (h *GenericCRUDHandler) handleDelete(ctx context.Context, w http.ResponseWr
 }
 
 // listOptionsFrom traduce ?page=&limit=&search=&order_by=&order_dir= a ListOptions.
-// Cualquier otro query param se interpreta como filtro de igualdad; el SDK
-// rechaza los que no estén declarados en el manifest.
+//
+// Cualquier otro parámetro es un filtro por columna. El operador va sufijado
+// con doble guion bajo — name__contains=juan, credit_limit__gte=1000 — y sin
+// sufijo es igualdad exacta. El SDK valida campo y operador contra el manifest.
 func listOptionsFrom(r *http.Request) sdk.ListOptions {
 	q := r.URL.Query()
 
@@ -159,7 +178,6 @@ func listOptionsFrom(r *http.Request) sdk.ListOptions {
 		Search:   q.Get("search"),
 		OrderBy:  q.Get("order_by"),
 		OrderDir: q.Get("order_dir"),
-		Filters:  map[string]string{},
 	}
 
 	reserved := map[string]bool{
@@ -170,8 +188,23 @@ func listOptionsFrom(r *http.Request) sdk.ListOptions {
 		if reserved[key] || len(vals) == 0 || vals[0] == "" {
 			continue
 		}
-		opts.Filters[key] = vals[0]
+
+		field, op := key, "eq"
+		if at := strings.LastIndex(key, "__"); at > 0 {
+			field, op = key[:at], key[at+2:]
+		}
+		opts.Filters = append(opts.Filters, sdk.Filter{
+			Field: field, Op: op, Value: vals[0],
+		})
 	}
+
+	// Orden estable: el mismo query siempre produce el mismo SQL.
+	sort.Slice(opts.Filters, func(i, j int) bool {
+		if opts.Filters[i].Field != opts.Filters[j].Field {
+			return opts.Filters[i].Field < opts.Filters[j].Field
+		}
+		return opts.Filters[i].Op < opts.Filters[j].Op
+	})
 	return opts
 }
 

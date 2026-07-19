@@ -136,13 +136,7 @@ func modelSchema(model *ModelDef, input bool) map[string]any {
 		props["updated_at"] = map[string]any{"type": "string", "format": "date-time", "readOnly": true}
 	}
 
-	names := make([]string, 0, len(model.Fields))
-	for name := range model.Fields {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-
-	for _, name := range names {
+	for _, name := range model.OrderedFields() {
 		def := model.Fields[name]
 		spec := def.Spec()
 
@@ -193,20 +187,29 @@ func listOperation(module, model string, def *ModelDef, schemaName string) map[s
 		queryParam("order_dir", "string", "Dirección del orden: asc o desc.", "desc"),
 	}
 
-	// Cada campo del manifest se puede usar como filtro exacto.
-	names := make([]string, 0, len(def.Fields))
-	for name := range def.Fields {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
+	// Cada campo del manifest se puede filtrar. Sin sufijo es igualdad exacta;
+	// con __contains, __gte, etc. se elige el operador.
+	for _, name := range def.OrderedFields() {
+		field := def.Fields[name]
+		jsonType := field.Spec().JSONType
+
 		params = append(params, map[string]any{
 			"name":        name,
 			"in":          "query",
 			"required":    false,
 			"description": fmt.Sprintf("Filtra por igualdad exacta en %s.", name),
-			"schema":      map[string]any{"type": def.Fields[name].Spec().JSONType},
+			"schema":      map[string]any{"type": jsonType},
 		})
+
+		for _, op := range fieldOperators(field) {
+			params = append(params, map[string]any{
+				"name":        name + "__" + op,
+				"in":          "query",
+				"required":    false,
+				"description": fmt.Sprintf("%s en %s.", operatorHelp[op], name),
+				"schema":      map[string]any{"type": jsonType},
+			})
+		}
 	}
 
 	return map[string]any{
@@ -350,12 +353,7 @@ func pageSizeParam() map[string]any {
 
 func orderByParam(def *ModelDef) map[string]any {
 	options := []any{"created_at", "updated_at"}
-	names := make([]string, 0, len(def.Fields))
-	for name := range def.Fields {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
+	for _, name := range def.OrderedFields() {
 		options = append(options, name)
 	}
 
@@ -416,5 +414,32 @@ func pageMetaSchema() map[string]any {
 				"example":     sizes,
 			},
 		},
+	}
+}
+
+// operatorHelp describe cada operador de filtro en la documentación.
+var operatorHelp = map[string]string{
+	"contains": "Contiene el texto (sin distinguir mayúsculas)",
+	"starts":   "Empieza con el texto",
+	"ne":       "Distinto de",
+	"gt":       "Mayor que",
+	"gte":      "Mayor o igual que",
+	"lt":       "Menor que",
+	"lte":      "Menor o igual que",
+}
+
+// fieldOperators devuelve los operadores que tienen sentido para el campo:
+// los de texto para lo buscable, los de comparación para números y fechas.
+func fieldOperators(field *FieldDef) []string {
+	if field.IsSearchable() {
+		return []string{"contains", "starts", "ne"}
+	}
+	switch field.Spec().JSONType {
+	case "integer", "number":
+		return []string{"gt", "gte", "lt", "lte", "ne"}
+	case "string": // fechas y uuid
+		return []string{"gt", "gte", "lt", "lte", "ne"}
+	default:
+		return []string{"ne"}
 	}
 }
