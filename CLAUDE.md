@@ -99,6 +99,86 @@ tinygo build -o module.wasm -target wasm main.go
 
 **Key constraint**: WASM modules run in a **sandboxed runtime (wazero)** with **no network access**. Odoo sync and other external integrations are handled by native Go code in `backend/internal/` and exposed via routes.
 
+## SDK: Simple CRUD for Handlers (No SQL Required!)
+
+The **FastERP SDK** (`backend/internal/sdk/`) lets handlers implement full CRUD without writing any SQL. Just use the SDK methods:
+
+### The Easy Way (No SQL)
+```go
+// Initialize SDK
+sdk := sdk.NewModuleSDK("contacts", tenantID, userID, db.Pool())
+sdk.LoadManifest(manifestJSON)
+
+// CREATE
+id, _ := sdk.Create(ctx, "contact", map[string]interface{}{
+    "name": "Juan García",
+    "email": "juan@example.com",
+})
+
+// READ
+contact, _ := sdk.Get(ctx, "contact", id)
+
+// UPDATE
+sdk.Update(ctx, "contact", id, map[string]interface{}{
+    "email": "new@example.com",
+})
+
+// DELETE
+sdk.Delete(ctx, "contact", id)
+
+// LIST
+contacts, _ := sdk.List(ctx, "contact")
+```
+
+### Why This Matters
+
+| Approach | Code | Safety | Dev Time |
+|----------|------|--------|----------|
+| **Raw SQL** | `query := "SELECT * FROM mod_..."` | Manual validation | Slow |
+| **SDK** | `sdk.List(ctx, "contact")` | Type-safe (manifest) | ⚡ Fast |
+
+**Features**:
+- ✅ Zero SQL — schema from `manifest.json`
+- ✅ Auto RLS — tenant isolation at DB level
+- ✅ Type-safe — fields validated vs manifest
+- ✅ Multi-tenant — `tenant_id` handled automatically
+- ✅ Audit ready — `created_at`, `updated_at` automatic
+
+### Example: Creating a New Module (Ultra-Fast)
+
+1. **Define manifest** (`modules/mymodule/manifest.json`):
+```json
+{
+  "name": "mymodule",
+  "models": {
+    "record": {
+      "fields": {
+        "title": {"type": "string", "required": true},
+        "description": {"type": "text"}
+      }
+    }
+  }
+}
+```
+
+2. **Write handler** (`internal/handlers/mymodule.go`):
+```go
+func (h *MyModuleHandler) CreateRecord(w http.ResponseWriter, r *http.Request) {
+    tenantID := r.Header.Get("X-Tenant-ID")
+    h.sdk.TenantID = tenantID
+    
+    id, err := h.sdk.Create(r.Context(), "record", map[string]interface{}{
+        "title": r.FormValue("title"),
+        "description": r.FormValue("description"),
+    })
+    
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(map[string]string{"id": id})
+}
+```
+
+That's it! No migrations, no queries, no boilerplate. The SDK handles everything. See `core/sdk/example_usage.go` for more.
+
 ## Key Development Workflows
 
 ### Adding a Database Column to a Module
