@@ -2,68 +2,25 @@
   <div class="module-header">
     <h1>🧩 Studio-Flujo</h1>
     <p class="sf-subtitle">
-      Dibujá el flujo de tu proceso, agregá los campos que necesita, y generá
-      un módulo instalable. Nada se escribe a disco hasta que apretás
-      «Generar».
+      Primero el flujo, después los detalles. Nada se escribe a disco hasta
+      que apretás «Generar» en el paso final.
     </p>
   </div>
 
-  <!-- Paso 1: destino -->
-  <section class="sf-card">
-    <h2>1. ¿Dónde va esto?</h2>
-    <div class="sf-radio-group">
-      <label>
-        <input type="radio" name="sf-mode" value="create" checked>
-        Crear un módulo nuevo
-      </label>
-      <label>
-        <input type="radio" name="sf-mode" value="extend">
-        Agregar un modelo a un módulo que ya existe
-      </label>
-    </div>
+  <div class="sf-steps-indicator">
+    <button type="button" class="sf-step-dot sf-step-dot-active" data-step="1">
+      <span class="sf-step-num">1</span> Flujo
+    </button>
+    <span class="sf-step-arrow">→</span>
+    <button type="button" class="sf-step-dot" data-step="2">
+      <span class="sf-step-num">2</span> Detalles
+    </button>
+  </div>
 
-    <div id="sf-create-fields" class="sf-grid">
-      <div class="sf-field">
-        <label for="sf-module">Nombre del módulo</label>
-        <input id="sf-module" placeholder="crm" spellcheck="false">
-        <small>Minúsculas, sin espacios — se usa como identificador interno.</small>
-      </div>
-      <div class="sf-field">
-        <label for="sf-module-label">Título</label>
-        <input id="sf-module-label" placeholder="CRM">
-      </div>
-      <div class="sf-field">
-        <label for="sf-module-icon">Ícono (un emoji)</label>
-        <input id="sf-module-icon" placeholder="📇" maxlength="4">
-      </div>
-    </div>
-
-    <div id="sf-extend-fields" class="sf-grid" hidden>
-      <div class="sf-field sf-wide">
-        <label for="sf-existing-module">Módulo existente</label>
-        <select id="sf-existing-module">
-          <option value="">Cargando catálogo…</option>
-        </select>
-        <small id="sf-existing-info"></small>
-      </div>
-    </div>
-
-    <div class="sf-grid">
-      <div class="sf-field">
-        <label for="sf-model">Nombre del modelo</label>
-        <input id="sf-model" placeholder="lead" spellcheck="false">
-      </div>
-      <div class="sf-field">
-        <label for="sf-model-label">Título del modelo</label>
-        <input id="sf-model-label" placeholder="Oportunidad">
-      </div>
-    </div>
-  </section>
-
-  <!-- Paso 2: diagrama -->
-  <section class="sf-card">
-    <h2>2. El flujo</h2>
-
+  <!-- ============================================ -->
+  <!-- Paso 1: SÓLO el flujo. Nada más en pantalla.  -->
+  <!-- ============================================ -->
+  <section id="sf-step-1" class="sf-card sf-step">
     <div class="sf-field" style="max-width: 260px; margin-bottom: .9rem;">
       <label for="sf-state-field">Nombre del campo de estado</label>
       <input id="sf-state-field" value="estado" spellcheck="false">
@@ -119,22 +76,81 @@
     </div>
 
     <div id="sf-flow-result" class="sf-result" hidden></div>
+
+    <div class="sf-step-nav">
+      <button type="button" id="sf-next" class="sf-btn-primary">Siguiente →</button>
+    </div>
   </section>
 
-  <!-- Paso 3: campos -->
-  <section class="sf-card">
-    <h2>3. Campos adicionales</h2>
+  <!-- ============================================ -->
+  <!-- Paso 2: resumen del flujo + destino + campos  -->
+  <!-- ============================================ -->
+  <section id="sf-step-2" class="sf-card sf-step" hidden>
+    <div class="sf-flow-summary">
+      <span id="sf-flow-summary-text">Sin flujo definido.</span>
+      <button type="button" id="sf-back" class="sf-btn-link">← Editar flujo</button>
+    </div>
+
+    <h2>¿Dónde va esto?</h2>
+    <div class="sf-radio-group">
+      <label>
+        <input type="radio" name="sf-mode" value="create" checked>
+        Crear un módulo nuevo
+      </label>
+      <label>
+        <input type="radio" name="sf-mode" value="extend">
+        Agregar un modelo a un módulo que ya existe
+      </label>
+    </div>
+
+    <div id="sf-create-fields" class="sf-grid">
+      <div class="sf-field">
+        <label for="sf-module">Nombre del módulo</label>
+        <input id="sf-module" placeholder="crm" spellcheck="false">
+        <small>Minúsculas, sin espacios — se usa como identificador interno.</small>
+      </div>
+      <div class="sf-field">
+        <label for="sf-module-label">Título</label>
+        <input id="sf-module-label" placeholder="CRM">
+      </div>
+      <div class="sf-field">
+        <label for="sf-module-icon">Ícono (un emoji)</label>
+        <input id="sf-module-icon" placeholder="📇" maxlength="4">
+      </div>
+    </div>
+
+    <div id="sf-extend-fields" class="sf-grid" hidden>
+      <div class="sf-field sf-wide">
+        <label for="sf-existing-module">Módulo existente</label>
+        <select id="sf-existing-module">
+          <option value="">Cargando catálogo…</option>
+        </select>
+        <small id="sf-existing-info"></small>
+      </div>
+    </div>
+
+    <div class="sf-grid">
+      <div class="sf-field">
+        <label for="sf-model">Nombre del modelo</label>
+        <input id="sf-model" placeholder="lead" spellcheck="false">
+      </div>
+      <div class="sf-field">
+        <label for="sf-model-label">Título del modelo</label>
+        <input id="sf-model-label" placeholder="Oportunidad">
+      </div>
+    </div>
+
+    <h2>Campos adicionales</h2>
     <p class="sf-hint">
-      El campo de estado se agrega solo, con las opciones que salen del
-      diagrama. Estos son los demás datos que necesita el modelo.
+      El campo de estado ya quedó definido en el paso anterior. Estos son los
+      demás datos que necesita el modelo.
     </p>
     <div id="sf-fields-list" class="sf-fields-list"></div>
     <button type="button" id="sf-add-field" class="sf-btn-secondary">+ Agregar campo</button>
-  </section>
 
-  <!-- Paso 4: generar -->
-  <section class="sf-card sf-generate-card">
-    <button type="button" id="sf-generate" class="sf-btn-primary">Generar módulo</button>
+    <div class="sf-step-nav">
+      <button type="button" id="sf-generate" class="sf-btn-primary">Generar módulo</button>
+    </div>
     <div id="sf-generate-result" class="sf-result" hidden></div>
   </section>
 </div>

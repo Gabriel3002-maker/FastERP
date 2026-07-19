@@ -98,12 +98,62 @@ async function init() {
   bindTabs();
   bindDiagramInput();
   bindFieldEditor();
+  bindSteps();
   $('sf-generate').addEventListener('click', generate);
   $('sf-add-state').addEventListener('click', () => addStateNode());
 
   loadCatalog();
   await initCanvas();
   renderFields();
+}
+
+// ========================================
+// Navegación por pasos
+// ========================================
+// El paso 1 es SÓLO el lienzo — nada de nombres de módulo ni campos ahí, para
+// que dibujar el flujo no compita con un formulario largo. Recién al pasar al
+// paso 2 (que valida el flujo antes de dejar avanzar) aparece el resto.
+
+function bindSteps() {
+  $('sf-next').addEventListener('click', goToStep2);
+  $('sf-back').addEventListener('click', () => showStep(1));
+
+  // Los puntos del indicador también navegan: adelante valida, atrás no.
+  document.querySelectorAll('.sf-step-dot').forEach((dot) => {
+    dot.addEventListener('click', () => {
+      if (dot.dataset.step === '2') goToStep2();
+      else showStep(1);
+    });
+  });
+}
+
+function showStep(step) {
+  $('sf-step-1').hidden = step !== 1;
+  $('sf-step-2').hidden = step !== 2;
+  document.querySelectorAll('.sf-step-dot').forEach((dot) => {
+    dot.classList.toggle('sf-step-dot-active', Number(dot.dataset.step) === step);
+  });
+}
+
+// Antes de dejar avanzar, el flujo tiene que ser válido — mismo criterio que
+// ya usa "Generar" (estado inicial marcado, al menos una transición). Así el
+// error aparece junto al lienzo, donde se puede corregir, no al final.
+function goToStep2() {
+  const flow = resolveFlow();
+  const result = $('sf-flow-result');
+
+  if (flow?.error) {
+    result.hidden = false;
+    result.className = 'sf-result sf-result-error';
+    result.textContent = flow.error;
+    return;
+  }
+
+  $('sf-flow-summary-text').textContent = flow
+    ? `${flow.states.length} estados, ${Object.keys(flow.transitions).length} acciones · inicial: ${flow.initial}`
+    : 'Sin flujo definido — el modelo no va a tener estados.';
+
+  showStep(2);
 }
 
 function bindModeToggle() {

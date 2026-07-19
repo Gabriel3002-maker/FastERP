@@ -28,8 +28,95 @@
 }
 
 .sf-card h2 {
-  margin: 0 0 .9rem;
+  margin: 1.6rem 0 .9rem;
   font-size: 1rem;
+}
+
+/* El primer título de cada paso no necesita el margen superior extra. */
+.sf-step > h2:first-of-type {
+  margin-top: 0;
+}
+
+/* --- Indicador de pasos --- */
+.sf-steps-indicator {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  font-size: .85rem;
+}
+
+.sf-step-dot {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  padding: .3rem .7rem .3rem .3rem;
+  border: 1px solid var(--sf-border);
+  border-radius: 999px;
+  background: var(--sf-surface);
+  color: var(--sf-muted);
+  font: inherit;
+  font-size: .82rem;
+  cursor: pointer;
+}
+
+.sf-step-num {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 50%;
+  background: rgba(127, 127, 127, .15);
+  font-weight: 700;
+  font-size: .75rem;
+}
+
+.sf-step-dot-active {
+  color: var(--sf-accent);
+  border-color: var(--sf-accent);
+}
+
+.sf-step-dot-active .sf-step-num {
+  background: var(--sf-accent);
+  color: #fff;
+}
+
+.sf-step-arrow {
+  color: var(--sf-muted);
+}
+
+/* --- Navegación entre pasos --- */
+.sf-step-nav {
+  margin-top: 1.2rem;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.sf-flow-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: .6rem .9rem;
+  margin-bottom: .5rem;
+  border-radius: 8px;
+  background: rgba(37, 99, 235, .08);
+  font-size: .85rem;
+}
+
+.sf-btn-link {
+  border: 0;
+  background: transparent;
+  color: var(--sf-accent);
+  font: inherit;
+  font-size: .82rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.sf-btn-link:hover {
+  text-decoration: underline;
 }
 
 .sf-hint {
@@ -462,8 +549,3 @@
   cursor: not-allowed;
 }
 
-.sf-generate-card {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-}
