@@ -17,6 +17,7 @@ import (
 	"log"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -81,19 +82,48 @@ func (m *ModelDef) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// OrderedFields devuelve los campos en el orden del manifest.
-// Si por algo faltara el orden, cae a orden alfabético para ser determinista.
+// OrderedFields devuelve los campos en el orden de presentación: por sequence
+// si el manifest la declara, y si no, en el orden en que fueron escritos.
 func (m *ModelDef) OrderedFields() []string {
-	if len(m.FieldOrder) == len(m.Fields) {
-		return m.FieldOrder
+	declared := m.FieldOrder
+	if len(declared) != len(m.Fields) {
+		// Sin orden de declaración (modelo armado en código): alfabético, que
+		// al menos es determinista.
+		declared = make([]string, 0, len(m.Fields))
+		for name := range m.Fields {
+			declared = append(declared, name)
+		}
+		sort.Strings(declared)
 	}
 
-	names := make([]string, 0, len(m.Fields))
-	for name := range m.Fields {
-		names = append(names, name)
+	type entry struct {
+		name     string
+		sequence int
+		position int
 	}
-	sort.Strings(names)
-	return names
+
+	entries := make([]entry, len(declared))
+	for i, name := range declared {
+		sequence := (i + 1) * sequenceStep // implícita según la posición
+		if declared := m.Fields[name].Sequence; declared != 0 {
+			sequence = declared
+		}
+		entries[i] = entry{name: name, sequence: sequence, position: i}
+	}
+
+	// Empate de sequence: gana quien se declaró primero. Orden estable.
+	sort.SliceStable(entries, func(a, b int) bool {
+		if entries[a].sequence != entries[b].sequence {
+			return entries[a].sequence < entries[b].sequence
+		}
+		return entries[a].position < entries[b].position
+	})
+
+	order := make([]string, len(entries))
+	for i, e := range entries {
+		order[i] = e.name
+	}
+	return order
 }
 
 // jsonKeyOrder lee las claves de un objeto anidado en el orden en que aparecen.
@@ -156,7 +186,18 @@ type FieldDef struct {
 	Options  []string `json:"options,omitempty"`
 	Readonly bool     `json:"readonly,omitempty"`
 	Example  any      `json:"example,omitempty"`
+
+	// Sequence controla el orden de presentación (columnas y formulario).
+	// Convención tipo Odoo: 10, 20, 30… Un campo sin sequence recibe una
+	// implícita según su posición en el manifest —(posición+1)*10— así que
+	// poner "sequence": 5 lo manda al frente y 15 lo mete entre el primero y
+	// el segundo, sin tener que numerar todos los demás.
+	Sequence int `json:"sequence,omitempty"`
 }
+
+// sequenceStep es el espacio que queda entre campos consecutivos sin sequence
+// explícita, para poder intercalar sin renumerar.
+const sequenceStep = 10
 
 // UnmarshalJSON acepta "length" y su alias "value" para el tamaño del campo.
 func (f *FieldDef) UnmarshalJSON(data []byte) error {
@@ -301,6 +342,9 @@ func (s *ModuleSDK) Create(ctx context.Context, modelName string, data map[strin
 			}
 			continue
 		}
+		if err := checkLength(fieldName, def, raw); err != nil {
+			return "", err
+		}
 		cols = append(cols, fieldName)
 		vals = append(vals, raw)
 		holders = append(holders, fmt.Sprintf("$%d", len(vals)))
@@ -341,7 +385,7 @@ func (s *ModuleSDK) Get(ctx context.Context, modelName, id string) (map[string]a
 	if !rows.Next() {
 		return nil, fmt.Errorf("registro no encontrado")
 	}
-	return scanRow(rows, cols)
+	return scanRow(rows, cols, model)
 }
 
 // Update actualiza un registro. → @fast.update()
@@ -361,6 +405,9 @@ func (s *ModuleSDK) Update(ctx context.Context, modelName, id string, data map[s
 		}
 		if def.Required && isEmpty(raw) {
 			return fmt.Errorf("el campo %q es obligatorio", fieldName)
+		}
+		if err := checkLength(fieldName, def, raw); err != nil {
+			return err
 		}
 		vals = append(vals, raw)
 		sets = append(sets, fmt.Sprintf("%s = $%d", fieldName, len(vals)))
@@ -487,7 +534,7 @@ func (s *ModuleSDK) List(ctx context.Context, modelName string, opts ListOptions
 
 	records := make([]map[string]any, 0, limit)
 	for rows.Next() {
-		entry, err := scanRow(rows, cols)
+		entry, err := scanRow(rows, cols, model)
 		if err != nil {
 			return nil, err
 		}
@@ -561,8 +608,13 @@ func selectColumns(model *ModelDef) []string {
 	return append(cols, "created_at", "updated_at")
 }
 
-// scanRow convierte una fila en map, normalizando []byte a string.
-func scanRow(rows *sql.Rows, cols []string) (map[string]any, error) {
+// scanRow convierte una fila en map, devolviendo cada campo con el tipo que
+// el manifest promete.
+//
+// El driver entrega NUMERIC como []byte: sin esta conversión un campo money
+// saldría como "2500.75" (texto) mientras el OpenAPI declara type: number, y
+// la API estaría mintiendo sobre su propio contrato.
+func scanRow(rows *sql.Rows, cols []string, model *ModelDef) (map[string]any, error) {
 	values := make([]any, len(cols))
 	ptrs := make([]any, len(cols))
 	for i := range cols {
@@ -574,13 +626,42 @@ func scanRow(rows *sql.Rows, cols []string) (map[string]any, error) {
 
 	entry := make(map[string]any, len(cols))
 	for i, col := range cols {
-		if b, ok := values[i].([]byte); ok {
-			entry[col] = string(b)
-			continue
-		}
-		entry[col] = values[i]
+		entry[col] = normalizeValue(values[i], model.Fields[col])
 	}
 	return entry, nil
+}
+
+// normalizeValue lleva el valor crudo del driver al tipo declarado.
+func normalizeValue(value any, def *FieldDef) any {
+	if value == nil {
+		return nil
+	}
+
+	text, isBytes := value.([]byte)
+	if !isBytes {
+		return value
+	}
+
+	// Columnas administradas por el core (id, fechas) o campos sin declarar.
+	if def == nil {
+		return string(text)
+	}
+
+	switch def.Spec().JSONType {
+	case "number":
+		if n, err := strconv.ParseFloat(string(text), 64); err == nil {
+			return n
+		}
+	case "integer":
+		if n, err := strconv.ParseInt(string(text), 10, 64); err == nil {
+			return n
+		}
+	case "boolean":
+		if b, err := strconv.ParseBool(string(text)); err == nil {
+			return b
+		}
+	}
+	return string(text)
 }
 
 func isEmpty(v any) bool {
@@ -589,4 +670,28 @@ func isEmpty(v any) bool {
 	}
 	s, ok := v.(string)
 	return ok && strings.TrimSpace(s) == ""
+}
+
+// checkLength valida el largo contra el manifest antes de llegar a Postgres.
+//
+// Sin esto el usuario recibiría "pq: value too long for type character
+// varying(20)": el motor sabe cuál es el campo y cuánto admite, así que puede
+// decirlo en esos términos.
+func checkLength(field string, def *FieldDef, value any) error {
+	if def.Length <= 0 {
+		return nil
+	}
+	text, ok := value.(string)
+	if !ok {
+		return nil
+	}
+	if len([]rune(text)) > def.Length {
+		label := field
+		if def.Label != "" {
+			label = def.Label
+		}
+		return fmt.Errorf("%s admite máximo %d caracteres (se enviaron %d)",
+			label, def.Length, len([]rune(text)))
+	}
+	return nil
 }

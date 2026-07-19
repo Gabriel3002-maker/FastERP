@@ -7,12 +7,18 @@ import "strings"
 type ViewsDef struct {
 	Default string      `json:"default,omitempty"`
 	List    *ListView   `json:"list,omitempty"`
+	Form    *FormView   `json:"form,omitempty"`
 	Card    *CardView   `json:"card,omitempty"`
 	Kanban  *KanbanView `json:"kanban,omitempty"`
 }
 
 type ListView struct {
 	Columns []string `json:"columns"`
+}
+
+// FormView describe el formulario de alta y edición.
+type FormView struct {
+	Fields []string `json:"fields"`
 }
 
 type CardView struct {
@@ -111,6 +117,9 @@ func inferViews(model *ModelDef, order []string) ViewsDef {
 	if views.List == nil {
 		views.List = &ListView{Columns: inferColumns(model, order)}
 	}
+	if views.Form == nil {
+		views.Form = inferForm(model, order)
+	}
 	if views.Card == nil {
 		views.Card = inferCard(model, order)
 	}
@@ -143,6 +152,21 @@ func inferColumns(model *ModelDef, order []string) []string {
 		columns = order[:min(len(order), maxInferredColumns)]
 	}
 	return columns
+}
+
+// inferForm arma el formulario con TODOS los campos editables del manifest, en
+// orden de sequence. A diferencia de la tabla no se recorta: si el módulo
+// declaró el campo, la persona tiene que poder llenarlo. Un formulario escrito
+// a mano es justo donde se pierden campos cuando el esquema crece.
+func inferForm(model *ModelDef, order []string) *FormView {
+	fields := make([]string, 0, len(order))
+	for _, name := range order {
+		if model.Fields[name].Readonly {
+			continue
+		}
+		fields = append(fields, name)
+	}
+	return &FormView{Fields: fields}
 }
 
 // inferCard usa el campo identificador como título y el siguiente texto corto

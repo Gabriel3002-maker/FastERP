@@ -451,3 +451,150 @@ func TestFilterValue(t *testing.T) {
 		}
 	}
 }
+
+// sequence controla el orden de presentación sin reordenar el archivo.
+func TestSequenceMandaSobreElOrdenDelArchivo(t *testing.T) {
+	manifest := `{"name":"m","models":{"item":{"fields":{
+		"tercero":{"type":"string","sequence":30},
+		"primero":{"type":"string","sequence":10},
+		"segundo":{"type":"string","sequence":20}
+	}}}}`
+
+	s := NewModuleSDK("m", "t", "", nil)
+	if err := s.LoadManifest(manifest); err != nil {
+		t.Fatalf("manifest rechazado: %v", err)
+	}
+
+	got := s.Manifest.Models["item"].OrderedFields()
+	want := "primero,segundo,tercero"
+	if strings.Join(got, ",") != want {
+		t.Errorf("OrderedFields() = %v, want [%s]", got, want)
+	}
+}
+
+// La sequence implícita deja huecos (10, 20, 30…) para poder intercalar un
+// campo sin tener que numerar todos los demás.
+func TestSequenceImplicitaPermiteIntercalar(t *testing.T) {
+	// "cuña" con sequence 15 debe caer entre el 1º (10) y el 2º (20).
+	manifest := `{"name":"m","models":{"item":{"fields":{
+		"uno":{"type":"string"},
+		"dos":{"type":"string"},
+		"cuna":{"type":"string","sequence":15}
+	}}}}`
+
+	s := NewModuleSDK("m", "t", "", nil)
+	if err := s.LoadManifest(manifest); err != nil {
+		t.Fatalf("manifest rechazado: %v", err)
+	}
+
+	got := s.Manifest.Models["item"].OrderedFields()
+	want := "uno,cuna,dos"
+	if strings.Join(got, ",") != want {
+		t.Errorf("OrderedFields() = %v, want [%s]", got, want)
+	}
+}
+
+// El formulario lleva TODOS los campos editables, no un recorte como la tabla:
+// es justo donde se pierden campos cuando el esquema crece.
+func TestFormIncluyeTodosLosCamposEditables(t *testing.T) {
+	manifest := `{"name":"m","models":{"item":{"fields":{
+		"a":{"type":"string","required":true},
+		"b":{"type":"text"},
+		"c":{"type":"money"},
+		"d":{"type":"string"},
+		"e":{"type":"string"},
+		"f":{"type":"string"},
+		"g":{"type":"string"},
+		"calculado":{"type":"string","readonly":true}
+	}}}}`
+
+	s := NewModuleSDK("m", "t", "", nil)
+	if err := s.LoadManifest(manifest); err != nil {
+		t.Fatalf("manifest rechazado: %v", err)
+	}
+
+	meta, _ := s.Meta("item")
+
+	// La tabla recorta a maxInferredColumns; el formulario no.
+	if len(meta.Views.List.Columns) > maxInferredColumns {
+		t.Errorf("la tabla no debería pasar de %d columnas: %v",
+			maxInferredColumns, meta.Views.List.Columns)
+	}
+	if len(meta.Views.Form.Fields) != 7 { // los 8 menos el readonly
+		t.Errorf("form.fields = %v, want los 7 editables", meta.Views.Form.Fields)
+	}
+	for _, f := range meta.Views.Form.Fields {
+		if f == "calculado" {
+			t.Error("un campo readonly no debería ser editable en el formulario")
+		}
+	}
+}
+
+// El largo se valida contra el manifest antes de llegar a Postgres, para poder
+// decir qué campo falló en vez de filtrar "pq: value too long for type...".
+func TestCheckLength(t *testing.T) {
+	tests := []struct {
+		name    string
+		def     FieldDef
+		value   any
+		wantErr bool
+	}{
+		{"dentro del largo", FieldDef{Length: 10}, "corto", false},
+		{"justo en el límite", FieldDef{Length: 5}, "12345", false},
+		{"excedido", FieldDef{Length: 5}, "123456", true},
+		{"sin largo declarado", FieldDef{}, strings.Repeat("x", 500), false},
+		{"no es texto", FieldDef{Length: 2}, 12345, false},
+		// Los acentos son un carácter, no dos: se cuentan runas, no bytes.
+		{"acentos cuentan como un carácter", FieldDef{Length: 5}, "áéíóú", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := checkLength("campo", &tc.def, tc.value)
+			if (err != nil) != tc.wantErr {
+				t.Errorf("checkLength(%v) error = %v, wantErr = %v", tc.value, err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// El mensaje usa la etiqueta del manifest, que es lo que la persona ve en el
+// formulario.
+func TestCheckLengthUsaLaEtiquetaDelManifest(t *testing.T) {
+	def := FieldDef{Length: 20, Label: "Número de identificación"}
+	err := checkLength("tax_id", &def, strings.Repeat("9", 25))
+	if err == nil {
+		t.Fatal("se esperaba error")
+	}
+	if !strings.Contains(err.Error(), "Número de identificación") {
+		t.Errorf("el error debería usar la etiqueta: %v", err)
+	}
+}
+
+// El driver entrega NUMERIC como []byte; el manifest dice que es un número.
+// Sin esta conversión la API contradiría a su propio OpenAPI.
+func TestNormalizeValueRespetaElTipoDeclarado(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  any
+		def  *FieldDef
+		want any
+	}{
+		{"money llega como bytes y sale número", []byte("2500.75"), &FieldDef{Type: "money"}, 2500.75},
+		{"entero", []byte("42"), &FieldDef{Type: "integer"}, int64(42)},
+		{"booleano", []byte("true"), &FieldDef{Type: "boolean"}, true},
+		{"texto queda texto", []byte("hola"), &FieldDef{Type: "string"}, "hola"},
+		{"columna del core sin declarar", []byte("abc"), nil, "abc"},
+		{"nulo se conserva", nil, &FieldDef{Type: "money"}, nil},
+		{"lo que no es bytes pasa igual", 7, &FieldDef{Type: "integer"}, 7},
+		{"número corrupto cae a texto", []byte("no-es-numero"), &FieldDef{Type: "money"}, "no-es-numero"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := normalizeValue(tc.raw, tc.def); got != tc.want {
+				t.Errorf("normalizeValue() = %#v, want %#v", got, tc.want)
+			}
+		})
+	}
+}

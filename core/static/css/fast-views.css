@@ -197,3 +197,142 @@
 
 .fv-pager button:hover:not(:disabled) { border-color: var(--fv-accent); color: var(--fv-accent); }
 .fv-pager button:disabled { opacity: .45; cursor: not-allowed; }
+
+/* --- Formulario generado desde el manifest --- */
+.fv-dialog {
+  width: min(640px, 92vw);
+  padding: 0;
+  border: 1px solid var(--fv-border);
+  border-radius: var(--fv-radius);
+  background: var(--fv-surface);
+  color: inherit;
+}
+
+.fv-dialog::backdrop {
+  background: rgba(15, 23, 42, .45);
+}
+
+.fv-form header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--fv-border);
+}
+
+.fv-form-title {
+  margin: 0;
+  font-size: 1.05rem;
+  text-transform: capitalize;
+}
+
+.fv-close {
+  border: 0;
+  background: transparent;
+  color: var(--fv-muted);
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.fv-close:hover { color: inherit; }
+
+.fv-form-error {
+  margin: 0;
+  padding: .7rem 1.25rem;
+  background: rgba(220, 38, 38, .08);
+  color: #dc2626;
+  font-size: .85rem;
+  border-bottom: 1px solid var(--fv-border);
+}
+
+/* Dos columnas en pantallas anchas; los textarea ocupan el ancho completo. */
+.fv-form-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: .9rem 1rem;
+  padding: 1.25rem;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.fv-wide { grid-column: 1 / -1; }
+
+.fv-field {
+  display: flex;
+  flex-direction: column;
+  gap: .3rem;
+}
+
+.fv-field label {
+  font-size: .8rem;
+  font-weight: 600;
+  color: var(--fv-muted);
+}
+
+.fv-req { color: #dc2626; }
+
+.fv-field input,
+.fv-field select,
+.fv-field textarea {
+  width: 100%;
+  padding: .45rem .6rem;
+  border: 1px solid var(--fv-border);
+  border-radius: 6px;
+  font: inherit;
+  font-size: .88rem;
+  background: transparent;
+  color: inherit;
+}
+
+.fv-field input[type="checkbox"] {
+  width: auto;
+  justify-self: start;
+  accent-color: var(--fv-accent);
+}
+
+.fv-field textarea { resize: vertical; }
+
+.fv-field input:focus,
+.fv-field select:focus,
+.fv-field textarea:focus {
+  outline: 2px solid var(--fv-accent);
+  outline-offset: -1px;
+}
+
+.fv-field small {
+  font-size: .75rem;
+  color: var(--fv-muted);
+}
+
+.fv-form footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: .6rem;
+  padding: 1rem 1.25rem;
+  border-top: 1px solid var(--fv-border);
+}
+
+.fv-form footer button {
+  padding: .5rem 1.1rem;
+  border-radius: var(--fv-radius);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.fv-cancel {
+  border: 1px solid var(--fv-border);
+  background: transparent;
+  color: inherit;
+}
+
+.fv-save {
+  border: 0;
+  background: var(--fv-accent);
+  color: #fff;
+}
+
+.fv-save:hover { filter: brightness(1.08); }
+.fv-save:disabled { opacity: .6; cursor: not-allowed; }
