@@ -45,6 +45,7 @@ func main() {
 	moduleHandler := handlers.NewModuleHandler(dbConn)
 	crudHandler := handlers.NewGenericCRUDHandler(dbConn, cfg.Modules.Path, authHandler.SessionManager())
 	docsHandler := handlers.NewDocsHandler(cfg.Modules.Path)
+	studioHandler := handlers.NewStudioHandler()
 
 	// Configurar router
 	mux := http.NewServeMux()
@@ -188,6 +189,10 @@ func main() {
 	// Catálogo de módulos instalados: lo que un diseñador visual (Studio-Flujo)
 	// necesita para ofrecer "extender esto" antes de generar algo nuevo.
 	mux.HandleFunc("/api/_catalog", docsHandler.Catalog)
+
+	// Studio-Flujo: por ahora sólo interpretar diagramas (cómputo puro, sin
+	// tocar disco). Generar y escribir el manifiesto es una pieza aparte.
+	mux.HandleFunc("/api/_studio/parse-mermaid", studioHandler.ParseMermaid)
 
 	// Flujo (workflow): mover un registro por sus estados y ver su historial.
 	// Van antes del dispatcher genérico: en Go 1.22+ el segmento literal final

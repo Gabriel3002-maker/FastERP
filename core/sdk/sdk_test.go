@@ -889,3 +889,260 @@ func TestBuildCatalogSinModulosDaListaVacia(t *testing.T) {
 		t.Errorf("catalog = %v, want lista vacía (no nil)", catalog)
 	}
 }
+
+// ── Parser Mermaid ───────────────────────────────────────────────────────
+
+// El diagrama de contacts, tal como quedó en su manifest.json, debe
+// parsear exactamente al mismo workflow que ya está probado en producción.
+func TestParseMermaidDiagramaDeContactos(t *testing.T) {
+	diagram := `
+stateDiagram-v2
+    [*] --> prospecto
+    prospecto --> activo : Activar
+    inactivo --> activo : Activar
+    prospecto --> inactivo : Desactivar
+    activo --> inactivo : Desactivar
+`
+	parsed, err := ParseMermaidStateDiagram(diagram)
+	if err != nil {
+		t.Fatalf("diagrama válido rechazado: %v", err)
+	}
+
+	if parsed.Initial != "prospecto" {
+		t.Errorf("initial = %q, want prospecto", parsed.Initial)
+	}
+
+	wantStates := "prospecto,activo,inactivo"
+	if got := strings.Join(parsed.States, ","); got != wantStates {
+		t.Errorf("states = %q, want %q (orden de aparición)", got, wantStates)
+	}
+
+	activar, ok := parsed.Transitions["activar"]
+	if !ok {
+		t.Fatal("falta la acción 'activar'")
+	}
+	if activar.To != "activo" {
+		t.Errorf("activar.To = %q, want activo", activar.To)
+	}
+	wantFrom := map[string]bool{"prospecto": true, "inactivo": true}
+	if len(activar.From) != 2 {
+		t.Fatalf("activar.From = %v, want 2 orígenes", activar.From)
+	}
+	for _, f := range activar.From {
+		if !wantFrom[f] {
+			t.Errorf("origen inesperado en activar.From: %q", f)
+		}
+	}
+
+	desactivar, ok := parsed.Transitions["desactivar"]
+	if !ok {
+		t.Fatal("falta la acción 'desactivar'")
+	}
+	if desactivar.To != "inactivo" || len(desactivar.From) != 2 {
+		t.Errorf("desactivar = %+v", desactivar)
+	}
+}
+
+// Sin espacios alrededor de --> ni de los dos puntos, sigue interpretándose
+// bien: por eso se cortó en dos pasos (Cut de "-->", después Cut de ":") en
+// vez de una sola regex que confundiría el separador con la etiqueta.
+func TestParseMermaidSinEspacios(t *testing.T) {
+	diagram := "[*]-->nuevo\nnuevo-->listo:avanzar"
+	parsed, err := ParseMermaidStateDiagram(diagram)
+	if err != nil {
+		t.Fatalf("diagrama sin espacios rechazado: %v", err)
+	}
+	if parsed.Initial != "nuevo" {
+		t.Errorf("initial = %q, want nuevo", parsed.Initial)
+	}
+	if _, ok := parsed.Transitions["avanzar"]; !ok {
+		t.Fatal("falta la acción 'avanzar'")
+	}
+}
+
+func TestParseMermaidFinalesYComentariosSeIgnoran(t *testing.T) {
+	diagram := `
+%% esto es un comentario, se ignora
+stateDiagram-v2
+[*] --> nuevo
+nuevo --> listo : avanzar
+listo --> [*]
+nota_cosmetica : esto no es una transición
+`
+	parsed, err := ParseMermaidStateDiagram(diagram)
+	if err != nil {
+		t.Fatalf("diagrama rechazado: %v", err)
+	}
+	if len(parsed.Transitions) != 1 {
+		t.Errorf("transiciones = %v, want sólo 'avanzar'", parsed.Transitions)
+	}
+}
+
+func TestParseMermaidSinEstadoInicialFalla(t *testing.T) {
+	diagram := "nuevo --> listo : avanzar"
+	if _, err := ParseMermaidStateDiagram(diagram); err == nil {
+		t.Fatal("se esperaba error: no hay [*] --> estado")
+	}
+}
+
+func TestParseMermaidDosEstadosInicialesFalla(t *testing.T) {
+	diagram := `
+[*] --> nuevo
+[*] --> otro
+nuevo --> listo : avanzar
+`
+	if _, err := ParseMermaidStateDiagram(diagram); err == nil {
+		t.Fatal("se esperaba error: dos estados iniciales distintos")
+	}
+}
+
+// El mismo estado inicial declarado dos veces no es una ambigüedad real.
+func TestParseMermaidEstadoInicialRepetidoNoFalla(t *testing.T) {
+	diagram := `
+[*] --> nuevo
+[*] --> nuevo
+nuevo --> listo : avanzar
+`
+	parsed, err := ParseMermaidStateDiagram(diagram)
+	if err != nil {
+		t.Fatalf("no debería fallar: %v", err)
+	}
+	if parsed.Initial != "nuevo" {
+		t.Errorf("initial = %q, want nuevo", parsed.Initial)
+	}
+}
+
+func TestParseMermaidSinTransicionesFalla(t *testing.T) {
+	diagram := "[*] --> nuevo"
+	if _, err := ParseMermaidStateDiagram(diagram); err == nil {
+		t.Fatal("se esperaba error: no hay transiciones")
+	}
+}
+
+func TestParseMermaidSinEtiquetaFalla(t *testing.T) {
+	diagram := "[*] --> nuevo\nnuevo --> listo"
+	if _, err := ParseMermaidStateDiagram(diagram); err == nil {
+		t.Fatal("se esperaba error: transición sin etiqueta no tiene nombre de acción")
+	}
+}
+
+func TestParseMermaidMismaAccionDosDestinosFalla(t *testing.T) {
+	diagram := `
+[*] --> nuevo
+nuevo --> listo : avanzar
+nuevo --> cancelado : avanzar
+`
+	_, err := ParseMermaidStateDiagram(diagram)
+	if err == nil {
+		t.Fatal("se esperaba error: 'avanzar' no puede llevar a dos destinos distintos")
+	}
+}
+
+// Dos etiquetas distintas que casualmente slugifican igual deben rechazarse:
+// fusionarlas en silencio perdería la intención de quien dibujó el diagrama.
+func TestParseMermaidEtiquetasColisionanFalla(t *testing.T) {
+	diagram := `
+[*] --> nuevo
+nuevo --> listo : Avanzar Ya
+otro --> listo : "Avanzar Ya"
+`
+	// Mismo destino (listo) en ambas líneas, así que el chequeo de "a dónde
+	// lleva la acción" no dispara solo. "Avanzar Ya" y "\"Avanzar Ya\"" no son
+	// iguales como texto, pero slugifican igual (las comillas se vuelven
+	// separador) — eso es lo que debe detectarse como colisión.
+	_, err := ParseMermaidStateDiagram(diagram)
+	if err == nil {
+		t.Fatal("se esperaba error: etiquetas distintas que producen la misma acción")
+	}
+	if !strings.Contains(err.Error(), "misma acción") {
+		t.Errorf("el error debería ser por colisión de etiqueta, fue: %v", err)
+	}
+}
+
+func TestParseMermaidEstadosCompuestosRechazados(t *testing.T) {
+	diagram := `
+[*] --> nuevo
+state nuevo {
+  [*] --> interno
+}
+`
+	_, err := ParseMermaidStateDiagram(diagram)
+	if err == nil {
+		t.Fatal("se esperaba rechazo: estados compuestos no soportados")
+	}
+}
+
+func TestParseMermaidStateAsRechazado(t *testing.T) {
+	diagram := `
+state "Nombre Bonito" as nuevo
+[*] --> nuevo
+nuevo --> listo : avanzar
+`
+	_, err := ParseMermaidStateDiagram(diagram)
+	if err == nil {
+		t.Fatal("se esperaba rechazo: sintaxis 'state ... as ...' no soportada")
+	}
+}
+
+// El resultado del parser tiene que poder colgarse tal cual de un manifest y
+// pasar la MISMA validación que ya protege a los flujos escritos a mano —
+// no hay un camino separado y más laxo para lo generado.
+func TestParseMermaidProduceUnWorkflowValidoParaElMotor(t *testing.T) {
+	diagram := `
+[*] --> prospecto
+prospecto --> activo : Activar
+activo --> inactivo : Desactivar
+inactivo --> activo : Activar
+`
+	parsed, err := ParseMermaidStateDiagram(diagram)
+	if err != nil {
+		t.Fatalf("parser rechazó un diagrama válido: %v", err)
+	}
+
+	manifest := &Manifest{
+		Name: "demo",
+		Models: map[string]*ModelDef{
+			"item": {
+				Fields: map[string]*FieldDef{
+					"estado": {Type: "string", Options: parsed.States},
+				},
+				Workflow: &WorkflowDef{
+					Field:       "estado",
+					Initial:     parsed.Initial,
+					Transitions: parsed.Transitions,
+				},
+			},
+		},
+	}
+
+	if err := validateWorkflow("item", manifest.Models["item"]); err != nil {
+		t.Fatalf("el workflow generado por el parser no pasa validateWorkflow: %v", err)
+	}
+}
+
+func TestSlugifyAction(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"Activar", "activar"},
+		{"Confirmar Pedido", "confirmar_pedido"},
+		{"Enviar a Bodega", "enviar_a_bodega"},
+		{"¡Aprobar!", "aprobar"},
+		{"  espacios  al  borde  ", "espacios_al_borde"},
+		{"2da revisión", "t_2da_revisi_n"}, // dígito inicial → prefijo; sin normalización unicode
+		{"", "accion"},
+		{"!!!", "accion"},
+	}
+	for _, tc := range tests {
+		if got := slugifyAction(tc.in); got != tc.want {
+			t.Errorf("slugifyAction(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+
+	// El resultado siempre debe cumplir identRe, sea cual sea la entrada.
+	inputs := []string{"Activar", "2da revisión", "¡Aprobar!", "", "áéíóú", strings.Repeat("x", 200)}
+	for _, in := range inputs {
+		slug := slugifyAction(in)
+		if !identRe.MatchString(slug) {
+			t.Errorf("slugifyAction(%q) = %q no cumple identRe", in, slug)
+		}
+	}
+}
