@@ -605,7 +605,7 @@
     <script>
         let allModules = [];
         let currentFilter = 'all';
-        const tenantID = localStorage.getItem('tenant_id') || 'default-123';
+        const tenantID = getTenantIDFromToken() || localStorage.getItem('tenant_id');
 
         // Cargar datos del usuario
         function loadUserInfo() {

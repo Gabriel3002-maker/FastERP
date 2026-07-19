@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"net/http"
+	"path/filepath"
 
 	"github.com/fasterp/backend/db"
 )
@@ -32,74 +34,93 @@ func NewModuleHandler(dbConn *db.DB) *ModuleHandler {
 	}
 }
 
+// loadModulesFromFilesystem lee los manifiestos de módulos del filesystem
+func (mh *ModuleHandler) loadModulesFromFilesystem() []ModuleInfo {
+	var modules []ModuleInfo
+	modulesDir := "../modules"
+
+	// Leer directorio de módulos
+	entries, err := ioutil.ReadDir(modulesDir)
+	if err != nil {
+		fmt.Printf("[DEBUG] Error reading modules directory: %v\n", err)
+		return modules
+	}
+
+	// Para cada directorio, buscar manifest.json
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		manifestPath := filepath.Join(modulesDir, entry.Name(), "manifest.json")
+		data, err := ioutil.ReadFile(manifestPath)
+		if err != nil {
+			fmt.Printf("[DEBUG] No manifest found for %s: %v\n", entry.Name(), err)
+			continue
+		}
+
+		// Parsear manifest.json
+		var manifest map[string]interface{}
+		if err := json.Unmarshal(data, &manifest); err != nil {
+			fmt.Printf("[DEBUG] Error parsing manifest for %s: %v\n", entry.Name(), err)
+			continue
+		}
+
+		// Construir ModuleInfo desde el manifest
+		module := ModuleInfo{
+			ID:   entry.Name(),
+			Name: entry.Name(),
+		}
+
+		// Extraer campos del manifest
+		if label, ok := manifest["label"].(string); ok {
+			module.Label = label
+		} else {
+			module.Label = entry.Name()
+		}
+
+		if version, ok := manifest["version"].(string); ok {
+			module.Version = version
+		} else {
+			module.Version = "1.0.0"
+		}
+
+		if author, ok := manifest["author"].(string); ok {
+			module.Author = author
+		}
+
+		if description, ok := manifest["description"].(string); ok {
+			module.Description = description
+		}
+
+		if icon, ok := manifest["icon"].(string); ok {
+			module.Icon = icon
+		} else {
+			module.Icon = "📦"
+		}
+
+		// Extraer dependencias si existen
+		if depends, ok := manifest["depends"].([]interface{}); ok {
+			for _, dep := range depends {
+				if depStr, ok := dep.(string); ok {
+					module.Depends = append(module.Depends, depStr)
+				}
+			}
+		}
+
+		modules = append(modules, module)
+	}
+
+	return modules
+}
+
 // GetAvailableModules devuelve módulos disponibles y su estado
 func (mh *ModuleHandler) GetAvailableModules(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
 	tenantID := r.Header.Get("X-Tenant-ID")
 
-	// Módulos disponibles en el sistema (hardcoded, en futuro serían escaneados del filesystem)
-	available := []ModuleInfo{
-		{
-			ID:          "contacts",
-			Name:        "contacts",
-			Label:       "Contacts",
-			Version:     "1.0.0",
-			Author:      "FastERP",
-			Description: "Gestión de contactos, clientes y proveedores",
-			Icon:        "👥",
-			Depends:     []string{},
-		},
-		{
-			ID:          "tienda_web",
-			Name:        "tienda_web",
-			Label:       "Store",
-			Version:     "1.0.0",
-			Author:      "FastERP",
-			Description: "E-commerce y tienda online",
-			Icon:        "🛍️",
-			Depends:     []string{},
-		},
-		{
-			ID:          "sitio_web",
-			Name:        "sitio_web",
-			Label:       "Website",
-			Version:     "1.0.0",
-			Author:      "FastERP",
-			Description: "CMS para crear sitios web",
-			Icon:        "🌐",
-			Depends:     []string{},
-		},
-		{
-			ID:          "sites",
-			Name:        "sites",
-			Label:       "Sites",
-			Version:     "1.0.0",
-			Author:      "FastERP",
-			Description: "Gestión de múltiples sitios",
-			Icon:        "📍",
-			Depends:     []string{},
-		},
-		{
-			ID:          "products",
-			Name:        "products",
-			Label:       "Products",
-			Version:     "1.0.0",
-			Author:      "FastERP",
-			Description: "Catálogo de productos",
-			Icon:        "📦",
-			Depends:     []string{},
-		},
-		{
-			ID:          "integracion_odoo_fasterp",
-			Name:        "integracion_odoo_fasterp",
-			Label:       "Odoo Integration",
-			Version:     "1.0.0",
-			Author:      "FastERP",
-			Description: "Sincronización con Odoo ERP",
-			Icon:        "🔗",
-			Depends:     []string{},
-		},
-	}
+	// Leer módulos desde el filesystem
+	available := mh.loadModulesFromFilesystem()
 
 	// Obtener módulos instalados
 	query := `
@@ -144,6 +165,8 @@ func (mh *ModuleHandler) InstallModule(w http.ResponseWriter, r *http.Request) {
 	tenantID := r.Header.Get("X-Tenant-ID")
 	moduleName := r.URL.Query().Get("name")
 
+	fmt.Printf("[InstallModule] Starting - tenantID: %s, moduleName: %s\n", tenantID, moduleName)
+
 	if moduleName == "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -153,17 +176,22 @@ func (mh *ModuleHandler) InstallModule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validar que existe
-	available := map[string]ModuleInfo{
-		"contacts":                    {Name: "contacts", Label: "Contacts"},
-		"tienda_web":                  {Name: "tienda_web", Label: "Store"},
-		"sitio_web":                   {Name: "sitio_web", Label: "Website"},
-		"sites":                        {Name: "sites", Label: "Sites"},
-		"products":                     {Name: "products", Label: "Products"},
-		"integracion_odoo_fasterp":    {Name: "integracion_odoo_fasterp", Label: "Odoo Integration"},
+	// Cargar módulos disponibles y validar que existe
+	availableModules := mh.loadModulesFromFilesystem()
+	fmt.Printf("[InstallModule] Loaded %d available modules\n", len(availableModules))
+	var module ModuleInfo
+	var found bool
+
+	for _, m := range availableModules {
+		if m.Name == moduleName {
+			module = m
+			found = true
+			break
+		}
 	}
 
-	if _, exists := available[moduleName]; !exists {
+	if !found {
+		fmt.Printf("[InstallModule] Module %s not found\n", moduleName)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -171,11 +199,14 @@ func (mh *ModuleHandler) InstallModule(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	fmt.Printf("[InstallModule] Module found: %s v%s\n", module.Label, module.Version)
 
 	// Verificar si ya está instalado
+	fmt.Printf("[InstallModule] Checking if module already installed...\n")
 	row := mh.dbConn.QueryRow(ctx, "SELECT COUNT(*) FROM installed_modules WHERE tenant_id = $1 AND name = $2", tenantID, moduleName)
 	var count int
 	if err := row.Scan(&count); err != nil {
+		fmt.Printf("[InstallModule] Error checking installation: %v\n", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -185,9 +216,13 @@ func (mh *ModuleHandler) InstallModule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if count > 0 {
+		fmt.Printf("[InstallModule] Module already installed, activating...\n")
 		// Ya existe, solo activar
 		query := `UPDATE installed_modules SET active = true, updated_at = CURRENT_TIMESTAMP WHERE tenant_id = $1 AND name = $2`
-		mh.dbConn.Exec(ctx, query, tenantID, moduleName)
+		_, err := mh.dbConn.Exec(ctx, query, tenantID, moduleName)
+		if err != nil {
+			fmt.Printf("[InstallModule] Error activating module: %v\n", err)
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -199,14 +234,19 @@ func (mh *ModuleHandler) InstallModule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Insertar nuevo
+	fmt.Printf("[InstallModule] Inserting new module...\n")
 	moduleID := generateUUID()
 	query := `
 		INSERT INTO installed_modules (id, tenant_id, name, version, label, active, installed_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 	`
 
-	_, err := mh.dbConn.Exec(ctx, query, moduleID, tenantID, moduleName, "1.0.0", available[moduleName].Label)
+	fmt.Printf("[InstallModule] SQL Params - ID: %s, TenantID: %s, Name: %s, Version: %s, Label: %s\n",
+		moduleID, tenantID, moduleName, module.Version, module.Label)
+
+	_, err := mh.dbConn.Exec(ctx, query, moduleID, tenantID, moduleName, module.Version, module.Label)
 	if err != nil {
+		fmt.Printf("[InstallModule] Error installing module: %v\n", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -214,6 +254,7 @@ func (mh *ModuleHandler) InstallModule(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	fmt.Printf("[InstallModule] Module installed successfully\n")
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -238,10 +279,12 @@ func (mh *ModuleHandler) UninstallModule(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Desactivar
-	query := `UPDATE installed_modules SET active = false, updated_at = CURRENT_TIMESTAMP WHERE tenant_id = $1 AND name = $2`
+	// Eliminar completamente
+	fmt.Printf("[UninstallModule] Deleting module %s for tenant %s\n", moduleName, tenantID)
+	query := `DELETE FROM installed_modules WHERE tenant_id = $1 AND name = $2`
 	_, err := mh.dbConn.Exec(ctx, query, tenantID, moduleName)
 	if err != nil {
+		fmt.Printf("[UninstallModule] Error: %v\n", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -250,9 +293,11 @@ func (mh *ModuleHandler) UninstallModule(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	fmt.Printf("[UninstallModule] Module deleted successfully\n")
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
-		"message": fmt.Sprintf("Module %s deactivated", moduleName),
+		"message": fmt.Sprintf("Module %s uninstalled successfully", moduleName),
 	})
 }

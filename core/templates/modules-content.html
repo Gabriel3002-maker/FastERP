@@ -11,7 +11,7 @@
 <div id="installModal" class="modal" style="display:none;">
     <div class="modal-content">
         <div class="modal-header">
-            <h3>⏳ Instalando Módulo</h3>
+            <h3 id="modalTitle">⏳ Instalando Módulo</h3>
         </div>
         <div class="modal-body">
             <p id="moduleName">Contacts</p>
@@ -386,9 +386,21 @@
 </style>
 
 <script>
+function getTenantIDFromToken() {
+    const token = localStorage.getItem('access_token');
+    if (!token) return null;
+    try {
+        const parts = token.split('.');
+        const decoded = JSON.parse(atob(parts[1]));
+        return decoded.tenant_id;
+    } catch (e) {
+        return null;
+    }
+}
+
 let allModules = [];
 let currentFilter = 'all';
-const tenantID = localStorage.getItem('tenant_id') || 'default-123';
+const tenantID = getTenantIDFromToken() || localStorage.getItem('tenant_id');
 
 async function loadModules() {
     try {
@@ -487,12 +499,14 @@ function renderModules() {
 
 async function installModule(moduleId) {
     const modal = document.getElementById('installModal');
+    const modalTitle = document.getElementById('modalTitle');
     const moduleName = document.getElementById('moduleName');
     const progressFill = document.getElementById('progressFill');
     const progressText = document.getElementById('progressText');
 
-    // Mostrar modal
+    // Mostrar modal con título correcto
     modal.style.display = 'flex';
+    modalTitle.textContent = '⏳ Instalando Módulo';
     const module = allModules.find(m => m.id === moduleId);
     moduleName.textContent = module?.label || moduleId;
 
@@ -521,18 +535,16 @@ async function installModule(moduleId) {
         const data = await response.json();
 
         if (response.ok) {
-            // Esperar 1 segundo antes de reiniciar
             setTimeout(() => {
                 modal.style.display = 'none';
                 showAlert(`✓ ${data.message} - Recargando...`, 'success');
-                // Reiniciar la página después de 2 segundos
                 setTimeout(() => {
                     location.reload();
                 }, 2000);
-            }, 1000);
+            }, 500);
         } else {
             modal.style.display = 'none';
-            showAlert(data.error || 'Error installing module', 'error');
+            showAlert(`✗ ${data.error || 'Error installing module'}`, 'error');
         }
     } catch (error) {
         clearInterval(progressInterval);
@@ -544,6 +556,27 @@ async function installModule(moduleId) {
 async function uninstallModule(moduleId) {
     if (!confirm('¿Desactivar este módulo?')) return;
 
+    const modal = document.getElementById('installModal');
+    const modalTitle = document.getElementById('modalTitle');
+    const moduleName = document.getElementById('moduleName');
+    const progressFill = document.getElementById('progressFill');
+    const progressText = document.getElementById('progressText');
+
+    // Mostrar modal con título correcto
+    modal.style.display = 'flex';
+    modalTitle.textContent = '⏳ Desinstalando Módulo';
+    const module = allModules.find(m => m.id === moduleId);
+    moduleName.textContent = module?.label || moduleId;
+
+    // Simular progreso de desinstalación
+    let progress = 0;
+    const progressInterval = setInterval(() => {
+        progress += Math.random() * 30;
+        if (progress > 90) progress = 90;
+        progressFill.style.width = progress + '%';
+        progressText.textContent = Math.floor(progress) + '%';
+    }, 200);
+
     try {
         const response = await fetch(`/api/modules/uninstall?name=${moduleId}`, {
             method: 'POST',
@@ -552,15 +585,28 @@ async function uninstallModule(moduleId) {
             }
         });
 
+        clearInterval(progressInterval);
+        progress = 100;
+        progressFill.style.width = '100%';
+        progressText.textContent = '100%';
+
         const data = await response.json();
 
         if (response.ok) {
-            showAlert(`✓ ${data.message}`, 'success');
-            loadModules();
+            setTimeout(() => {
+                modal.style.display = 'none';
+                showAlert(`✓ ${data.message} - Recargando...`, 'success');
+                setTimeout(() => {
+                    location.reload();
+                }, 2000);
+            }, 500);
         } else {
-            showAlert(data.error || 'Error uninstalling module', 'error');
+            modal.style.display = 'none';
+            showAlert(`✗ ${data.error || 'Error uninstalling module'}`, 'error');
         }
     } catch (error) {
+        clearInterval(progressInterval);
+        modal.style.display = 'none';
         showAlert('Error uninstalling module', 'error');
     }
 }
