@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html>
+<html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard - FastERP</title>
+    <title>Auditoría - FastERP</title>
 
     <!-- Theme application ANTES de cargar CSS para evitar flash -->
     <script>
@@ -155,9 +155,9 @@
         .logout-btn {
             width: 100%;
             padding: 10px 15px;
-            background: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
+            background: rgba(174, 42, 25, 0.15);
+            color: #AE2A19;
+            border: 1px solid rgba(174, 42, 25, 0.3);
             border-radius: 6px;
             cursor: pointer;
             font-size: 13px;
@@ -167,7 +167,21 @@
         }
 
         .logout-btn:hover {
-            background: #f5c6cb;
+            background: rgba(174, 42, 25, 0.25);
+            border-color: rgba(174, 42, 25, 0.5);
+        }
+
+        @media (prefers-color-scheme: dark) {
+            .logout-btn {
+                background: rgba(248, 116, 98, 0.15);
+                color: #F87462;
+                border: 1px solid rgba(248, 116, 98, 0.3);
+            }
+
+            .logout-btn:hover {
+                background: rgba(248, 116, 98, 0.25);
+                border-color: rgba(248, 116, 98, 0.5);
+            }
         }
 
         .main-content {
@@ -183,6 +197,7 @@
         .header h1 {
             font-size: 32px;
             margin-bottom: 10px;
+            color: var(--text-primary);
         }
 
         .header p {
@@ -227,115 +242,97 @@
             color: var(--text-secondary);
         }
 
-        .sections {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 20px;
-        }
-
-        .section-card {
+        .audit-table {
+            width: 100%;
+            border-collapse: collapse;
             background: var(--bg-secondary);
             border: 1px solid var(--border);
             border-radius: 8px;
             overflow: hidden;
-            transition: all 0.3s;
         }
 
-        .section-card:hover {
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-            transform: translateY(-2px);
-        }
-
-        .section-header {
-            padding: 20px;
+        .audit-table thead {
+            background: var(--bg-primary);
             border-bottom: 1px solid var(--border);
-            background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
         }
 
-        .section-title {
-            font-size: 18px;
+        .audit-table th {
+            padding: 15px;
+            text-align: left;
             font-weight: 600;
             color: var(--text-primary);
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 5px;
+            font-size: 13px;
+            text-transform: uppercase;
         }
 
-        .section-icon {
-            font-size: 24px;
-        }
-
-        .section-desc {
+        .audit-table td {
+            padding: 15px;
+            border-bottom: 1px solid var(--border);
             font-size: 13px;
             color: var(--text-secondary);
         }
 
-        .section-content {
-            padding: 20px;
-        }
-
-        .section-items {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-
-        .section-item {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 10px;
-            border-radius: 6px;
+        .audit-table tbody tr:hover {
             background: var(--bg-primary);
-            color: var(--text-primary);
-            text-decoration: none;
-            transition: all 0.3s;
-            cursor: pointer;
         }
 
-        .section-item:hover {
-            background: linear-gradient(135deg, rgba(102, 126, 234, 0.2) 0%, rgba(118, 75, 162, 0.2) 100%);
-            color: var(--primary);
+        .action-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
         }
 
-        .section-item-icon {
-            font-size: 18px;
+        .action-create {
+            background: rgba(54, 179, 126, 0.2);
+            color: #36B37E;
         }
 
-        .section-item-text {
-            flex: 1;
-            margin-left: 10px;
-            font-size: 14px;
-            font-weight: 500;
+        .action-update {
+            background: rgba(88, 157, 255, 0.2);
+            color: #579DFF;
         }
 
-        .section-item-arrow {
+        .action-delete {
+            background: rgba(174, 42, 25, 0.2);
+            color: #AE2A19;
+        }
+
+        .action-login {
+            background: rgba(102, 126, 234, 0.2);
+            color: #667eea;
+        }
+
+        .loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 300px;
+        }
+
+        .spinner {
+            width: 30px;
+            height: 30px;
+            border: 3px solid var(--border);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
             color: var(--text-secondary);
-            transition: all 0.3s;
         }
 
-        .section-item:hover .section-item-arrow {
-            color: var(--primary);
-            transform: translateX(3px);
-        }
-
-        .welcome-banner {
-            background: linear-gradient(135deg, var(--primary) 0%, #667eea 100%);
-            color: white;
-            padding: 30px;
-            border-radius: 8px;
-            margin-bottom: 40px;
-        }
-
-        .welcome-banner h2 {
-            font-size: 24px;
-            margin-bottom: 10px;
-        }
-
-        .welcome-banner p {
-            opacity: 0.9;
-            font-size: 14px;
+        .empty-state-icon {
+            font-size: 64px;
+            margin-bottom: 20px;
         }
 
         @media (max-width: 768px) {
@@ -359,6 +356,15 @@
             .header h1 {
                 font-size: 24px;
             }
+
+            .audit-table {
+                font-size: 12px;
+            }
+
+            .audit-table th,
+            .audit-table td {
+                padding: 10px;
+            }
         }
     </style>
 </head>
@@ -379,7 +385,7 @@
 
             <div class="nav-section">
                 <div class="nav-title">Principal</div>
-                <a href="/admin" class="nav-item active">
+                <a href="/admin" class="nav-item">
                     <span class="nav-icon">📊</span>
                     <span>Dashboard</span>
                 </a>
@@ -395,7 +401,7 @@
 
             <div class="nav-section">
                 <div class="nav-title">Administración</div>
-                <a href="/admin/audit" class="nav-item">
+                <a href="/admin/audit" class="nav-item active">
                     <span class="nav-icon">🔍</span>
                     <span>Auditoría</span>
                 </a>
@@ -406,113 +412,66 @@
 
         <!-- Main Content -->
         <div class="main-content">
-            <!-- Welcome Banner -->
-            <div class="welcome-banner">
-                <h2>¡Bienvenido a FastERP! 👋</h2>
-                <p>Panel administrativo centralizado - Gestiona tu ERP multitenant con auditoría completa</p>
-            </div>
-
             <!-- Header -->
             <div class="header">
-                <h1>Dashboard</h1>
-                <p>Resumen general del sistema</p>
+                <h1>🔍 Auditoría</h1>
+                <p>Registro de actividad y compliance del sistema</p>
             </div>
 
-            <!-- Quick Stats -->
-            <div class="quick-stats">
+            <!-- Stats -->
+            <div class="quick-stats" id="stats">
                 <div class="stat-card">
-                    <div class="stat-icon">📦</div>
-                    <div class="stat-number" id="modulesCount">0</div>
-                    <div class="stat-label">Módulos Instalados</div>
+                    <div class="stat-icon">📝</div>
+                    <div class="stat-number" id="total-events">0</div>
+                    <div class="stat-label">Eventos Totales</div>
                 </div>
-
                 <div class="stat-card">
-                    <div class="stat-icon">✓</div>
-                    <div class="stat-number">Online</div>
-                    <div class="stat-label">Estado del Sistema</div>
+                    <div class="stat-icon">👤</div>
+                    <div class="stat-number" id="user-count">0</div>
+                    <div class="stat-label">Usuarios Activos</div>
                 </div>
-
                 <div class="stat-card">
-                    <div class="stat-icon">🔍</div>
-                    <div class="stat-number" id="auditCount">0</div>
-                    <div class="stat-label">Eventos Auditados (24h)</div>
-                </div>
-
-                <div class="stat-card">
-                    <div class="stat-icon">🔐</div>
-                    <div class="stat-number">v1.0</div>
-                    <div class="stat-label">FastERP</div>
+                    <div class="stat-icon">🔄</div>
+                    <div class="stat-number" id="24h-events">0</div>
+                    <div class="stat-label">Eventos (24h)</div>
                 </div>
             </div>
 
-            <!-- Main Sections -->
-            <div class="sections">
-                <!-- Módulos -->
-                <div class="section-card">
-                    <div class="section-header">
-                        <div class="section-title">
-                            <span class="section-icon">🎮</span>
-                            <span>Módulos</span>
-                        </div>
-                        <div class="section-desc">Gestiona las extensiones del sistema</div>
-                    </div>
-                    <div class="section-content">
-                        <div class="section-items">
-                            <a href="/admin/modules" class="section-item">
-                                <span class="section-item-text">📱 Tienda de Módulos</span>
-                                <span class="section-item-arrow">→</span>
-                            </a>
-                        </div>
-                    </div>
-                </div>
+            <!-- Loading -->
+            <div id="loading" class="loading">
+                <div class="spinner"></div>
+            </div>
 
-                <!-- Auditoría -->
-                <div class="section-card">
-                    <div class="section-header">
-                        <div class="section-title">
-                            <span class="section-icon">🔍</span>
-                            <span>Auditoría</span>
-                        </div>
-                        <div class="section-desc">Registros de actividad y compliance</div>
-                    </div>
-                    <div class="section-content">
-                        <div class="section-items">
-                            <a href="/admin/audit" class="section-item">
-                                <span class="section-item-text">📊 Dashboard de Auditoría</span>
-                                <span class="section-item-arrow">→</span>
-                            </a>
-                        </div>
-                    </div>
-                </div>
+            <!-- Audit Table -->
+            <div id="table-container" style="display:none;">
+                <table class="audit-table">
+                    <thead>
+                        <tr>
+                            <th>Usuario</th>
+                            <th>Acción</th>
+                            <th>Entidad</th>
+                            <th>ID</th>
+                            <th>Estado</th>
+                            <th>Fecha</th>
+                        </tr>
+                    </thead>
+                    <tbody id="audit-tbody"></tbody>
+                </table>
+            </div>
 
-                <!-- Sistema -->
-                <div class="section-card">
-                    <div class="section-header">
-                        <div class="section-title">
-                            <span class="section-icon">⚡</span>
-                            <span>FastERP</span>
-                        </div>
-                        <div class="section-desc">Sistema modular con auditoría</div>
-                    </div>
-                    <div class="section-content">
-                        <div class="section-items">
-                            <a href="/health" class="section-item">
-                                <span class="section-item-text">✓ Estado del Sistema</span>
-                                <span class="section-item-arrow">→</span>
-                            </a>
-                            <a href="#" class="section-item" onclick="alert('v1.0.0 - Multi-tenant ERP'); return false;">
-                                <span class="section-item-text">ℹ️ Información</span>
-                                <span class="section-item-arrow">→</span>
-                            </a>
-                        </div>
-                    </div>
-                </div>
+            <!-- Empty State -->
+            <div id="empty-state" class="empty-state" style="display:none;">
+                <div class="empty-state-icon">📭</div>
+                <h2>Sin eventos de auditoría</h2>
+                <p>No hay registros de auditoría disponibles</p>
             </div>
         </div>
     </div>
 
-    <script src="/static/js/theme.js"></script>
-  <script>
+    <script>
+        const tenantID = localStorage.getItem('tenant_id') || 'default-123';
+        const token = localStorage.getItem('access_token');
+
         // Cargar datos del usuario
         function loadUserInfo() {
             const user = localStorage.getItem('user_name') || 'Admin';
@@ -525,29 +484,6 @@
             document.getElementById('userAvatar').textContent = avatar;
         }
 
-        // Cargar estadísticas
-        async function loadStats() {
-            const tenantID = localStorage.getItem('tenant_id') || 'default-123';
-            const token = localStorage.getItem('access_token');
-
-            try {
-                const auditRes = await fetch(`/api/audit/stats?days=1`, {
-                    headers: {
-                        'X-Tenant-ID': tenantID,
-                        'Authorization': `Bearer ${token}`
-                    }
-                });
-
-                if (auditRes.ok) {
-                    const auditData = await auditRes.json();
-                    document.getElementById('auditCount').textContent =
-                        auditData.stats?.total_events || 0;
-                }
-            } catch (error) {
-                console.error('Error loading stats:', error);
-            }
-        }
-
         // Logout
         function logout() {
             if (confirm('¿Cerrar sesión?')) {
@@ -558,9 +494,71 @@
             }
         }
 
+        async function loadAuditData() {
+            try {
+                const response = await fetch('/api/audit/entity', {
+                    headers: {
+                        'X-Tenant-ID': tenantID,
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                const data = await response.json();
+                const events = data.events || [];
+
+                // Update stats
+                document.getElementById('total-events').textContent = events.length;
+
+                const statsRes = await fetch('/api/audit/stats?days=1', {
+                    headers: {
+                        'X-Tenant-ID': tenantID,
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                const statsData = await statsRes.json();
+                document.getElementById('24h-events').textContent = statsData.stats?.total_events || 0;
+                document.getElementById('user-count').textContent = new Set(events.map(e => e.user_id)).size;
+
+                document.getElementById('loading').style.display = 'none';
+                renderAuditTable(events);
+            } catch (error) {
+                console.error('Error loading audit data:', error);
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('empty-state').style.display = 'block';
+            }
+        }
+
+        function renderAuditTable(events) {
+            const tbody = document.getElementById('audit-tbody');
+            const tableContainer = document.getElementById('table-container');
+            const emptyState = document.getElementById('empty-state');
+
+            if (!events || events.length === 0) {
+                tableContainer.style.display = 'none';
+                emptyState.style.display = 'block';
+                return;
+            }
+
+            tbody.innerHTML = events.slice(0, 50).map(event => `
+                <tr>
+                    <td>${event.user_id || '-'}</td>
+                    <td><span class="action-badge action-${event.action?.toLowerCase() || 'other'}">${event.action || '-'}</span></td>
+                    <td>${event.entity || '-'}</td>
+                    <td>${event.entity_id || '-'}</td>
+                    <td>${event.status || 'OK'}</td>
+                    <td>${new Date(event.created_at).toLocaleString('es-ES')}</td>
+                </tr>
+            `).join('');
+
+            tableContainer.style.display = 'block';
+            emptyState.style.display = 'none';
+        }
+
         // Inicializar
         loadUserInfo();
-        loadStats();
+        loadAuditData();
     </script>
+
+    <script src="/static/js/theme.js"></script>
 </body>
 </html>

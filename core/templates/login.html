@@ -4,6 +4,42 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Login - FastERP</title>
+
+  <!-- Theme application ANTES de cargar CSS para evitar flash -->
+  <script>
+    (function() {
+      const LIGHT = 'light';
+      const DARK = 'dark';
+      const AUTO = 'auto';
+      const theme = localStorage.getItem('fasterp-theme') || AUTO;
+      const html = document.documentElement;
+
+      function applyTheme(t) {
+        if (t === DARK) {
+          html.style.colorScheme = 'dark';
+          html.style.setProperty('--primary', '#579DFF');
+          html.style.setProperty('--primary-hover', '#85B8FF');
+          html.style.setProperty('--bg-primary', '#161A1D');
+          html.style.setProperty('--bg-secondary', '#22272B');
+          html.style.setProperty('--text-primary', '#B6C2CF');
+          html.style.setProperty('--text-secondary', '#8590A2');
+          html.style.setProperty('--border', '#38414B');
+        } else if (t === LIGHT) {
+          html.style.colorScheme = 'light';
+          html.style.setProperty('--primary', '#0052CC');
+          html.style.setProperty('--primary-hover', '#003DA8');
+          html.style.setProperty('--bg-primary', '#F7F8FA');
+          html.style.setProperty('--bg-secondary', '#FFFFFF');
+          html.style.setProperty('--text-primary', '#172B4D');
+          html.style.setProperty('--text-secondary', '#626F86');
+          html.style.setProperty('--border', '#DCDFE4');
+        }
+      }
+
+      applyTheme(theme);
+    })();
+  </script>
+
   <link rel="stylesheet" href="/static/css/style.css">
   <style>
     .login-page {
@@ -158,6 +194,7 @@
     </div>
   </div>
 
+  <script src="/static/js/theme.js"></script>
   <script>
     async function handleLogin(e) {
       e.preventDefault();

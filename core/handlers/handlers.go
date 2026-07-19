@@ -49,3 +49,43 @@ func (tr *TemplateRenderer) RenderFile(filename string, data interface{}, w http
 
 	return nil
 }
+
+func (tr *TemplateRenderer) RenderWithLayout(layoutFile, contentFile string, data map[string]interface{}, w http.ResponseWriter) error {
+	// Render content file
+	contentPath := filepath.Join(tr.templatesDir, contentFile)
+	contentTmpl, err := template.ParseFiles(contentPath)
+	if err != nil {
+		log.Printf("Template parse error (%s): %v", contentFile, err)
+		return err
+	}
+
+	var contentBuf bytes.Buffer
+	if err := contentTmpl.Execute(&contentBuf, data); err != nil {
+		log.Printf("Template execute error (%s): %v", contentFile, err)
+		return err
+	}
+
+	// Add content to data
+	if data == nil {
+		data = make(map[string]interface{})
+	}
+	data["Content"] = template.HTML(contentBuf.String())
+	data["ExtraStyles"] = template.CSS("")
+	data["ExtraScripts"] = template.JS("")
+
+	// Render layout with content
+	layoutPath := filepath.Join(tr.templatesDir, layoutFile)
+	layoutTmpl, err := template.ParseFiles(layoutPath)
+	if err != nil {
+		log.Printf("Template parse error (%s): %v", layoutFile, err)
+		return err
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := layoutTmpl.Execute(w, data); err != nil {
+		log.Printf("Template execute error (%s): %v", layoutFile, err)
+		return err
+	}
+
+	return nil
+}

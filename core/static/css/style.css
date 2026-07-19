@@ -1,52 +1,340 @@
+/* ============================================================================
+   CORPORATE THEME - Professional Dark/Light Mode
+   ============================================================================ */
+
 * {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
 }
 
+/* Light Mode (Default) */
 :root {
-  --primary: #3b82f6;
-  --primary-dark: #1e40af;
-  --bg-primary: #f8fafc;
-  --bg-secondary: #ffffff;
-  --text-primary: #1e293b;
-  --text-secondary: #64748b;
-  --border: #e2e8f0;
+  /* Corporate Colors */
+  --primary: #0052CC;
+  --primary-hover: #003DA8;
+  --secondary: #36B37E;
+  --danger: #AE2A19;
+  --warning: #974F0C;
+
+  /* Backgrounds */
+  --bg-primary: #F7F8FA;
+  --bg-secondary: #FFFFFF;
+  --bg-tertiary: #EAECF0;
+  --bg-hover: #F3F4F6;
+
+  /* Text */
+  --text-primary: #172B4D;
+  --text-secondary: #626F86;
+  --text-tertiary: #738496;
+  --text-disabled: #738496;
+
+  /* Borders & UI */
+  --border: #DCDFE4;
+  --border-light: #EBECF0;
+  --shadow-sm: 0 1px 3px rgba(23, 43, 77, 0.08);
+  --shadow-md: 0 4px 12px rgba(23, 43, 77, 0.12);
+  --shadow-lg: 0 8px 24px rgba(23, 43, 77, 0.15);
+
+  /* Status */
+  --success: #36B37E;
+  --error: #AE2A19;
+  --warning: #974F0C;
+  --info: #0052CC;
+}
+
+/* Dark Mode */
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* Corporate Colors */
+    --primary: #579DFF;
+    --primary-hover: #85B8FF;
+    --secondary: #4BCE97;
+    --danger: #F87462;
+    --warning: #F5CD47;
+
+    /* Backgrounds */
+    --bg-primary: #161A1D;
+    --bg-secondary: #22272B;
+    --bg-tertiary: #2D3339;
+    --bg-hover: #38414B;
+
+    /* Text */
+    --text-primary: #B6C2CF;
+    --text-secondary: #8590A2;
+    --text-tertiary: #738496;
+    --text-disabled: #626F86;
+
+    /* Borders & UI */
+    --border: #38414B;
+    --border-light: #2D3339;
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.25);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.35);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.45);
+
+    /* Status */
+    --success: #4BCE97;
+    --error: #F87462;
+    --warning: #F5CD47;
+    --info: #579DFF;
+  }
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', sans-serif;
   background: var(--bg-primary);
   color: var(--text-primary);
   line-height: 1.6;
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
+
+/* ============================================================================
+   LOGIN PAGE - Professional Corporate Design
+   ============================================================================ */
 
 .login-page {
   display: flex;
   align-items: center;
   justify-content: center;
   min-height: 100vh;
-  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
 }
 
 .login-container {
   width: 100%;
-  max-width: 400px;
+  max-width: 420px;
   padding: 20px;
 }
 
 .login-box {
-  background: white;
-  border-radius: 12px;
-  padding: 40px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  padding: 48px 40px;
+  box-shadow: var(--shadow-lg);
   text-align: center;
 }
 
 .login-box h1 {
-  font-size: 28px;
-  margin-bottom: 30px;
+  font-size: 32px;
+  font-weight: 700;
+  margin-bottom: 8px;
   color: var(--primary);
+  letter-spacing: -0.5px;
+}
+
+.login-box .tagline {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 32px;
+  font-weight: 400;
+}
+
+.form-group {
+  text-align: left;
+  margin-bottom: 16px;
+}
+
+.form-group label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+  letter-spacing: 0.3px;
+}
+
+.form-group input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 14px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  transition: all 0.2s ease;
+}
+
+.form-group input:focus {
+  outline: none;
+  border-color: var(--primary);
+  background: var(--bg-secondary);
+  box-shadow: 0 0 0 2px rgba(0, 82, 204, 0.12);
+}
+
+.btn-primary {
+  width: 100%;
+  padding: 12px 16px;
+  background: var(--primary);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-top: 8px;
+  letter-spacing: 0.3px;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--primary-hover);
+  box-shadow: var(--shadow-md);
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ============================================================================
+   THEME TOGGLE - Light/Dark Mode Switcher
+   ============================================================================ */
+
+.theme-toggle {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  transition: all 0.2s ease;
+  z-index: 1000;
+  box-shadow: var(--shadow-sm);
+}
+
+.theme-toggle:hover {
+  background: var(--bg-hover);
+  box-shadow: var(--shadow-md);
+}
+
+.theme-toggle:active {
+  transform: scale(0.95);
+}
+
+/* ============================================================================
+   DASHBOARD - Professional UI
+   ============================================================================ */
+
+.dashboard {
+  display: flex;
+  min-height: 100vh;
+  background: var(--bg-primary);
+}
+
+.sidebar {
+  width: 260px;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
+  padding: 24px 20px;
+  overflow-y: auto;
+  box-shadow: var(--shadow-sm);
+}
+
+.logo {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--primary);
+  margin-bottom: 32px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  letter-spacing: -0.3px;
+}
+
+.main-content {
+  flex: 1;
+  padding: 40px;
+  overflow-y: auto;
+}
+
+.header h1 {
+  font-size: 28px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: var(--text-primary);
+  letter-spacing: -0.5px;
+}
+
+.header p {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.stat-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  padding: 24px;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+}
+
+.stat-card:hover {
+  box-shadow: var(--shadow-md);
+  border-color: var(--primary);
+}
+
+.stat-number {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--primary);
+  margin-bottom: 8px;
+}
+
+.stat-label {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-weight: 500;
+  letter-spacing: 0.3px;
+}
+
+/* ============================================================================
+   UTILITIES
+   ============================================================================ */
+
+.error-message {
+  padding: 12px 16px;
+  background: rgba(174, 42, 25, 0.1);
+  color: var(--danger);
+  border: 1px solid rgba(174, 42, 25, 0.3);
+  border-radius: 4px;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.success-message {
+  padding: 12px 16px;
+  background: rgba(54, 179, 126, 0.1);
+  color: var(--success);
+  border: 1px solid rgba(54, 179, 126, 0.3);
+  border-radius: 4px;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
 }
 
 .form-group {

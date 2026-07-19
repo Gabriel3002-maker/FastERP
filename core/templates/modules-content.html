@@ -1,0 +1,457 @@
+<!-- Header -->
+<div class="header">
+    <h1>🎮 Module Store</h1>
+    <p>Descubre e instala módulos para extender tu FastERP</p>
+</div>
+
+<!-- Alert -->
+<div id="alert" class="alert"></div>
+
+<!-- Stats -->
+<div class="quick-stats" id="stats">
+    <div class="stat-card">
+        <div class="stat-icon">📦</div>
+        <div class="stat-number" id="total-modules">0</div>
+        <div class="stat-label">Módulos Disponibles</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon">✓</div>
+        <div class="stat-number" id="installed-count">0</div>
+        <div class="stat-label">Instalados</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon">⭐</div>
+        <div class="stat-number" id="active-count">0</div>
+        <div class="stat-label">Activos</div>
+    </div>
+</div>
+
+<!-- Filters -->
+<div class="filter-bar">
+    <button class="filter-btn active" onclick="filterModules('all')">Todos</button>
+    <button class="filter-btn" onclick="filterModules('installed')">Instalados</button>
+    <button class="filter-btn" onclick="filterModules('available')">Disponibles</button>
+</div>
+
+<!-- Loading -->
+<div id="loading" class="loading">
+    <div class="spinner"></div>
+</div>
+
+<!-- Modules Grid -->
+<div id="modules-grid" class="modules-grid" style="display:none;"></div>
+
+<!-- Empty State -->
+<div id="empty-state" class="empty-state" style="display:none;">
+    <div class="empty-state-icon">📭</div>
+    <h2>No hay módulos</h2>
+    <p>No se encontraron módulos con los filtros aplicados</p>
+</div>
+
+<style>
+.quick-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 20px;
+    margin-bottom: 40px;
+}
+
+.stat-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    padding: 20px;
+    border-radius: 8px;
+    transition: all 0.3s;
+}
+
+.stat-card:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    transform: translateY(-2px);
+}
+
+.stat-icon {
+    font-size: 32px;
+    margin-bottom: 10px;
+}
+
+.stat-number {
+    font-size: 24px;
+    font-weight: bold;
+    color: var(--primary);
+    margin-bottom: 5px;
+}
+
+.stat-label {
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.filter-bar {
+    margin-bottom: 30px;
+    display: flex;
+    gap: 15px;
+    flex-wrap: wrap;
+}
+
+.filter-btn {
+    padding: 8px 16px;
+    border: 1px solid var(--border);
+    background: var(--bg-secondary);
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.3s;
+    color: var(--text-secondary);
+}
+
+.filter-btn.active {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+}
+
+.filter-btn:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
+.modules-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 20px;
+}
+
+.module-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    transition: all 0.3s;
+    cursor: pointer;
+}
+
+.module-card:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    transform: translateY(-2px);
+    border-color: var(--primary);
+}
+
+.module-icon {
+    font-size: 48px;
+    margin-bottom: 15px;
+}
+
+.module-name {
+    font-size: 16px;
+    font-weight: bold;
+    color: var(--text-primary);
+    margin-bottom: 5px;
+}
+
+.module-label {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 10px;
+}
+
+.module-description {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 15px;
+    line-height: 1.5;
+    min-height: 40px;
+}
+
+.module-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 15px;
+    padding-bottom: 15px;
+    border-bottom: 1px solid var(--border);
+}
+
+.module-version {
+    background: var(--bg-primary);
+    padding: 2px 8px;
+    border-radius: 4px;
+}
+
+.module-author {
+    font-style: italic;
+}
+
+.module-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.btn-install {
+    flex: 1;
+    padding: 8px 12px;
+    background: linear-gradient(135deg, var(--primary) 0%, #667eea 100%);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    transition: all 0.3s;
+}
+
+.btn-install:hover {
+    opacity: 0.9;
+}
+
+.btn-uninstall {
+    flex: 1;
+    padding: 8px 12px;
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    transition: all 0.3s;
+}
+
+.btn-uninstall:hover {
+    background: var(--bg-hover, rgba(0, 0, 0, 0.05));
+    border-color: var(--text-secondary);
+    color: var(--text-primary);
+}
+
+.badge {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.badge-installed {
+    background: rgba(54, 179, 126, 0.2);
+    color: #36B37E;
+}
+
+.badge-active {
+    background: rgba(88, 157, 255, 0.2);
+    color: #579DFF;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-secondary);
+}
+
+.empty-state-icon {
+    font-size: 64px;
+    margin-bottom: 20px;
+}
+
+.loading {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 300px;
+}
+
+.spinner {
+    width: 30px;
+    height: 30px;
+    border: 3px solid var(--border);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.alert {
+    padding: 12px 16px;
+    border-radius: 6px;
+    margin-bottom: 20px;
+    display: none;
+}
+
+.alert.show {
+    display: block;
+}
+
+.alert-success {
+    background: rgba(54, 179, 126, 0.15);
+    color: #36B37E;
+    border: 1px solid rgba(54, 179, 126, 0.3);
+}
+
+.alert-error {
+    background: rgba(174, 42, 25, 0.15);
+    color: #AE2A19;
+    border: 1px solid rgba(174, 42, 25, 0.3);
+}
+</style>
+
+<script>
+let allModules = [];
+let currentFilter = 'all';
+const tenantID = localStorage.getItem('tenant_id') || 'default-123';
+
+async function loadModules() {
+    try {
+        const response = await fetch('/api/modules/available', {
+            headers: {
+                'X-Tenant-ID': tenantID,
+            }
+        });
+
+        const data = await response.json();
+        allModules = data.modules || [];
+
+        // Update stats
+        document.getElementById('total-modules').textContent = allModules.length;
+        document.getElementById('installed-count').textContent =
+            allModules.filter(m => m.installed).length;
+        document.getElementById('active-count').textContent =
+            allModules.filter(m => m.active).length;
+
+        document.getElementById('loading').style.display = 'none';
+        renderModules();
+    } catch (error) {
+        showAlert('Error loading modules', 'error');
+        document.getElementById('loading').style.display = 'none';
+    }
+}
+
+function filterModules(filter) {
+    currentFilter = filter;
+
+    // Update button states
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    event.target.classList.add('active');
+
+    renderModules();
+}
+
+function renderModules() {
+    let filtered = allModules;
+
+    if (currentFilter === 'installed') {
+        filtered = allModules.filter(m => m.installed);
+    } else if (currentFilter === 'available') {
+        filtered = allModules.filter(m => !m.installed);
+    }
+
+    const grid = document.getElementById('modules-grid');
+    const emptyState = document.getElementById('empty-state');
+
+    if (filtered.length === 0) {
+        grid.style.display = 'none';
+        emptyState.style.display = 'block';
+        return;
+    }
+
+    grid.innerHTML = filtered.map(module => `
+        <div class="module-card">
+            <div class="module-icon">${module.icon || '📦'}</div>
+            <div class="module-name">${module.label}</div>
+            <div class="module-label">${module.name}</div>
+            <div class="module-description">${module.description}</div>
+
+            <div class="module-meta">
+                <span class="module-version">v${module.version}</span>
+                <span class="module-author">${module.author}</span>
+            </div>
+
+            <div style="margin-bottom: 10px;">
+                ${module.installed ? `
+                    <span class="badge badge-installed">✓ Instalado</span>
+                ` : ''}
+                ${module.active ? `
+                    <span class="badge badge-active">✓ Activo</span>
+                ` : ''}
+            </div>
+
+            <div class="module-actions">
+                ${module.installed ? `
+                    <button class="btn-uninstall" onclick="uninstallModule('${module.id}')">
+                        Desactivar
+                    </button>
+                ` : `
+                    <button class="btn-install" onclick="installModule('${module.id}')">
+                        Instalar
+                    </button>
+                `}
+            </div>
+        </div>
+    `).join('');
+
+    grid.style.display = 'grid';
+    emptyState.style.display = 'none';
+}
+
+async function installModule(moduleId) {
+    try {
+        const response = await fetch(`/api/modules/install?name=${moduleId}`, {
+            method: 'POST',
+            headers: {
+                'X-Tenant-ID': tenantID,
+            }
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            showAlert(`✓ ${data.message}`, 'success');
+            loadModules();
+        } else {
+            showAlert(data.error || 'Error installing module', 'error');
+        }
+    } catch (error) {
+        showAlert('Error installing module', 'error');
+    }
+}
+
+async function uninstallModule(moduleId) {
+    if (!confirm('¿Desactivar este módulo?')) return;
+
+    try {
+        const response = await fetch(`/api/modules/uninstall?name=${moduleId}`, {
+            method: 'POST',
+            headers: {
+                'X-Tenant-ID': tenantID,
+            }
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            showAlert(`✓ ${data.message}`, 'success');
+            loadModules();
+        } else {
+            showAlert(data.error || 'Error uninstalling module', 'error');
+        }
+    } catch (error) {
+        showAlert('Error uninstalling module', 'error');
+    }
+}
+
+function showAlert(message, type) {
+    const alert = document.getElementById('alert');
+    alert.textContent = message;
+    alert.className = `alert show alert-${type}`;
+    setTimeout(() => {
+        alert.classList.remove('show');
+    }, 4000);
+}
+
+// Load modules on page load
+loadModules();
+</script>

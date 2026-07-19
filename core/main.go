@@ -104,21 +104,26 @@ func main() {
 
 	// Admin routes (protegidas - TODO)
 	mux.HandleFunc("/admin", func(w http.ResponseWriter, r *http.Request) {
-		data := map[string]interface{}{
-			"Title": "Dashboard",
-			"User":  "Admin",
-		}
-		renderer.RenderFile("dashboard.html", data, w)
+		renderer.RenderWithLayout("layout.html", "dashboard-content.html", map[string]interface{}{
+			"Title":       "Dashboard",
+			"CurrentPage": "dashboard",
+		}, w)
 	})
 
 	// Audit dashboard
 	mux.HandleFunc("/admin/audit", func(w http.ResponseWriter, r *http.Request) {
-		renderer.RenderFile("audit-dashboard.html", nil, w)
+		renderer.RenderWithLayout("layout.html", "audit-content.html", map[string]interface{}{
+			"Title":       "Auditoría",
+			"CurrentPage": "audit",
+		}, w)
 	})
 
 	// Module Store
 	mux.HandleFunc("/admin/modules", func(w http.ResponseWriter, r *http.Request) {
-		renderer.RenderFile("module-store.html", nil, w)
+		renderer.RenderWithLayout("layout.html", "modules-content.html", map[string]interface{}{
+			"Title":       "Module Store",
+			"CurrentPage": "modules",
+		}, w)
 	})
 
 	// Estáticos
