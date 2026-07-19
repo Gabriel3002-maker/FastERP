@@ -6,10 +6,22 @@
 
     <div class="search-bar">
         <input type="text" id="searchInput" placeholder="Buscar contactos..." />
+        <label class="page-size">
+            Mostrar
+            <select id="pageSizeSelect"></select>
+            por página
+        </label>
     </div>
 
     <div id="contactsList" class="contacts-list">
         <div class="loading">Cargando contactos...</div>
+    </div>
+
+    <!-- Paginación: los tamaños vienen del SDK (page_sizes), no del módulo -->
+    <div id="pagination" class="pagination" hidden>
+        <button id="prevPage" class="btn-secondary">‹ Anterior</button>
+        <span id="pageInfo" class="page-info"></span>
+        <button id="nextPage" class="btn-secondary">Siguiente ›</button>
     </div>
 
     <!-- Modal para crear/editar -->

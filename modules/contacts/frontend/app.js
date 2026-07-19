@@ -1,196 +1,272 @@
-// Obtener tenant ID del JWT token
+// ========================================
+// Módulo Contactos — sólo habla con @fast
+// ========================================
+// Este módulo no sabe SQL, no sabe de tablas y no toca el core.
+// Todo lo que hace es llamar al API @fast que el motor genera a partir de
+// modules/contacts/manifest.json:
+//
+//   @fast.list()   → GET    /api/contacts/contact?page=&limit=&search=&order_by=
+//   @fast.create() → POST   /api/contacts/contact
+//   @fast.read()   → GET    /api/contacts/contact/{id}
+//   @fast.update() → PUT    /api/contacts/contact/{id}
+//   @fast.delete() → DELETE /api/contacts/contact/{id}
+//
+// La paginación (10/20/50/100), la búsqueda y el orden los resuelve el SDK.
+
+const API_BASE = '/api/contacts/contact';
+
 function getTenantID() {
   const token = localStorage.getItem('access_token');
   if (!token) return null;
   try {
-    const parts = token.split('.');
-    const decoded = JSON.parse(atob(parts[1]));
-    return decoded.tenant_id;
+    return JSON.parse(atob(token.split('.')[1])).tenant_id;
   } catch {
     return null;
   }
 }
 
-const API_BASE = '/api/contacts';
 const tenantID = getTenantID();
+const headers = { 'X-Tenant-ID': tenantID, 'Content-Type': 'application/json' };
 
-// Estado
-let contacts = [];
-let editingId = null;
+// Estado de la vista. El SDK manda: limit y page_sizes salen de su respuesta.
+const state = {
+  contacts: [],
+  page: 1,
+  limit: 20,
+  total: 0,
+  totalPages: 0,
+  search: '',
+  editingId: null,
+};
 
-// Event listeners
-document.getElementById('addContactBtn').addEventListener('click', openModal);
+const $ = (id) => document.getElementById(id);
+
+// --- Arranque ---
+$('addContactBtn').addEventListener('click', openModal);
 document.querySelector('.btn-close').addEventListener('click', closeModal);
-document.getElementById('searchInput').addEventListener('input', filterContacts);
+$('searchInput').addEventListener('input', debounce(onSearch, 300));
+$('pageSizeSelect').addEventListener('change', onPageSizeChange);
+$('prevPage').addEventListener('click', () => goToPage(state.page - 1));
+$('nextPage').addEventListener('click', () => goToPage(state.page + 1));
+$('contactModal').addEventListener('click', (e) => {
+  if (e.target.id === 'contactModal') closeModal();
+});
 
-// Cargar contactos al iniciar
 loadContacts();
 
-// Funciones
+// ========================================
+// @fast.list() — página de contactos
+// ========================================
 async function loadContacts() {
+  const params = new URLSearchParams({
+    page: state.page,
+    limit: state.limit,
+    order_by: 'name',
+    order_dir: 'asc',
+  });
+  if (state.search) params.set('search', state.search);
+
   try {
-    const response = await fetch(`${API_BASE}/list`, {
-      headers: { 'X-Tenant-ID': tenantID }
-    });
+    const response = await fetch(`${API_BASE}?${params}`, { headers });
+    if (!response.ok) throw new Error(await errorMessage(response));
 
-    if (!response.ok) {
-      // Si no hay contactos, mostrar lista vacía
-      contacts = [];
-      renderContacts();
-      return;
-    }
+    const page = await response.json();
 
-    const data = await response.json();
-    contacts = data.contacts || [];
+    state.contacts = page.data || [];
+    state.page = page.page;
+    state.limit = page.limit;
+    state.total = page.total;
+    state.totalPages = page.total_pages;
+
+    renderPageSizes(page.page_sizes);
     renderContacts();
+    renderPagination();
   } catch (error) {
-    console.error('Error cargando contactos:', error);
-    document.getElementById('contactsList').innerHTML = `
-      <div class="loading">Error cargando contactos: ${error.message}</div>
-    `;
+    $('contactsList').innerHTML = `<div class="loading">Error: ${escapeHtml(error.message)}</div>`;
   }
+}
+
+// El selector se llena con lo que el SDK declara como tamaños válidos.
+function renderPageSizes(sizes) {
+  const select = $('pageSizeSelect');
+  if (!sizes || select.options.length === sizes.length) return;
+
+  select.innerHTML = sizes
+    .map((size) => `<option value="${size}">${size}</option>`)
+    .join('');
+  select.value = state.limit;
 }
 
 function renderContacts() {
-  const container = document.getElementById('contactsList');
+  const container = $('contactsList');
 
-  if (contacts.length === 0) {
-    container.innerHTML = '<div class="loading">No hay contactos. ¡Crea el primero!</div>';
+  if (!state.contacts.length) {
+    container.innerHTML = state.search
+      ? '<div class="loading">Sin resultados para esta búsqueda.</div>'
+      : '<div class="loading">No hay contactos. ¡Crea el primero!</div>';
     return;
   }
 
-  container.innerHTML = contacts.map(contact => `
+  container.innerHTML = state.contacts.map(contactCard).join('');
+}
+
+function contactCard(contact) {
+  const line = (icon, value) =>
+    value ? `<div class="contact-info">${icon} ${escapeHtml(value)}</div>` : '';
+
+  const name = contact.name || 'Sin nombre';
+  return `
     <div class="contact-card">
-      <div class="contact-avatar">${contact.name?.charAt(0).toUpperCase()}</div>
-      <div class="contact-name">${contact.name || 'Sin nombre'}</div>
-      ${contact.job_title ? `<div class="contact-info">📌 ${contact.job_title}</div>` : ''}
-      ${contact.email ? `<div class="contact-info">📧 ${contact.email}</div>` : ''}
-      ${contact.phone ? `<div class="contact-info">📱 ${contact.phone}</div>` : ''}
-      ${contact.company ? `<div class="contact-info">🏢 ${contact.company}</div>` : ''}
+      <div class="contact-avatar">${escapeHtml(name.charAt(0).toUpperCase())}</div>
+      <div class="contact-name">${escapeHtml(name)}</div>
+      ${line('📌', contact.job_title)}
+      ${line('📧', contact.email)}
+      ${line('📱', contact.phone)}
+      ${line('🏢', contact.company)}
       <div class="contact-actions">
         <button class="btn-edit" onclick="editContact('${contact.id}')">Editar</button>
         <button class="btn-delete" onclick="deleteContact('${contact.id}')">Eliminar</button>
       </div>
-    </div>
-  `).join('');
+    </div>`;
 }
 
-function filterContacts() {
-  const search = document.getElementById('searchInput').value.toLowerCase();
-  const filtered = contacts.filter(c =>
-    (c.name || '').toLowerCase().includes(search) ||
-    (c.email || '').toLowerCase().includes(search) ||
-    (c.company || '').toLowerCase().includes(search)
-  );
+function renderPagination() {
+  const nav = $('pagination');
+  nav.hidden = state.totalPages <= 1;
 
-  const container = document.getElementById('contactsList');
-  if (filtered.length === 0) {
-    container.innerHTML = '<div class="loading">No hay resultados</div>';
-    return;
-  }
+  const from = state.total === 0 ? 0 : (state.page - 1) * state.limit + 1;
+  const to = Math.min(state.page * state.limit, state.total);
 
-  container.innerHTML = filtered.map(contact => `
-    <div class="contact-card">
-      <div class="contact-avatar">${contact.name?.charAt(0).toUpperCase()}</div>
-      <div class="contact-name">${contact.name || 'Sin nombre'}</div>
-      ${contact.job_title ? `<div class="contact-info">📌 ${contact.job_title}</div>` : ''}
-      ${contact.email ? `<div class="contact-info">📧 ${contact.email}</div>` : ''}
-      ${contact.phone ? `<div class="contact-info">📱 ${contact.phone}</div>` : ''}
-      ${contact.company ? `<div class="contact-info">🏢 ${contact.company}</div>` : ''}
-      <div class="contact-actions">
-        <button class="btn-edit" onclick="editContact('${contact.id}')">Editar</button>
-        <button class="btn-delete" onclick="deleteContact('${contact.id}')">Eliminar</button>
-      </div>
-    </div>
-  `).join('');
+  $('pageInfo').textContent =
+    `${from}–${to} de ${state.total} · página ${state.page} de ${state.totalPages}`;
+  $('prevPage').disabled = state.page <= 1;
+  $('nextPage').disabled = state.page >= state.totalPages;
 }
 
+function goToPage(page) {
+  if (page < 1 || page > state.totalPages) return;
+  state.page = page;
+  loadContacts();
+}
+
+function onPageSizeChange(event) {
+  state.limit = Number(event.target.value);
+  state.page = 1; // cambiar el tamaño invalida la página actual
+  loadContacts();
+}
+
+// La búsqueda la resuelve el SDK sobre los campos de texto del manifest.
+function onSearch(event) {
+  state.search = event.target.value.trim();
+  state.page = 1;
+  loadContacts();
+}
+
+// --- Modal ---
 function openModal() {
-  editingId = null;
-  document.getElementById('modalTitle').textContent = 'Nuevo Contacto';
-  document.getElementById('contactForm').reset();
-  document.getElementById('contactModal').style.display = 'flex';
+  state.editingId = null;
+  $('modalTitle').textContent = 'Nuevo Contacto';
+  $('contactForm').reset();
+  $('contactModal').style.display = 'flex';
 }
 
 function closeModal() {
-  document.getElementById('contactModal').style.display = 'none';
+  $('contactModal').style.display = 'none';
 }
 
 function editContact(id) {
-  const contact = contacts.find(c => c.id === id);
+  const contact = state.contacts.find((c) => c.id === id);
   if (!contact) return;
 
-  editingId = id;
-  document.getElementById('modalTitle').textContent = 'Editar Contacto';
-  document.getElementById('formName').value = contact.name || '';
-  document.getElementById('formEmail').value = contact.email || '';
-  document.getElementById('formPhone').value = contact.phone || '';
-  document.getElementById('formCompany').value = contact.company || '';
-  document.getElementById('formJobTitle').value = contact.job_title || '';
-  document.getElementById('contactModal').style.display = 'flex';
+  state.editingId = id;
+  $('modalTitle').textContent = 'Editar Contacto';
+  $('formName').value = contact.name || '';
+  $('formEmail').value = contact.email || '';
+  $('formPhone').value = contact.phone || '';
+  $('formCompany').value = contact.company || '';
+  $('formJobTitle').value = contact.job_title || '';
+  $('contactModal').style.display = 'flex';
 }
 
+// ========================================
+// @fast.create() / @fast.update()
+// ========================================
 async function saveContact() {
-  const name = document.getElementById('formName').value.trim();
+  const name = $('formName').value.trim();
   if (!name) {
     alert('El nombre es requerido');
     return;
   }
 
   const payload = {
-    name: name,
-    email: document.getElementById('formEmail').value,
-    phone: document.getElementById('formPhone').value,
-    company: document.getElementById('formCompany').value,
-    job_title: document.getElementById('formJobTitle').value
+    name,
+    email: $('formEmail').value.trim(),
+    phone: $('formPhone').value.trim(),
+    company: $('formCompany').value.trim(),
+    job_title: $('formJobTitle').value.trim(),
   };
 
+  const editing = Boolean(state.editingId);
+  const url = editing ? `${API_BASE}/${state.editingId}` : API_BASE;
+
   try {
-    const url = editingId ? `${API_BASE}/${editingId}` : `${API_BASE}`;
-    const method = editingId ? 'PUT' : 'POST';
-
     const response = await fetch(url, {
-      method: method,
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Tenant-ID': tenantID
-      },
-      body: JSON.stringify(payload)
+      method: editing ? 'PUT' : 'POST',
+      headers,
+      body: JSON.stringify(payload),
     });
-
-    if (!response.ok) {
-      throw new Error(`Error ${response.status}: ${response.statusText}`);
-    }
+    if (!response.ok) throw new Error(await errorMessage(response));
 
     closeModal();
+    if (!editing) state.page = 1; // el nuevo registro va al inicio
     await loadContacts();
-    alert(editingId ? 'Contacto actualizado' : 'Contacto creado');
   } catch (error) {
-    alert('Error guardando contacto: ' + error.message);
+    alert('Error: ' + error.message);
   }
 }
 
+// ========================================
+// @fast.delete()
+// ========================================
 async function deleteContact(id) {
   if (!confirm('¿Eliminar este contacto?')) return;
 
   try {
-    const response = await fetch(`${API_BASE}/${id}`, {
-      method: 'DELETE',
-      headers: { 'X-Tenant-ID': tenantID }
-    });
+    const response = await fetch(`${API_BASE}/${id}`, { method: 'DELETE', headers });
+    if (!response.ok) throw new Error(await errorMessage(response));
 
-    if (!response.ok) {
-      throw new Error(`Error ${response.status}`);
-    }
-
+    // Si era el último de la página, retroceder para no quedar en una vacía.
+    if (state.contacts.length === 1 && state.page > 1) state.page -= 1;
     await loadContacts();
-    alert('Contacto eliminado');
   } catch (error) {
-    alert('Error eliminando contacto: ' + error.message);
+    alert('Error: ' + error.message);
   }
 }
 
-// Cerrar modal al hacer clic fuera
-document.getElementById('contactModal').addEventListener('click', (e) => {
-  if (e.target.id === 'contactModal') closeModal();
-});
+// --- Utilidades ---
+
+// El SDK responde {"error": "..."} con el motivo real (campo obligatorio,
+// filtro inválido, etc.). Mostrarlo es más útil que un código HTTP suelto.
+async function errorMessage(response) {
+  try {
+    const body = await response.json();
+    if (body.error) return body.error;
+  } catch {
+    // respuesta sin JSON
+  }
+  return `Error ${response.status}`;
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[c]);
+}
+
+function debounce(fn, ms) {
+  let timer;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  };
+}

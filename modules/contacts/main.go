@@ -5,78 +5,41 @@ import (
 	"unsafe"
 )
 
-type FieldDef struct {
-	Name     string `json:"name"`
-	Type     string `json:"type"`
-	Label    string `json:"label"`
-	Required bool   `json:"required"`
-}
-
-type ModelDef struct {
-	Name   string     `json:"name"`
-	Label  string     `json:"label"`
-	Fields []FieldDef `json:"fields"`
-}
-
-type MenuDef struct {
-	Label string `json:"label"`
-	Icon  string `json:"icon"`
-	Route string `json:"route"`
-	Seq   int    `json:"seq"`
-}
-
-type Manifest struct {
-	Name        string     `json:"name"`
-	Version     string     `json:"version"`
-	Label       string     `json:"label"`
-	Description string     `json:"description,omitempty"`
-	Author      string     `json:"author,omitempty"`
-	Icon        string     `json:"icon,omitempty"`
-	Models      []ModelDef `json:"models"`
-	Menus       []MenuDef  `json:"menus"`
-}
-
-var manifest = Manifest{
-	Name:        "contacts",
-	Version:     "2.0.0",
-	Label:       "Contactos",
-	Description: "Gestión de contactos con campos contables LATAM",
-	Author:      "FastERP Team",
-	Icon:        "users",
-	Models: []ModelDef{
-		{
-			Name:  "contact",
-			Label: "Contacto",
-			Fields: []FieldDef{
-				{Name: "name", Type: "string", Label: "Nombre", Required: true},
-				{Name: "email", Type: "string", Label: "Email"},
-				{Name: "phone", Type: "string", Label: "Teléfono"},
-				{Name: "mobile", Type: "string", Label: "Celular"},
-				{Name: "company", Type: "string", Label: "Empresa"},
-				{Name: "job_title", Type: "string", Label: "Cargo"},
-				{Name: "tax_id_type", Type: "string", Label: "Tipo de Identificación"},
-				{Name: "tax_id", Type: "string", Label: "Cédula / RUC / RFC / Pasaporte"},
-				{Name: "person_type", Type: "string", Label: "Tipo de Persona"},
-				{Name: "tax_regime", Type: "string", Label: "Régimen Tributario"},
-				{Name: "accounting_obligation", Type: "string", Label: "Obligado a Llevar Contabilidad"},
-				{Name: "retention_agent", Type: "string", Label: "Agente de Retención"},
-				{Name: "address", Type: "text", Label: "Dirección"},
-				{Name: "city", Type: "string", Label: "Ciudad"},
-				{Name: "province", Type: "string", Label: "Provincia / Estado"},
-				{Name: "country", Type: "string", Label: "País"},
-				{Name: "postal_code", Type: "string", Label: "Código Postal"},
-				{Name: "website", Type: "string", Label: "Sitio Web"},
-				{Name: "notes", Type: "text", Label: "Notas"},
+// Manifest del módulo — define schema para @fast CRUD
+// Core lee esto → genera rutas /api/contacts/contact[/{id}]
+// Frontend llama @fast.create, @fast.update, etc. automáticamente
+var manifest = map[string]interface{}{
+	"name": "contacts",
+	"models": map[string]interface{}{
+		"contact": map[string]interface{}{
+			"fields": map[string]interface{}{
+				"name":                   map[string]interface{}{"type": "string", "required": true},
+				"email":                  map[string]interface{}{"type": "string", "required": false},
+				"phone":                  map[string]interface{}{"type": "string", "required": false},
+				"mobile":                 map[string]interface{}{"type": "string", "required": false},
+				"company":                map[string]interface{}{"type": "string", "required": false},
+				"job_title":              map[string]interface{}{"type": "string", "required": false},
+				"tax_id_type":            map[string]interface{}{"type": "string", "required": false},
+				"tax_id":                 map[string]interface{}{"type": "string", "required": false},
+				"person_type":            map[string]interface{}{"type": "string", "required": false},
+				"tax_regime":             map[string]interface{}{"type": "string", "required": false},
+				"accounting_obligation":  map[string]interface{}{"type": "string", "required": false},
+				"retention_agent":        map[string]interface{}{"type": "string", "required": false},
+				"address":                map[string]interface{}{"type": "text", "required": false},
+				"city":                   map[string]interface{}{"type": "string", "required": false},
+				"province":               map[string]interface{}{"type": "string", "required": false},
+				"country":                map[string]interface{}{"type": "string", "required": false},
+				"postal_code":            map[string]interface{}{"type": "string", "required": false},
+				"website":                map[string]interface{}{"type": "string", "required": false},
+				"notes":                  map[string]interface{}{"type": "text", "required": false},
 			},
 		},
-	},
-	Menus: []MenuDef{
-		{Label: "Contactos", Icon: "users", Route: "/contacts", Seq: 20},
 	},
 }
 
 var resultBuf [65536]byte
 
+// Export manifest to core (uses @fast for CRUD)
 //go:wasmexport fasterp_get_manifest
 func fasterp_get_manifest() uint64 {
 	data, _ := json.Marshal(manifest)
