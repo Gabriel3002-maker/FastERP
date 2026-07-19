@@ -19,6 +19,14 @@
           "example": "María López",
           "sequence": 10
         },
+        "estado": {
+          "type": "string",
+          "length": 20,
+          "label": "Estado",
+          "options": ["prospecto", "activo", "inactivo"],
+          "help": "Lo mueve el flujo, no se edita directamente.",
+          "sequence": 15
+        },
         "email": {
           "type": "email",
           "length": 160,
@@ -156,6 +164,22 @@
           "type": "text",
           "label": "Notas",
           "sequence": 200
+        }
+      },
+      "workflow": {
+        "field": "estado",
+        "initial": "prospecto",
+        "transitions": {
+          "activar": {
+            "from": ["prospecto", "inactivo"],
+            "to": "activo",
+            "label": "Activar"
+          },
+          "desactivar": {
+            "from": ["prospecto", "activo"],
+            "to": "inactivo",
+            "label": "Desactivar"
+          }
         }
       }
     }

@@ -22,6 +22,44 @@ func (s *ModuleSDK) EnsureSchema(ctx context.Context) error {
 		if err := s.ensureTable(ctx, modelName, model); err != nil {
 			return fmt.Errorf("modelo %s: %w", modelName, err)
 		}
+		if model.Workflow != nil {
+			if err := s.ensureHistoryTable(ctx, modelName); err != nil {
+				return fmt.Errorf("historial de %s: %w", modelName, err)
+			}
+		}
+	}
+	return nil
+}
+
+// ensureHistoryTable crea la tabla de auditoría del flujo: quién movió el
+// registro, de qué estado a cuál y cuándo. Sólo existe si el modelo declara
+// "workflow" — un modelo sin estados no necesita historial de transiciones.
+func (s *ModuleSDK) ensureHistoryTable(ctx context.Context, modelName string) error {
+	table := s.historyTableName(modelName)
+
+	createSQL := fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			tenant_id UUID NOT NULL,
+			record_id UUID NOT NULL,
+			action VARCHAR(64) NOT NULL,
+			from_state VARCHAR(64) NOT NULL,
+			to_state VARCHAR(64) NOT NULL,
+			user_id UUID,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`, table)
+	if _, err := s.DB.ExecContext(ctx, createSQL); err != nil {
+		return fmt.Errorf("crear tabla de historial: %w", err)
+	}
+
+	idx := fmt.Sprintf(
+		"CREATE INDEX IF NOT EXISTS idx_%s_record ON %s (tenant_id, record_id)", table, table)
+	if _, err := s.DB.ExecContext(ctx, idx); err != nil {
+		log.Printf("[SDK] aviso: índice de historial %s: %v", table, err)
+	}
+
+	if err := s.ensureRLS(ctx, table); err != nil {
+		log.Printf("[SDK] aviso: RLS en %s: %v", table, err)
 	}
 	return nil
 }

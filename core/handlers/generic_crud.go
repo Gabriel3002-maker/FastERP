@@ -21,8 +21,9 @@ import (
 // No conoce ningún módulo en particular: lee su manifest.json, arma el SDK y
 // delega en @fast. Agregar un módulo nuevo no requiere tocar el core.
 type GenericCRUDHandler struct {
-	dbConn     *db.DB
-	modulesDir string
+	dbConn         *db.DB
+	modulesDir     string
+	sessionManager *SessionManager
 
 	mu            sync.RWMutex
 	manifestCache map[string]string // módulo → manifest.json
@@ -33,14 +34,37 @@ type GenericCRUDHandler struct {
 // metaSegment es el pseudo-id que devuelve la metadata del modelo.
 const metaSegment = "_meta"
 
-func NewGenericCRUDHandler(dbConn *db.DB, modulesDir string) *GenericCRUDHandler {
+func NewGenericCRUDHandler(dbConn *db.DB, modulesDir string, sessionManager *SessionManager) *GenericCRUDHandler {
 	return &GenericCRUDHandler{
-		dbConn:        dbConn,
-		modulesDir:    modulesDir,
-		manifestCache: make(map[string]string),
-		schemaEnsured: make(map[string]bool),
-		tenantCache:   make(map[string]string),
+		dbConn:         dbConn,
+		modulesDir:     modulesDir,
+		sessionManager: sessionManager,
+		manifestCache:  make(map[string]string),
+		schemaEnsured:  make(map[string]bool),
+		tenantCache:    make(map[string]string),
 	}
+}
+
+// userIDFrom identifica a quien hace la petición, si trae un token válido.
+//
+// Es identificación "a lo mejor", no autorización: estas rutas no exigen
+// login (X-Tenant-ID alcanza para operar), pero el historial de un flujo
+// necesita saber QUIÉN hizo cada transición para que sea auditoría real y no
+// una lista de movimientos anónimos. Sin token o con uno inválido, se sigue
+// atendiendo la petición — sólo que el historial queda sin ese dato.
+func (h *GenericCRUDHandler) userIDFrom(r *http.Request) string {
+	if h.sessionManager == nil {
+		return ""
+	}
+	token := h.sessionManager.GetTokenFromRequest(r)
+	if token == "" {
+		return ""
+	}
+	claims, err := h.sessionManager.ValidateToken(token)
+	if err != nil {
+		return ""
+	}
+	return claims.UserID
 }
 
 // HandleCRUD despacha POST, GET, PUT y DELETE según el manifest del módulo.
@@ -62,7 +86,7 @@ func (h *GenericCRUDHandler) HandleCRUD(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	moduleSdk, err := h.sdkFor(ctx, module, tenantID)
+	moduleSdk, err := h.sdkFor(ctx, module, tenantID, h.userIDFrom(r))
 	if err != nil {
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
@@ -161,6 +185,89 @@ func (h *GenericCRUDHandler) handleDelete(ctx context.Context, w http.ResponseWr
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "message": "eliminado"})
 }
 
+// HandleTransition mueve un registro por su flujo: POST /api/{module}/{model}/{id}/transition
+// con {"action": "confirmar"}. Es la única forma de cambiar el campo de
+// estado — el SDK rechaza tocarlo desde un PUT normal.
+func (h *GenericCRUDHandler) HandleTransition(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeErr(w, http.StatusMethodNotAllowed, "método no permitido")
+		return
+	}
+
+	module, model, id := r.PathValue("module"), r.PathValue("model"), r.PathValue("id")
+	if module == "" || model == "" || id == "" {
+		writeErr(w, http.StatusBadRequest, "ruta inválida")
+		return
+	}
+
+	ctx := r.Context()
+	tenantID, err := h.resolveTenant(ctx, r.Header.Get("X-Tenant-ID"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	s, err := h.sdkFor(ctx, module, tenantID, h.userIDFrom(r))
+	if err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	var payload struct {
+		Action string `json:"action"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		writeErr(w, http.StatusBadRequest, "JSON inválido")
+		return
+	}
+	if payload.Action == "" {
+		writeErr(w, http.StatusBadRequest, "falta \"action\"")
+		return
+	}
+
+	result, err := s.Transition(ctx, model, id, payload.Action)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+// HandleHistory lista las transiciones aplicadas a un registro:
+// GET /api/{module}/{model}/{id}/history
+func (h *GenericCRUDHandler) HandleHistory(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeErr(w, http.StatusMethodNotAllowed, "método no permitido")
+		return
+	}
+
+	module, model, id := r.PathValue("module"), r.PathValue("model"), r.PathValue("id")
+	if module == "" || model == "" || id == "" {
+		writeErr(w, http.StatusBadRequest, "ruta inválida")
+		return
+	}
+
+	ctx := r.Context()
+	tenantID, err := h.resolveTenant(ctx, r.Header.Get("X-Tenant-ID"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	s, err := h.sdkFor(ctx, module, tenantID, h.userIDFrom(r))
+	if err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	history, err := s.History(ctx, model, id)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": history})
+}
+
 // listOptionsFrom traduce ?page=&limit=&search=&order_by=&order_dir= a ListOptions.
 //
 // Cualquier otro parámetro es un filtro por columna. El operador va sufijado
@@ -209,13 +316,13 @@ func listOptionsFrom(r *http.Request) sdk.ListOptions {
 }
 
 // sdkFor arma el SDK del módulo y garantiza que sus tablas existan.
-func (h *GenericCRUDHandler) sdkFor(ctx context.Context, module, tenantID string) (*sdk.ModuleSDK, error) {
+func (h *GenericCRUDHandler) sdkFor(ctx context.Context, module, tenantID, userID string) (*sdk.ModuleSDK, error) {
 	manifestJSON, err := h.manifest(module)
 	if err != nil {
 		return nil, err
 	}
 
-	moduleSdk := sdk.NewModuleSDK(module, tenantID, "", h.dbConn.Pool())
+	moduleSdk := sdk.NewModuleSDK(module, tenantID, userID, h.dbConn.Pool())
 	if err := moduleSdk.LoadManifest(manifestJSON); err != nil {
 		return nil, err
 	}

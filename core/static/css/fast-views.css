@@ -156,6 +156,15 @@
 .fv-actions button:hover { border-color: var(--fv-accent); color: var(--fv-accent); }
 .fv-actions [data-action="delete"]:hover { border-color: #dc2626; color: #dc2626; }
 
+/* Botones de transición del flujo: se distinguen de editar/eliminar. */
+.fv-transition {
+  border-color: var(--fv-accent);
+  color: var(--fv-accent);
+  font-weight: 600;
+}
+
+.fv-transition:hover { background: var(--fv-accent); color: #fff; }
+
 .fv-empty {
   padding: 2.5rem 1rem;
   text-align: center;

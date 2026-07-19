@@ -36,6 +36,23 @@ func (h *DocsHandler) OpenAPI(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, sdk.BuildOpenAPI(manifests, scheme+"://"+r.Host))
 }
 
+// Catalog lista los módulos instalados con sus modelos y campos.
+//
+// Es la base para cualquier herramienta que quiera extender un módulo
+// existente en vez de crear siempre uno nuevo (Studio-Flujo, por ejemplo):
+// sin saber qué ya hay, no puede ofrecer "agregá esto a contacts" en vez de
+// forzar un módulo vacío por cada flujo.
+func (h *DocsHandler) Catalog(w http.ResponseWriter, r *http.Request) {
+	manifests, err := sdk.LoadManifests(h.modulesDir)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"modules": sdk.BuildCatalog(manifests),
+	})
+}
+
 // Docs sirve Swagger UI. Los assets están vendorizados en static/swagger/, así
 // que la documentación funciona sin internet — requisito para on-premise.
 func (h *DocsHandler) Docs(w http.ResponseWriter, r *http.Request) {

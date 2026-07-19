@@ -598,3 +598,294 @@ func TestNormalizeValueRespetaElTipoDeclarado(t *testing.T) {
 		})
 	}
 }
+
+// ── Workflow ─────────────────────────────────────────────────────────────
+
+// El manifest referencia un workflow.field, así que debe existir en Fields:
+// si no, cualquier transición fallaría al primer intento en vez de al cargar.
+func TestValidateWorkflowRechazaCampoInexistente(t *testing.T) {
+	manifest := `{"name":"m","models":{"pedido":{
+		"fields":{"total":{"type":"money"}},
+		"workflow":{"field":"estado","initial":"nuevo","transitions":{
+			"avanzar":{"from":["nuevo"],"to":"listo"}
+		}}
+	}}}`
+
+	s := NewModuleSDK("m", "t", "", nil)
+	if err := s.LoadManifest(manifest); err == nil {
+		t.Fatal("se esperaba rechazo: workflow.field no existe en fields")
+	}
+}
+
+// El campo de estado necesita "options": son los únicos estados legales, y
+// sin ellos no hay contra qué validar initial ni las transiciones.
+func TestValidateWorkflowRequiereOptions(t *testing.T) {
+	manifest := `{"name":"m","models":{"pedido":{
+		"fields":{"estado":{"type":"string"}},
+		"workflow":{"field":"estado","initial":"nuevo","transitions":{
+			"avanzar":{"from":["nuevo"],"to":"listo"}
+		}}
+	}}}`
+
+	s := NewModuleSDK("m", "t", "", nil)
+	if err := s.LoadManifest(manifest); err == nil {
+		t.Fatal("se esperaba rechazo: el campo de estado no declara options")
+	}
+}
+
+func TestValidateWorkflowInitialDebeEstarEnOptions(t *testing.T) {
+	manifest := `{"name":"m","models":{"pedido":{
+		"fields":{"estado":{"type":"string","options":["nuevo","listo"]}},
+		"workflow":{"field":"estado","initial":"fantasma","transitions":{
+			"avanzar":{"from":["nuevo"],"to":"listo"}
+		}}
+	}}}`
+
+	s := NewModuleSDK("m", "t", "", nil)
+	if err := s.LoadManifest(manifest); err == nil {
+		t.Fatal("se esperaba rechazo: initial no está en options")
+	}
+}
+
+func TestValidateWorkflowTransicionRechazaEstadosFueraDeOptions(t *testing.T) {
+	tests := []struct {
+		name       string
+		transition string
+	}{
+		{"origen inventado", `"avanzar":{"from":["fantasma"],"to":"listo"}`},
+		{"destino inventado", `"avanzar":{"from":["nuevo"],"to":"fantasma"}`},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			manifest := `{"name":"m","models":{"pedido":{
+				"fields":{"estado":{"type":"string","options":["nuevo","listo"]}},
+				"workflow":{"field":"estado","initial":"nuevo","transitions":{` + tc.transition + `}}
+			}}}`
+
+			s := NewModuleSDK("m", "t", "", nil)
+			if err := s.LoadManifest(manifest); err == nil {
+				t.Fatal("se esperaba rechazo: estado fuera de options")
+			}
+		})
+	}
+}
+
+func TestValidateWorkflowSinTransicionesSeRechaza(t *testing.T) {
+	manifest := `{"name":"m","models":{"pedido":{
+		"fields":{"estado":{"type":"string","options":["nuevo"]}},
+		"workflow":{"field":"estado","initial":"nuevo","transitions":{}}
+	}}}`
+
+	s := NewModuleSDK("m", "t", "", nil)
+	if err := s.LoadManifest(manifest); err == nil {
+		t.Fatal("se esperaba rechazo: workflow sin transiciones declaradas")
+	}
+}
+
+// Un manifest de workflow bien formado se acepta sin objeciones.
+func TestValidateWorkflowManifestValidoPasa(t *testing.T) {
+	manifest := `{"name":"crm","models":{"lead":{
+		"fields":{
+			"nombre":{"type":"string","required":true},
+			"estado":{"type":"string","options":["prospecto","activo","inactivo"]}
+		},
+		"workflow":{"field":"estado","initial":"prospecto","transitions":{
+			"activar":{"from":["prospecto","inactivo"],"to":"activo","label":"Activar"},
+			"desactivar":{"from":["prospecto","activo"],"to":"inactivo"}
+		}}
+	}}}`
+
+	s := NewModuleSDK("crm", "t", "", nil)
+	if err := s.LoadManifest(manifest); err != nil {
+		t.Fatalf("manifest válido rechazado: %v", err)
+	}
+}
+
+// Modelos sin workflow no se ven afectados: sigue sin ser obligatorio.
+func TestModeloSinWorkflowSigueFuncionando(t *testing.T) {
+	manifest := `{"name":"m","models":{"item":{"fields":{"name":{"type":"string"}}}}}`
+	s := NewModuleSDK("m", "t", "", nil)
+	if err := s.LoadManifest(manifest); err != nil {
+		t.Fatalf("manifest sin workflow rechazado: %v", err)
+	}
+	if s.Manifest.Models["item"].Workflow != nil {
+		t.Fatal("un modelo sin bloque workflow no debería tener uno")
+	}
+}
+
+// rejectWorkflowField es lo que impide saltarse el flujo escribiendo el
+// estado a mano por PUT: sin esto, el workflow sería decorativo.
+func TestRejectWorkflowField(t *testing.T) {
+	withWorkflow := &ModelDef{
+		Fields:   map[string]*FieldDef{"estado": {Type: "string", Options: []string{"a", "b"}}},
+		Workflow: &WorkflowDef{Field: "estado", Initial: "a"},
+	}
+	withoutWorkflow := &ModelDef{Fields: map[string]*FieldDef{"estado": {Type: "string"}}}
+
+	tests := []struct {
+		name    string
+		model   *ModelDef
+		data    map[string]any
+		wantErr bool
+	}{
+		{"intenta fijar el estado directamente", withWorkflow, map[string]any{"estado": "b"}, true},
+		{"no toca el campo de estado", withWorkflow, map[string]any{"nombre": "x"}, false},
+		{"sin workflow, el campo es libre", withoutWorkflow, map[string]any{"estado": "cualquiera"}, false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := rejectWorkflowField(tc.model, tc.data)
+			if (err != nil) != tc.wantErr {
+				t.Errorf("rejectWorkflowField() error = %v, wantErr = %v", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestContainsState(t *testing.T) {
+	if !containsState([]string{"a", "b"}, "b") {
+		t.Error("debería encontrar 'b'")
+	}
+	if containsState([]string{"a", "b"}, "c") {
+		t.Error("no debería encontrar 'c'")
+	}
+	if containsState(nil, "a") {
+		t.Error("una lista vacía no contiene nada")
+	}
+}
+
+// _meta expone el flujo completo, con etiquetas por defecto cuando el
+// manifest no las puso — es lo que el cliente usa para dibujar los botones
+// sin volver a preguntarle nada al servidor.
+func TestMetaExponeElWorkflow(t *testing.T) {
+	manifest := `{"name":"crm","models":{"lead":{
+		"fields":{
+			"nombre":{"type":"string","required":true},
+			"estado":{"type":"string","options":["prospecto","activo","inactivo"]}
+		},
+		"workflow":{"field":"estado","initial":"prospecto","transitions":{
+			"activar":{"from":["prospecto","inactivo"],"to":"activo","label":"Activar"},
+			"desactivar":{"from":["prospecto","activo"],"to":"inactivo"}
+		}}
+	}}}`
+
+	s := NewModuleSDK("crm", "t", "", nil)
+	if err := s.LoadManifest(manifest); err != nil {
+		t.Fatalf("manifest rechazado: %v", err)
+	}
+
+	meta, err := s.Meta("lead")
+	if err != nil {
+		t.Fatalf("Meta() falló: %v", err)
+	}
+
+	if meta.Workflow == nil {
+		t.Fatal("meta.Workflow no debería ser nil")
+	}
+	if meta.Workflow.Field != "estado" || meta.Workflow.Initial != "prospecto" {
+		t.Errorf("workflow = %+v", meta.Workflow)
+	}
+
+	activar, ok := meta.Workflow.Transitions["activar"]
+	if !ok {
+		t.Fatal("falta la transición 'activar'")
+	}
+	if activar.Label != "Activar" {
+		t.Errorf("label declarada no respetada: %q", activar.Label)
+	}
+
+	desactivar, ok := meta.Workflow.Transitions["desactivar"]
+	if !ok {
+		t.Fatal("falta la transición 'desactivar'")
+	}
+	if desactivar.Label != "Desactivar" { // sin label explícita: se humaniza el nombre
+		t.Errorf("label deducida = %q, want Desactivar", desactivar.Label)
+	}
+
+	// El campo de estado no debe aparecer como editable en el formulario.
+	for _, f := range meta.Views.Form.Fields {
+		if f == "estado" {
+			t.Error("el campo de estado no debería estar en el formulario: se mueve con transiciones")
+		}
+	}
+
+	// Kanban debe agrupar por el campo del workflow, no por cualquier otro
+	// campo con options que hubiera en el modelo.
+	if meta.Views.Kanban == nil || meta.Views.Kanban.GroupBy != "estado" {
+		t.Errorf("kanban.group_by = %v, want estado", meta.Views.Kanban)
+	}
+}
+
+// ── Catálogo ─────────────────────────────────────────────────────────────
+
+// El catálogo es la base de "extender un módulo existente": sin esto, un
+// diseñador visual no puede saber qué campos ya hay para no chocar nombres,
+// ni si un modelo ya tiene flujo (agregar otro lo reemplazaría).
+func TestBuildCatalogResumeModulosYCampos(t *testing.T) {
+	manifests := map[string]*Manifest{
+		"contacts": {
+			Name:  "contacts",
+			Label: "Contactos",
+			Icon:  "👥",
+			Models: map[string]*ModelDef{
+				"contact": {
+					Label: "Contacto",
+					Fields: map[string]*FieldDef{
+						"name":   {Type: "string", Required: true},
+						"estado": {Type: "string", Options: []string{"prospecto", "activo"}},
+					},
+					Workflow: &WorkflowDef{Field: "estado", Initial: "prospecto"},
+				},
+			},
+		},
+		"crm": {
+			Name: "crm", // sin label: debe humanizarse
+			Models: map[string]*ModelDef{
+				"lead": {Fields: map[string]*FieldDef{"title": {Type: "string"}}},
+			},
+		},
+	}
+
+	catalog := BuildCatalog(manifests)
+
+	if len(catalog) != 2 {
+		t.Fatalf("catalog tiene %d módulos, want 2", len(catalog))
+	}
+	// Orden alfabético: contacts antes que crm.
+	if catalog[0].Name != "contacts" || catalog[1].Name != "crm" {
+		t.Errorf("orden = [%s, %s], want [contacts, crm]", catalog[0].Name, catalog[1].Name)
+	}
+
+	contacts := catalog[0]
+	if contacts.Label != "Contactos" || contacts.Icon != "👥" {
+		t.Errorf("label/icon no respetados: %+v", contacts)
+	}
+	if len(contacts.Models) != 1 || contacts.Models[0].Name != "contact" {
+		t.Fatalf("modelos = %+v", contacts.Models)
+	}
+
+	contact := contacts.Models[0]
+	if !contact.HasWorkflow {
+		t.Error("contact tiene workflow declarado, HasWorkflow debería ser true")
+	}
+	if len(contact.Fields) != 2 {
+		t.Fatalf("fields = %+v, want 2", contact.Fields)
+	}
+
+	crm := catalog[1]
+	if crm.Label != "Crm" { // humanizado a falta de label
+		t.Errorf("label humanizada = %q, want Crm", crm.Label)
+	}
+	if crm.Models[0].HasWorkflow {
+		t.Error("lead no declara workflow, HasWorkflow debería ser false")
+	}
+}
+
+func TestBuildCatalogSinModulosDaListaVacia(t *testing.T) {
+	catalog := BuildCatalog(map[string]*Manifest{})
+	if catalog == nil || len(catalog) != 0 {
+		t.Errorf("catalog = %v, want lista vacía (no nil)", catalog)
+	}
+}

@@ -19,6 +19,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // PageSizes son los únicos tamaños de página que el usuario puede elegir.
@@ -50,21 +51,46 @@ type ModuleSDK struct {
 // Manifest define la estructura de un módulo.
 type Manifest struct {
 	Name   string               `json:"name"`
+	Label  string               `json:"label,omitempty"`
+	Icon   string               `json:"icon,omitempty"`
 	Models map[string]*ModelDef `json:"models"`
 }
 
 // ModelDef define una tabla en el módulo.
 type ModelDef struct {
-	Name   string               `json:"name"`
-	Label  string               `json:"label,omitempty"`
-	Fields map[string]*FieldDef `json:"fields"`
-	Views  *ViewsDef            `json:"views,omitempty"`
+	Name     string               `json:"name"`
+	Label    string               `json:"label,omitempty"`
+	Fields   map[string]*FieldDef `json:"fields"`
+	Views    *ViewsDef            `json:"views,omitempty"`
+	Workflow *WorkflowDef         `json:"workflow,omitempty"`
 
 	// FieldOrder conserva el orden en que el módulo declaró los campos.
 	// Un map de Go no tiene orden, y ese orden es información: quien escribió
 	// el manifest puso el campo identificador primero por algo. Las columnas
 	// de la tabla y la documentación lo respetan.
 	FieldOrder []string `json:"-"`
+}
+
+// WorkflowDef convierte un campo de opciones en una máquina de estados.
+//
+// El campo declarado en "field" debe existir en Fields y traer "options" con
+// los estados válidos: los mismos options que ya alimentan el <select> del
+// formulario y el agrupado de kanban pasan a ser también los estados legales.
+//
+// Una vez declarado, ese campo deja de aceptarse en Create/Update directo —
+// sólo cambia a través de una Transition() válida, así el historial siempre
+// refleja el camino real que tomó el registro.
+type WorkflowDef struct {
+	Field       string                    `json:"field"`
+	Initial     string                    `json:"initial"`
+	Transitions map[string]*TransitionDef `json:"transitions"`
+}
+
+// TransitionDef declara una acción legal de la máquina de estados.
+type TransitionDef struct {
+	From  []string `json:"from"`
+	To    string   `json:"to"`
+	Label string   `json:"label,omitempty"`
 }
 
 // UnmarshalJSON carga el modelo conservando el orden de declaración.
@@ -300,9 +326,71 @@ func (s *ModuleSDK) LoadManifest(manifestJSON string) error {
 					s.ModuleID, modelName, fieldName, def.Type, strings.Join(KnownTypes(), ", "))
 			}
 		}
+		if err := validateWorkflow(modelName, model); err != nil {
+			return err
+		}
 	}
 
 	s.Manifest = m
+	return nil
+}
+
+// validateWorkflow verifica que el flujo declarado sea consistente ANTES de
+// que el módulo se sirva: una transición hacia un estado que no existe se
+// rechaza al cargar, no la primera vez que alguien la use.
+func validateWorkflow(modelName string, model *ModelDef) error {
+	wf := model.Workflow
+	if wf == nil {
+		return nil
+	}
+
+	field, ok := model.Fields[wf.Field]
+	if !ok {
+		return fmt.Errorf("workflow de %q: el campo %q no existe en el modelo", modelName, wf.Field)
+	}
+	if len(field.Options) == 0 {
+		return fmt.Errorf(
+			"workflow de %q: el campo %q debe declarar \"options\" con los estados válidos",
+			modelName, wf.Field)
+	}
+	if wf.Initial == "" {
+		return fmt.Errorf("workflow de %q: falta el estado inicial", modelName)
+	}
+	if len(wf.Transitions) == 0 {
+		return fmt.Errorf("workflow de %q: no declara ninguna transición", modelName)
+	}
+
+	valid := make(map[string]bool, len(field.Options))
+	for _, opt := range field.Options {
+		valid[opt] = true
+	}
+	if !valid[wf.Initial] {
+		return fmt.Errorf(
+			"workflow de %q: el estado inicial %q no está en options de %q",
+			modelName, wf.Initial, wf.Field)
+	}
+
+	for action, def := range wf.Transitions {
+		if !identRe.MatchString(action) {
+			return fmt.Errorf("workflow de %q: nombre de transición inválido %q", modelName, action)
+		}
+		if len(def.From) == 0 {
+			return fmt.Errorf("workflow de %q: la transición %q necesita al menos un estado de origen",
+				modelName, action)
+		}
+		for _, from := range def.From {
+			if !valid[from] {
+				return fmt.Errorf(
+					"workflow de %q: la transición %q parte de %q, que no está en options de %q",
+					modelName, action, from, wf.Field)
+			}
+		}
+		if !valid[def.To] {
+			return fmt.Errorf(
+				"workflow de %q: la transición %q llega a %q, que no está en options de %q",
+				modelName, action, def.To, wf.Field)
+		}
+	}
 	return nil
 }
 
@@ -330,6 +418,10 @@ func (s *ModuleSDK) Create(ctx context.Context, modelName string, data map[strin
 		return "", err
 	}
 
+	if err := rejectWorkflowField(model, data); err != nil {
+		return "", err
+	}
+
 	cols := []string{"tenant_id"}
 	vals := []any{s.TenantID}
 	holders := []string{"$1"}
@@ -347,6 +439,13 @@ func (s *ModuleSDK) Create(ctx context.Context, modelName string, data map[strin
 		}
 		cols = append(cols, fieldName)
 		vals = append(vals, raw)
+		holders = append(holders, fmt.Sprintf("$%d", len(vals)))
+	}
+
+	// El estado inicial lo asigna el flujo, nunca quien crea el registro.
+	if wf := model.Workflow; wf != nil {
+		cols = append(cols, wf.Field)
+		vals = append(vals, wf.Initial)
 		holders = append(holders, fmt.Sprintf("$%d", len(vals)))
 	}
 
@@ -392,6 +491,10 @@ func (s *ModuleSDK) Get(ctx context.Context, modelName, id string) (map[string]a
 func (s *ModuleSDK) Update(ctx context.Context, modelName, id string, data map[string]any) error {
 	model, err := s.model(modelName)
 	if err != nil {
+		return err
+	}
+
+	if err := rejectWorkflowField(model, data); err != nil {
 		return err
 	}
 
@@ -449,6 +552,170 @@ func (s *ModuleSDK) Delete(ctx context.Context, modelName, id string) error {
 		return fmt.Errorf("registro no encontrado")
 	}
 	return nil
+}
+
+// rejectWorkflowField impide que Create/Update toquen el campo de estado
+// directamente.
+//
+// Si se pudiera, el flujo sería decorativo: cualquiera podría saltarse las
+// transiciones escribiendo el estado a mano vía PUT, y el historial dejaría
+// de reflejar el camino real que tomó el registro.
+func rejectWorkflowField(model *ModelDef, data map[string]any) error {
+	wf := model.Workflow
+	if wf == nil {
+		return nil
+	}
+	if _, present := data[wf.Field]; present {
+		return fmt.Errorf(
+			"%q se cambia con una transición del flujo, no editando el campo directamente",
+			wf.Field)
+	}
+	return nil
+}
+
+// TransitionResult resume el movimiento que acaba de aplicar Transition().
+type TransitionResult struct {
+	ID     string `json:"id"`
+	Action string `json:"action"`
+	From   string `json:"from"`
+	To     string `json:"to"`
+}
+
+// Transition mueve un registro de un estado a otro por una acción declarada
+// en el manifest. Es el único camino para cambiar el campo de estado — no
+// tiene equivalente @fast directo, reemplaza a "editar el campo a mano".
+//
+// Corre dentro de una transacción con SELECT ... FOR UPDATE: si dos personas
+// disparan una transición sobre el mismo registro al mismo tiempo, la segunda
+// espera a que la primera termine y relee el estado ya actualizado — así
+// nunca aplican ambas partiendo del mismo estado de origen.
+func (s *ModuleSDK) Transition(ctx context.Context, modelName, id, action string) (*TransitionResult, error) {
+	model, err := s.model(modelName)
+	if err != nil {
+		return nil, err
+	}
+
+	wf := model.Workflow
+	if wf == nil {
+		return nil, fmt.Errorf("el modelo %q no tiene un flujo definido", modelName)
+	}
+	def, ok := wf.Transitions[action]
+	if !ok {
+		return nil, fmt.Errorf("la acción %q no existe en el flujo de %q", action, modelName)
+	}
+
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	table := s.tableName(modelName)
+	var current string
+	lockQuery := fmt.Sprintf(
+		"SELECT %s FROM %s WHERE id = $1 AND tenant_id = $2 FOR UPDATE", wf.Field, table)
+	if err := tx.QueryRowContext(ctx, lockQuery, id, s.TenantID).Scan(&current); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("registro no encontrado")
+		}
+		return nil, err
+	}
+
+	if !containsState(def.From, current) {
+		return nil, fmt.Errorf("no se puede %q desde %q (estado actual)", action, current)
+	}
+
+	update := fmt.Sprintf(
+		"UPDATE %s SET %s = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND tenant_id = $3",
+		table, wf.Field)
+	if _, err := tx.ExecContext(ctx, update, def.To, id, s.TenantID); err != nil {
+		log.Printf("[SDK] Transition %s: %v", table, err)
+		return nil, err
+	}
+
+	if err := s.insertHistory(ctx, tx, modelName, id, action, current, def.To); err != nil {
+		return nil, fmt.Errorf("no se pudo registrar el historial: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	return &TransitionResult{ID: id, Action: action, From: current, To: def.To}, nil
+}
+
+// History devuelve las transiciones aplicadas a un registro, más antigua primero.
+func (s *ModuleSDK) History(ctx context.Context, modelName, id string) ([]map[string]any, error) {
+	model, err := s.model(modelName)
+	if err != nil {
+		return nil, err
+	}
+	if model.Workflow == nil {
+		return nil, fmt.Errorf("el modelo %q no tiene un flujo definido", modelName)
+	}
+
+	query := fmt.Sprintf(
+		`SELECT action, from_state, to_state, user_id, created_at
+		 FROM %s WHERE tenant_id = $1 AND record_id = $2 ORDER BY created_at ASC`,
+		s.historyTableName(modelName))
+
+	rows, err := s.DB.QueryContext(ctx, query, s.TenantID, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	entries := make([]map[string]any, 0)
+	for rows.Next() {
+		var action, from, to string
+		var userID sql.NullString
+		var createdAt time.Time
+		if err := rows.Scan(&action, &from, &to, &userID, &createdAt); err != nil {
+			return nil, err
+		}
+		entry := map[string]any{
+			"action": action, "from": from, "to": to, "created_at": createdAt,
+		}
+		if userID.Valid {
+			entry["user_id"] = userID.String
+		}
+		entries = append(entries, entry)
+	}
+	return entries, rows.Err()
+}
+
+// execer es lo mínimo que insertHistory necesita: lo cumplen tanto *sql.DB
+// como *sql.Tx, así el mismo código escribe el historial dentro o fuera de
+// una transacción.
+type execer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+func (s *ModuleSDK) insertHistory(ctx context.Context, exec execer, modelName, recordID, action, from, to string) error {
+	query := fmt.Sprintf(
+		`INSERT INTO %s (tenant_id, record_id, action, from_state, to_state, user_id)
+		 VALUES ($1, $2, $3, $4, $5, $6)`, s.historyTableName(modelName))
+
+	var userID any
+	if s.UserID != "" {
+		userID = s.UserID
+	}
+	_, err := exec.ExecContext(ctx, query, s.TenantID, recordID, action, from, to, userID)
+	return err
+}
+
+// historyTableName: mod_<modulo>_<modelo>_history.
+func (s *ModuleSDK) historyTableName(modelName string) string {
+	return fmt.Sprintf("mod_%s_%s_history", s.ModuleID, modelName)
+}
+
+func containsState(states []string, target string) bool {
+	for _, state := range states {
+		if state == target {
+			return true
+		}
+	}
+	return false
 }
 
 // List retorna registros paginados. → @fast.list() / @fast.search()

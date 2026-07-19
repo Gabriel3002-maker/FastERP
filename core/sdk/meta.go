@@ -50,13 +50,31 @@ type FieldMeta struct {
 // ModelMeta es todo lo que el motor de vistas necesita para renderizar un
 // modelo sin que el módulo escriba UI.
 type ModelMeta struct {
-	Module    string      `json:"module"`
-	Model     string      `json:"model"`
-	Label     string      `json:"label"`
-	Fields    []FieldMeta `json:"fields"` // en el orden del manifest
-	Views     ViewsDef    `json:"views"`
-	PageSizes []int       `json:"page_sizes"`
-	FilterOps []string    `json:"filter_ops"`
+	Module    string        `json:"module"`
+	Model     string        `json:"model"`
+	Label     string        `json:"label"`
+	Fields    []FieldMeta   `json:"fields"` // en el orden del manifest
+	Views     ViewsDef      `json:"views"`
+	PageSizes []int         `json:"page_sizes"`
+	FilterOps []string      `json:"filter_ops"`
+	Workflow  *WorkflowMeta `json:"workflow,omitempty"`
+}
+
+// TransitionMeta describe una transición para quien tenga que dibujar el
+// botón: desde qué estados aplica, a cuál lleva y con qué etiqueta.
+type TransitionMeta struct {
+	From  []string `json:"from"`
+	To    string   `json:"to"`
+	Label string   `json:"label"`
+}
+
+// WorkflowMeta expone el flujo completo: con esto el cliente decide solo, por
+// registro, qué botones de transición mostrar — sin pedirle nada más al
+// servidor que el estado actual, que ya viaja en el propio registro.
+type WorkflowMeta struct {
+	Field       string                     `json:"field"`
+	Initial     string                     `json:"initial"`
+	Transitions map[string]*TransitionMeta `json:"transitions"`
 }
 
 // maxInferredColumns limita las columnas deducidas: una tabla con 19 columnas
@@ -103,7 +121,27 @@ func (s *ModuleSDK) Meta(modelName string) (*ModelMeta, error) {
 		Views:     inferViews(model, order),
 		PageSizes: PageSizes,
 		FilterOps: ops,
+		Workflow:  workflowMeta(model.Workflow),
 	}, nil
+}
+
+// workflowMeta traduce el flujo del manifest a su forma pública, agregando la
+// etiqueta legible cuando el módulo no puso una explícita.
+func workflowMeta(wf *WorkflowDef) *WorkflowMeta {
+	if wf == nil {
+		return nil
+	}
+
+	transitions := make(map[string]*TransitionMeta, len(wf.Transitions))
+	for action, def := range wf.Transitions {
+		label := def.Label
+		if label == "" {
+			label = humanize(action)
+		}
+		transitions[action] = &TransitionMeta{From: def.From, To: def.To, Label: label}
+	}
+
+	return &WorkflowMeta{Field: wf.Field, Initial: wf.Initial, Transitions: transitions}
 }
 
 // inferViews deduce las vistas del esquema. Lo que el módulo haya declarado
@@ -158,10 +196,18 @@ func inferColumns(model *ModelDef, order []string) []string {
 // orden de sequence. A diferencia de la tabla no se recorta: si el módulo
 // declaró el campo, la persona tiene que poder llenarlo. Un formulario escrito
 // a mano es justo donde se pierden campos cuando el esquema crece.
+//
+// El campo de estado del workflow queda fuera: Create/Update lo rechazan si
+// llega en el payload, así que mostrar un <select> editable para él sería
+// prometer algo que el servidor no permite. Se mueve, en cambio, con los
+// botones de transición.
 func inferForm(model *ModelDef, order []string) *FormView {
 	fields := make([]string, 0, len(order))
 	for _, name := range order {
 		if model.Fields[name].Readonly {
+			continue
+		}
+		if model.Workflow != nil && name == model.Workflow.Field {
 			continue
 		}
 		fields = append(fields, name)
@@ -200,27 +246,41 @@ func inferCard(model *ModelDef, order []string) *CardView {
 // inferKanban sólo ofrece kanban si hay un campo con opciones declaradas: así
 // las columnas se conocen de antemano y su conteo es real, no el de la página
 // que se esté mostrando.
+//
+// Si el modelo tiene un workflow, kanban se vuelve exactamente eso: el
+// tablero del flujo, agrupado por su campo de estado. Es el mismo campo que
+// ya trae "options" (la validación del workflow lo exige), así que no hace
+// falta ninguna configuración extra para que coincidan.
 func inferKanban(model *ModelDef, order []string) *KanbanView {
 	title := identifierField(model, order)
 	if title == "" {
 		return nil
 	}
 
-	for _, name := range order {
-		if len(model.Fields[name].Options) == 0 {
-			continue
-		}
-		kanban := &KanbanView{GroupBy: name, Title: title}
-		for _, candidate := range order {
-			def := model.Fields[candidate]
-			if candidate != title && candidate != name && def.IsSearchable() {
-				kanban.Subtitle = candidate
+	groupBy := ""
+	if model.Workflow != nil {
+		groupBy = model.Workflow.Field
+	} else {
+		for _, name := range order {
+			if len(model.Fields[name].Options) > 0 {
+				groupBy = name
 				break
 			}
 		}
-		return kanban
 	}
-	return nil
+	if groupBy == "" {
+		return nil
+	}
+
+	kanban := &KanbanView{GroupBy: groupBy, Title: title}
+	for _, candidate := range order {
+		def := model.Fields[candidate]
+		if candidate != title && candidate != groupBy && def.IsSearchable() {
+			kanban.Subtitle = candidate
+			break
+		}
+	}
+	return kanban
 }
 
 // identifierField busca el campo que identifica al registro: el primero que

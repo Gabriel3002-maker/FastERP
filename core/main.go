@@ -43,7 +43,7 @@ func main() {
 	auditHandler := handlers.NewAuditHandler(auditLogger)
 	setupHandler := handlers.NewSetupHandler(dbConn)
 	moduleHandler := handlers.NewModuleHandler(dbConn)
-	crudHandler := handlers.NewGenericCRUDHandler(dbConn, cfg.Modules.Path)
+	crudHandler := handlers.NewGenericCRUDHandler(dbConn, cfg.Modules.Path, authHandler.SessionManager())
 	docsHandler := handlers.NewDocsHandler(cfg.Modules.Path)
 
 	// Configurar router
@@ -184,6 +184,17 @@ func main() {
 	// ganan sobre los comodines, pero dejarlo explícito evita sorpresas.
 	mux.HandleFunc("/api/openapi.json", docsHandler.OpenAPI)
 	mux.HandleFunc("/api/docs", docsHandler.Docs)
+
+	// Catálogo de módulos instalados: lo que un diseñador visual (Studio-Flujo)
+	// necesita para ofrecer "extender esto" antes de generar algo nuevo.
+	mux.HandleFunc("/api/_catalog", docsHandler.Catalog)
+
+	// Flujo (workflow): mover un registro por sus estados y ver su historial.
+	// Van antes del dispatcher genérico: en Go 1.22+ el segmento literal final
+	// ("transition", "history") gana sobre el comodín {id} solo, pero
+	// registrarlas explícitas evita cualquier ambigüedad.
+	mux.HandleFunc("/api/{module}/{model}/{id}/transition", crudHandler.HandleTransition)
+	mux.HandleFunc("/api/{module}/{model}/{id}/history", crudHandler.HandleHistory)
 
 	// Dispatcher genérico para /api/{module}/{model}[/{id}]
 	// Go 1.22+ path parameter syntax

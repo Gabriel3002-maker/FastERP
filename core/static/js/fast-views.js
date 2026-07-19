@@ -15,9 +15,15 @@
  * El alta y la edición también salen del manifest: el formulario se arma con
  * todos los campos editables, con el control que corresponde a cada tipo.
  *
+ * Si el manifest declara "workflow", cada fila muestra los botones de las
+ * transiciones legales desde SU estado actual — no hace falta pedirle nada
+ * extra al servidor: la metadata ya trae el grafo completo y el registro ya
+ * trae su estado, el cliente sólo cruza los dos.
+ *
  * Eventos que emite el contenedor, para que el módulo reaccione si quiere:
- *   fast:change — la vista se recargó       (detail: { page })
- *   fast:saved  — se creó o editó un registro (detail: { id, record, creating })
+ *   fast:change      — la vista se recargó         (detail: { page })
+ *   fast:saved       — se creó o editó un registro (detail: { id, record, creating })
+ *   fast:transitioned — se aplicó una transición    (detail: { id, action, from, to })
  */
 (() => {
   'use strict';
@@ -452,6 +458,7 @@
         <tr data-id="${esc(record.id)}">
           ${columns.map((f) => `<td>${esc(formatValue(record[f.name], f))}</td>`).join('')}
           <td class="fv-actions">
+            ${this.transitionButtons(record)}
             <button type="button" data-action="edit">Editar</button>
             <button type="button" data-action="delete">Eliminar</button>
           </td>
@@ -462,6 +469,9 @@
         const record = rows.find((r) => r.id === id);
         tr.querySelector('[data-action="edit"]').addEventListener('click', () => this.edit(id, record));
         tr.querySelector('[data-action="delete"]').addEventListener('click', () => this.remove(id));
+        for (const btn of tr.querySelectorAll('[data-transition]')) {
+          btn.addEventListener('click', () => this.transition(id, btn.dataset.transition));
+        }
       }
 
       // Indicador de orden en el encabezado activo.
@@ -480,6 +490,43 @@
         total === 0 ? 'Sin registros' : `${from}–${to} de ${total} · página ${page} de ${pages}`;
       this.el.querySelector('.fv-prev').disabled = page <= 1;
       this.el.querySelector('.fv-next').disabled = page >= pages;
+    }
+
+    /**
+     * Botones de las transiciones legales desde el estado actual del registro.
+     * Sin workflow declarado no devuelve nada — la fila se ve como siempre.
+     */
+    transitionButtons(record) {
+      const wf = this.meta.workflow;
+      if (!wf) return '';
+
+      const current = record[wf.field];
+      return Object.entries(wf.transitions)
+        .filter(([, def]) => def.from.includes(current))
+        .map(([action, def]) => `
+          <button type="button" class="fv-transition" data-transition="${esc(action)}">
+            ${esc(def.label)}
+          </button>`)
+        .join('');
+    }
+
+    /** Ejecuta una transición del flujo: POST .../{id}/transition. */
+    async transition(id, action) {
+      try {
+        const response = await fetch(`${this.base}/${id}/transition`, {
+          method: 'POST', headers: this.headers,
+          body: JSON.stringify({ action }),
+        });
+        if (!response.ok) throw new Error(await this.errorText(response));
+
+        const result = await response.json();
+        this.load();
+        this.el.dispatchEvent(new CustomEvent('fast:transitioned', {
+          bubbles: true, detail: result,
+        }));
+      } catch (error) {
+        alert('Error: ' + error.message);
+      }
     }
 
     async remove(id) {
