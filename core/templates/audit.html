@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Module Store - FastERP</title>
+    <title>Auditoría - FastERP</title>
 
     <!-- Theme application ANTES de cargar CSS para evitar flash -->
     <script>
@@ -242,185 +242,66 @@
             color: var(--text-secondary);
         }
 
-        .filter-bar {
-            margin-bottom: 30px;
-            display: flex;
-            gap: 15px;
-            flex-wrap: wrap;
-        }
-
-        .filter-btn {
-            padding: 8px 16px;
-            border: 1px solid var(--border);
-            background: var(--bg-secondary);
-            border-radius: 20px;
-            cursor: pointer;
-            font-size: 13px;
-            transition: all 0.3s;
-            color: var(--text-secondary);
-        }
-
-        .filter-btn.active {
-            background: var(--primary);
-            color: white;
-            border-color: var(--primary);
-        }
-
-        .filter-btn:hover {
-            border-color: var(--primary);
-            color: var(--primary);
-        }
-
-        .modules-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-            gap: 20px;
-        }
-
-        .module-card {
+        .audit-table {
+            width: 100%;
+            border-collapse: collapse;
             background: var(--bg-secondary);
             border: 1px solid var(--border);
             border-radius: 8px;
-            padding: 20px;
-            transition: all 0.3s;
-            cursor: pointer;
+            overflow: hidden;
         }
 
-        .module-card:hover {
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-            transform: translateY(-2px);
-            border-color: var(--primary);
-        }
-
-        .module-icon {
-            font-size: 48px;
-            margin-bottom: 15px;
-        }
-
-        .module-name {
-            font-size: 16px;
-            font-weight: bold;
-            color: var(--text-primary);
-            margin-bottom: 5px;
-        }
-
-        .module-label {
-            font-size: 12px;
-            color: var(--text-secondary);
-            margin-bottom: 10px;
-        }
-
-        .module-description {
-            font-size: 13px;
-            color: var(--text-secondary);
-            margin-bottom: 15px;
-            line-height: 1.5;
-            min-height: 40px;
-        }
-
-        .module-meta {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            font-size: 12px;
-            color: var(--text-secondary);
-            margin-bottom: 15px;
-            padding-bottom: 15px;
+        .audit-table thead {
+            background: var(--bg-primary);
             border-bottom: 1px solid var(--border);
         }
 
-        .module-version {
-            background: var(--bg-primary);
-            padding: 2px 8px;
-            border-radius: 4px;
-        }
-
-        .module-author {
-            font-style: italic;
-        }
-
-        .module-actions {
-            display: flex;
-            gap: 10px;
-        }
-
-        .btn-install {
-            flex: 1;
-            padding: 8px 12px;
-            background: linear-gradient(135deg, var(--primary) 0%, #667eea 100%);
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 13px;
+        .audit-table th {
+            padding: 15px;
+            text-align: left;
             font-weight: 600;
-            transition: all 0.3s;
-        }
-
-        .btn-install:hover {
-            opacity: 0.9;
-        }
-
-        .btn-uninstall {
-            flex: 1;
-            padding: 8px 12px;
-            background: var(--bg-primary);
-            color: var(--text-secondary);
-            border: 1px solid var(--border);
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 13px;
-            font-weight: 600;
-            transition: all 0.3s;
-        }
-
-        .btn-uninstall:hover {
-            background: var(--bg-hover, rgba(0, 0, 0, 0.05));
-            border-color: var(--text-secondary);
             color: var(--text-primary);
+            font-size: 13px;
+            text-transform: uppercase;
         }
 
-        .badge {
+        .audit-table td {
+            padding: 15px;
+            border-bottom: 1px solid var(--border);
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .audit-table tbody tr:hover {
+            background: var(--bg-primary);
+        }
+
+        .action-badge {
             display: inline-block;
-            padding: 3px 8px;
-            border-radius: 12px;
+            padding: 4px 8px;
+            border-radius: 4px;
             font-size: 11px;
             font-weight: 600;
         }
 
-        .badge-installed {
+        .action-create {
             background: rgba(54, 179, 126, 0.2);
             color: #36B37E;
         }
 
-        @media (prefers-color-scheme: dark) {
-            .badge-installed {
-                background: rgba(76, 206, 151, 0.2);
-                color: #4CE97;
-            }
-        }
-
-        .badge-active {
+        .action-update {
             background: rgba(88, 157, 255, 0.2);
             color: #579DFF;
         }
 
-        @media (prefers-color-scheme: dark) {
-            .badge-active {
-                background: rgba(88, 157, 255, 0.25);
-                color: #85B8FF;
-            }
+        .action-delete {
+            background: rgba(174, 42, 25, 0.2);
+            color: #AE2A19;
         }
 
-        .empty-state {
-            text-align: center;
-            padding: 60px 20px;
-            color: var(--text-secondary);
-        }
-
-        .empty-state-icon {
-            font-size: 64px;
-            margin-bottom: 20px;
+        .action-login {
+            background: rgba(102, 126, 234, 0.2);
+            color: #667eea;
         }
 
         .loading {
@@ -443,43 +324,15 @@
             to { transform: rotate(360deg); }
         }
 
-        .alert {
-            padding: 12px 16px;
-            border-radius: 6px;
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-secondary);
+        }
+
+        .empty-state-icon {
+            font-size: 64px;
             margin-bottom: 20px;
-            display: none;
-        }
-
-        .alert.show {
-            display: block;
-        }
-
-        .alert-success {
-            background: rgba(54, 179, 126, 0.15);
-            color: #36B37E;
-            border: 1px solid rgba(54, 179, 126, 0.3);
-        }
-
-        @media (prefers-color-scheme: dark) {
-            .alert-success {
-                background: rgba(76, 206, 151, 0.2);
-                color: #4CE97;
-                border: 1px solid rgba(76, 206, 151, 0.4);
-            }
-        }
-
-        .alert-error {
-            background: rgba(174, 42, 25, 0.15);
-            color: #AE2A19;
-            border: 1px solid rgba(174, 42, 25, 0.3);
-        }
-
-        @media (prefers-color-scheme: dark) {
-            .alert-error {
-                background: rgba(248, 116, 98, 0.2);
-                color: #F87462;
-                border: 1px solid rgba(248, 116, 98, 0.4);
-            }
         }
 
         @media (max-width: 768px) {
@@ -502,6 +355,15 @@
 
             .header h1 {
                 font-size: 24px;
+            }
+
+            .audit-table {
+                font-size: 12px;
+            }
+
+            .audit-table th,
+            .audit-table td {
+                padding: 10px;
             }
         }
     </style>
@@ -531,7 +393,7 @@
 
             <div class="nav-section">
                 <div class="nav-title">Aplicaciones</div>
-                <a href="/admin/modules" class="nav-item active">
+                <a href="/admin/modules" class="nav-item">
                     <span class="nav-icon">🎮</span>
                     <span>Module Store</span>
                 </a>
@@ -539,7 +401,7 @@
 
             <div class="nav-section">
                 <div class="nav-title">Administración</div>
-                <a href="/admin/audit" class="nav-item">
+                <a href="/admin/audit" class="nav-item active">
                     <span class="nav-icon">🔍</span>
                     <span>Auditoría</span>
                 </a>
@@ -552,37 +414,27 @@
         <div class="main-content">
             <!-- Header -->
             <div class="header">
-                <h1>🎮 Module Store</h1>
-                <p>Descubre e instala módulos para extender tu FastERP</p>
+                <h1>🔍 Auditoría</h1>
+                <p>Registro de actividad y compliance del sistema</p>
             </div>
-
-            <!-- Alert -->
-            <div id="alert" class="alert"></div>
 
             <!-- Stats -->
             <div class="quick-stats" id="stats">
                 <div class="stat-card">
-                    <div class="stat-icon">📦</div>
-                    <div class="stat-number" id="total-modules">0</div>
-                    <div class="stat-label">Módulos Disponibles</div>
+                    <div class="stat-icon">📝</div>
+                    <div class="stat-number" id="total-events">0</div>
+                    <div class="stat-label">Eventos Totales</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-icon">✓</div>
-                    <div class="stat-number" id="installed-count">0</div>
-                    <div class="stat-label">Instalados</div>
+                    <div class="stat-icon">👤</div>
+                    <div class="stat-number" id="user-count">0</div>
+                    <div class="stat-label">Usuarios Activos</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-icon">⭐</div>
-                    <div class="stat-number" id="active-count">0</div>
-                    <div class="stat-label">Activos</div>
+                    <div class="stat-icon">🔄</div>
+                    <div class="stat-number" id="24h-events">0</div>
+                    <div class="stat-label">Eventos (24h)</div>
                 </div>
-            </div>
-
-            <!-- Filters -->
-            <div class="filter-bar">
-                <button class="filter-btn active" onclick="filterModules('all')">Todos</button>
-                <button class="filter-btn" onclick="filterModules('installed')">Instalados</button>
-                <button class="filter-btn" onclick="filterModules('available')">Disponibles</button>
             </div>
 
             <!-- Loading -->
@@ -590,22 +442,35 @@
                 <div class="spinner"></div>
             </div>
 
-            <!-- Modules Grid -->
-            <div id="modules-grid" class="modules-grid" style="display:none;"></div>
+            <!-- Audit Table -->
+            <div id="table-container" style="display:none;">
+                <table class="audit-table">
+                    <thead>
+                        <tr>
+                            <th>Usuario</th>
+                            <th>Acción</th>
+                            <th>Entidad</th>
+                            <th>ID</th>
+                            <th>Estado</th>
+                            <th>Fecha</th>
+                        </tr>
+                    </thead>
+                    <tbody id="audit-tbody"></tbody>
+                </table>
+            </div>
 
             <!-- Empty State -->
             <div id="empty-state" class="empty-state" style="display:none;">
                 <div class="empty-state-icon">📭</div>
-                <h2>No hay módulos</h2>
-                <p>No se encontraron módulos con los filtros aplicados</p>
+                <h2>Sin eventos de auditoría</h2>
+                <p>No hay registros de auditoría disponibles</p>
             </div>
         </div>
     </div>
 
     <script>
-        let allModules = [];
-        let currentFilter = 'all';
         const tenantID = localStorage.getItem('tenant_id') || 'default-123';
+        const token = localStorage.getItem('access_token');
 
         // Cargar datos del usuario
         function loadUserInfo() {
@@ -629,159 +494,69 @@
             }
         }
 
-        async function loadModules() {
+        async function loadAuditData() {
             try {
-                const response = await fetch('/api/modules/available', {
+                const response = await fetch('/api/audit/entity', {
                     headers: {
                         'X-Tenant-ID': tenantID,
+                        'Authorization': `Bearer ${token}`
                     }
                 });
 
                 const data = await response.json();
-                allModules = data.modules || [];
+                const events = data.events || [];
 
                 // Update stats
-                document.getElementById('total-modules').textContent = allModules.length;
-                document.getElementById('installed-count').textContent =
-                    allModules.filter(m => m.installed).length;
-                document.getElementById('active-count').textContent =
-                    allModules.filter(m => m.active).length;
+                document.getElementById('total-events').textContent = events.length;
+
+                const statsRes = await fetch('/api/audit/stats?days=1', {
+                    headers: {
+                        'X-Tenant-ID': tenantID,
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                const statsData = await statsRes.json();
+                document.getElementById('24h-events').textContent = statsData.stats?.total_events || 0;
+                document.getElementById('user-count').textContent = new Set(events.map(e => e.user_id)).size;
 
                 document.getElementById('loading').style.display = 'none';
-                renderModules();
+                renderAuditTable(events);
             } catch (error) {
-                showAlert('Error loading modules', 'error');
+                console.error('Error loading audit data:', error);
                 document.getElementById('loading').style.display = 'none';
+                document.getElementById('empty-state').style.display = 'block';
             }
         }
 
-        function filterModules(filter) {
-            currentFilter = filter;
-
-            // Update button states
-            document.querySelectorAll('.filter-btn').forEach(btn => {
-                btn.classList.remove('active');
-            });
-            event.target.classList.add('active');
-
-            renderModules();
-        }
-
-        function renderModules() {
-            let filtered = allModules;
-
-            if (currentFilter === 'installed') {
-                filtered = allModules.filter(m => m.installed);
-            } else if (currentFilter === 'available') {
-                filtered = allModules.filter(m => !m.installed);
-            }
-
-            const grid = document.getElementById('modules-grid');
+        function renderAuditTable(events) {
+            const tbody = document.getElementById('audit-tbody');
+            const tableContainer = document.getElementById('table-container');
             const emptyState = document.getElementById('empty-state');
 
-            if (filtered.length === 0) {
-                grid.style.display = 'none';
+            if (!events || events.length === 0) {
+                tableContainer.style.display = 'none';
                 emptyState.style.display = 'block';
                 return;
             }
 
-            grid.innerHTML = filtered.map(module => `
-                <div class="module-card">
-                    <div class="module-icon">${module.icon || '📦'}</div>
-                    <div class="module-name">${module.label}</div>
-                    <div class="module-label">${module.name}</div>
-                    <div class="module-description">${module.description}</div>
-
-                    <div class="module-meta">
-                        <span class="module-version">v${module.version}</span>
-                        <span class="module-author">${module.author}</span>
-                    </div>
-
-                    <div style="margin-bottom: 10px;">
-                        ${module.installed ? `
-                            <span class="badge badge-installed">✓ Instalado</span>
-                        ` : ''}
-                        ${module.active ? `
-                            <span class="badge badge-active">✓ Activo</span>
-                        ` : ''}
-                    </div>
-
-                    <div class="module-actions">
-                        ${module.installed ? `
-                            <button class="btn-uninstall" onclick="uninstallModule('${module.id}')">
-                                Desactivar
-                            </button>
-                        ` : `
-                            <button class="btn-install" onclick="installModule('${module.id}')">
-                                Instalar
-                            </button>
-                        `}
-                    </div>
-                </div>
+            tbody.innerHTML = events.slice(0, 50).map(event => `
+                <tr>
+                    <td>${event.user_id || '-'}</td>
+                    <td><span class="action-badge action-${event.action?.toLowerCase() || 'other'}">${event.action || '-'}</span></td>
+                    <td>${event.entity || '-'}</td>
+                    <td>${event.entity_id || '-'}</td>
+                    <td>${event.status || 'OK'}</td>
+                    <td>${new Date(event.created_at).toLocaleString('es-ES')}</td>
+                </tr>
             `).join('');
 
-            grid.style.display = 'grid';
+            tableContainer.style.display = 'block';
             emptyState.style.display = 'none';
-        }
-
-        async function installModule(moduleId) {
-            try {
-                const response = await fetch(`/api/modules/install?name=${moduleId}`, {
-                    method: 'POST',
-                    headers: {
-                        'X-Tenant-ID': tenantID,
-                    }
-                });
-
-                const data = await response.json();
-
-                if (response.ok) {
-                    showAlert(`✓ ${data.message}`, 'success');
-                    loadModules();
-                } else {
-                    showAlert(data.error || 'Error installing module', 'error');
-                }
-            } catch (error) {
-                showAlert('Error installing module', 'error');
-            }
-        }
-
-        async function uninstallModule(moduleId) {
-            if (!confirm('¿Desactivar este módulo?')) return;
-
-            try {
-                const response = await fetch(`/api/modules/uninstall?name=${moduleId}`, {
-                    method: 'POST',
-                    headers: {
-                        'X-Tenant-ID': tenantID,
-                    }
-                });
-
-                const data = await response.json();
-
-                if (response.ok) {
-                    showAlert(`✓ ${data.message}`, 'success');
-                    loadModules();
-                } else {
-                    showAlert(data.error || 'Error uninstalling module', 'error');
-                }
-            } catch (error) {
-                showAlert('Error uninstalling module', 'error');
-            }
-        }
-
-        function showAlert(message, type) {
-            const alert = document.getElementById('alert');
-            alert.textContent = message;
-            alert.className = `alert show alert-${type}`;
-            setTimeout(() => {
-                alert.classList.remove('show');
-            }, 4000);
         }
 
         // Inicializar
         loadUserInfo();
-        loadModules();
+        loadAuditData();
     </script>
 
     <script src="/static/js/theme.js"></script>
