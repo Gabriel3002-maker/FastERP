@@ -1,14 +1,14 @@
 // ========================================
 // Studio-Flujo
 // ========================================
-// Dibujás un diagrama de estados en Mermaid, agregás los campos que
-// necesita tu modelo, y "Generar" arma un manifest.json (más el frontend
-// mínimo, si es un módulo nuevo) usando exactamente el mismo motor que ya
-// hace correr a cualquier otro módulo — no hay un camino especial para lo
-// generado.
+// Dos formas de definir el flujo: dibujarlo (cajas que se arrastran y se
+// conectan, con Drawflow) o escribirlo en Mermaid. Cualquiera de las dos
+// termina en la misma estructura — { states, initial, transitions } — que
+// alimenta el mismo payload hacia /api/_studio/generate. El motor no sabe ni
+// le importa de cuál de las dos vino.
 //
 // Endpoints propios (no son @fast, son de este módulo):
-//   POST /api/_studio/parse-mermaid   → interpreta el diagrama
+//   POST /api/_studio/parse-mermaid   → interpreta el texto (modo texto)
 //   POST /api/_studio/generate        → escribe el manifest (admin)
 //   GET  /api/_catalog                → módulos instalados, para "extender"
 
@@ -26,7 +26,7 @@ const FIELD_TYPES = [
   ['datetime', 'Fecha y hora'],
 ];
 
-const DIAGRAM_DEBOUNCE_MS = 500;
+const DEBOUNCE_MS = 400;
 
 const $ = (id) => document.getElementById(id);
 
@@ -44,8 +44,9 @@ function debounce(fn, ms) {
   };
 }
 
-// Los <script> insertados con innerHTML no se ejecutan (el módulo ya llegó
-// así, vía module-loader.html); mermaid.js se carga a mano, igual que ahí.
+// Los <script>/<link> insertados con innerHTML no se ejecutan (el módulo ya
+// llegó así, vía module-loader.html); las librerías vendorizadas se cargan a
+// mano, igual que ahí.
 function loadScript(src) {
   return new Promise((resolve, reject) => {
     if (document.querySelector(`script[src="${src}"]`)) return resolve();
@@ -57,11 +58,36 @@ function loadScript(src) {
   });
 }
 
+function loadStyle(href) {
+  if (document.querySelector(`link[href="${href}"]`)) return;
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = href;
+  document.head.appendChild(link);
+}
+
+// Réplica liviana, del lado del cliente, del slugifyAction() del motor
+// (core/sdk/mermaid.go): minúsculas, separadores → "_", sin dígito inicial.
+// No hace normalización Unicode, igual que el original — una tilde se vuelve
+// separador, no la letra sin tilde.
+function slugifyAction(label) {
+  let slug = String(label || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  if (!slug) slug = 'accion';
+  if (/^[0-9]/.test(slug)) slug = 't_' + slug;
+  if (slug.length > 63) slug = slug.replace(/_+$/, '').slice(0, 63);
+  return slug;
+}
+
 // --- Estado del lienzo ---
 
-let parsedFlow = null; // último resultado válido de parse-mermaid
+let activeTab = 'canvas';
+let parsedFlow = null; // resultado de parse-mermaid (modo texto)
+let drawflow = null; // instancia de Drawflow (modo lienzo)
+let connectionLabels = {}; // "outId->inId" → etiqueta escrita al conectar
 let fields = [{ name: '', type: 'string', label: '', required: false, options: '' }];
-let mermaidReady = false;
 
 // --- Arranque ---
 
@@ -69,25 +95,16 @@ init();
 
 async function init() {
   bindModeToggle();
+  bindTabs();
   bindDiagramInput();
   bindFieldEditor();
   $('sf-generate').addEventListener('click', generate);
+  $('sf-add-state').addEventListener('click', () => addStateNode());
 
   loadCatalog();
-
-  try {
-    await loadScript('/static/vendor/mermaid/mermaid.min.js');
-    window.mermaid.initialize({ startOnLoad: false, theme: 'neutral' });
-    mermaidReady = true;
-  } catch {
-    // Sin mermaid.js no hay dibujo, pero /api/_studio/parse-mermaid sigue
-    // funcionando igual: el motor no depende del renderer visual.
-  }
-
+  await initCanvas();
   renderFields();
 }
-
-// --- Paso 1: destino ---
 
 function bindModeToggle() {
   for (const radio of document.querySelectorAll('input[name="sf-mode"]')) {
@@ -95,6 +112,18 @@ function bindModeToggle() {
       const extending = radio.value === 'extend' && radio.checked;
       $('sf-create-fields').hidden = extending;
       $('sf-extend-fields').hidden = !extending;
+    });
+  }
+}
+
+function bindTabs() {
+  for (const tab of document.querySelectorAll('.sf-tab')) {
+    tab.addEventListener('click', () => {
+      activeTab = tab.dataset.tab;
+      document.querySelectorAll('.sf-tab').forEach((t) => t.classList.toggle('sf-tab-active', t === tab));
+      $('sf-panel-canvas').hidden = activeTab !== 'canvas';
+      $('sf-panel-text').hidden = activeTab !== 'text';
+      $('sf-flow-result').hidden = true;
     });
   }
 }
@@ -131,10 +160,208 @@ function currentMode() {
   return document.querySelector('input[name="sf-mode"]:checked').value;
 }
 
-// --- Paso 2: diagrama ---
+// ========================================
+// Modo lienzo (Drawflow)
+// ========================================
+
+async function initCanvas() {
+  loadStyle('/static/vendor/drawflow/drawflow.min.css');
+
+  try {
+    await loadScript('/static/vendor/drawflow/drawflow.min.js');
+  } catch {
+    $('sf-drawflow').innerHTML = '<div class="sf-empty">No se pudo cargar el lienzo. Usá la pestaña de texto.</div>';
+    return;
+  }
+
+  drawflow = new window.Drawflow($('sf-drawflow'));
+  drawflow.reroute = true;
+  drawflow.start();
+
+  drawflow.on('connectionCreated', onConnectionCreated);
+  drawflow.on('connectionRemoved', onConnectionRemoved);
+
+  // Dos estados de arranque, ya conectados: se ve de entrada qué hacer en
+  // vez de un lienzo vacío sin pistas.
+  const a = addStateNode('prospecto', 60, 80);
+  const b = addStateNode('activo', 380, 80);
+  markInitial(a);
+  drawflow.addConnection(a, b, 'output_1', 'input_1');
+  connectionLabels[`${a}->${b}`] = 'Activar';
+  renderTransitionsPanel();
+}
+
+function nodeHTML(label) {
+  return `
+    <div class="sf-node-box">
+      <span class="sf-node-label" contenteditable="true" df-label spellcheck="false">${esc(label)}</span>
+      <div class="sf-node-actions">
+        <button type="button" class="sf-node-star" title="Marcar como estado inicial">☆</button>
+        <button type="button" class="sf-node-delete" title="Eliminar estado">&times;</button>
+      </div>
+    </div>`;
+}
+
+function addStateNode(label, x, y) {
+  const name = (label || `estado_${Object.keys(drawflow.export().drawflow.Home.data).length + 1}`);
+  const posX = x ?? 60 + Math.random() * 300;
+  const posY = y ?? 200 + Math.random() * 150;
+
+  const id = drawflow.addNode('estado', 1, 1, posX, posY, 'sf-node', { label: name, initial: false }, nodeHTML(name));
+
+  const el = document.getElementById(`node-${id}`);
+  el.querySelector('.sf-node-star').addEventListener('click', () => markInitial(id));
+  el.querySelector('.sf-node-delete').addEventListener('click', () => removeStateNode(id));
+  el.querySelector('.sf-node-label').addEventListener('input', () => renderTransitionsPanel());
+
+  return id;
+}
+
+function removeStateNode(id) {
+  drawflow.removeNodeId(`node-${id}`);
+  // Drawflow ya dispara connectionRemoved por cada conexión que colgaba de
+  // este nodo, así que connectionLabels se limpia solo vía esos eventos.
+  renderTransitionsPanel();
+}
+
+// Sólo puede haber un estado inicial: se limpia el resto y se marca este.
+function markInitial(id) {
+  const data = drawflow.export().drawflow.Home.data;
+  for (const nodeId in data) {
+    const isInitial = String(nodeId) === String(id);
+    drawflow.updateNodeDataFromId(nodeId, { ...data[nodeId].data, initial: isInitial });
+    const star = document.querySelector(`#node-${nodeId} .sf-node-star`);
+    if (star) {
+      star.textContent = isInitial ? '⭐' : '☆';
+      star.closest('.sf-node-box')?.classList.toggle('sf-node-initial', isInitial);
+    }
+  }
+}
+
+function onConnectionCreated({ output_id, input_id }) {
+  const label = prompt('¿Cómo se llama esta acción? (ej: "Activar", "Confirmar pedido")');
+  const clean = (label || '').trim();
+
+  if (!clean) {
+    // Sin etiqueta la transición no sirve — el motor la rechazaría igual
+    // (toda transición necesita un nombre de acción) — así que ni se ofrece.
+    drawflow.removeSingleConnection(output_id, input_id, 'output_1', 'input_1');
+    return;
+  }
+
+  connectionLabels[`${output_id}->${input_id}`] = clean;
+  renderTransitionsPanel();
+}
+
+function onConnectionRemoved({ output_id, input_id }) {
+  delete connectionLabels[`${output_id}->${input_id}`];
+  renderTransitionsPanel();
+}
+
+// El panel lateral es la vista editable de las transiciones: renombrar acá
+// no toca el lienzo, sólo la etiqueta guardada en connectionLabels.
+function renderTransitionsPanel() {
+  const list = $('sf-transitions-list');
+  if (!drawflow) return;
+
+  const data = drawflow.export().drawflow.Home.data;
+  const labelOf = (id) => data[id]?.data?.label || '(sin nombre)';
+
+  const rows = Object.entries(connectionLabels);
+  if (rows.length === 0) {
+    list.innerHTML = '<div class="sf-empty">Conectá dos estados para crear una.</div>';
+    return;
+  }
+
+  list.innerHTML = rows.map(([key, label]) => {
+    const [outId, inId] = key.split('->');
+    return `
+      <div class="sf-transition-row" data-key="${esc(key)}">
+        <span class="sf-transition-path">${esc(labelOf(outId))} → ${esc(labelOf(inId))}</span>
+        <input class="sf-transition-label" value="${esc(label)}">
+        <button type="button" class="sf-transition-remove" title="Quitar">&times;</button>
+      </div>`;
+  }).join('');
+
+  list.querySelectorAll('.sf-transition-row').forEach((row) => {
+    const key = row.dataset.key;
+    row.querySelector('.sf-transition-label').addEventListener('input', (e) => {
+      connectionLabels[key] = e.target.value;
+    });
+    row.querySelector('.sf-transition-remove').addEventListener('click', () => {
+      const [outId, inId] = key.split('->');
+      drawflow.removeSingleConnection(outId, inId, 'output_1', 'input_1'); // dispara connectionRemoved
+    });
+  });
+}
+
+// Arma { states, initial, transitions } directo del grafo, o { error } si
+// falta algo — la misma forma que produce el parser de Mermaid, así
+// buildPayload() no necesita saber de cuál de los dos modos vino.
+function graphToWorkflow() {
+  if (!drawflow) return { error: 'El lienzo no cargó.' };
+
+  const data = drawflow.export().drawflow.Home.data;
+  const nodes = Object.values(data);
+  if (nodes.length === 0) return null; // sin diagrama: el modelo no lleva flujo, y no es un error
+
+  const idToLabel = {};
+  const states = [];
+  const seen = new Set();
+  let initial = null;
+
+  for (const node of nodes) {
+    const label = (node.data.label || '').trim();
+    idToLabel[node.id] = label;
+    if (label && !seen.has(label)) {
+      seen.add(label);
+      states.push(label);
+    }
+    if (node.data.initial) initial = label;
+  }
+
+  if (!initial) {
+    return { error: 'Marcá qué estado es el inicial (la ⭐ en una de las cajas).' };
+  }
+
+  const transitions = {};
+  for (const node of nodes) {
+    const fromLabel = idToLabel[node.id];
+    for (const outKey in node.outputs || {}) {
+      for (const conn of node.outputs[outKey].connections || []) {
+        const rawLabel = connectionLabels[`${node.id}->${conn.node}`];
+        if (!rawLabel) continue; // conexión sin etiqueta: no debería poder pasar, pero por las dudas
+        const toLabel = idToLabel[conn.node];
+        const action = slugifyAction(rawLabel);
+
+        if (transitions[action]) {
+          if (transitions[action].to !== toLabel) {
+            return {
+              error: `la acción "${rawLabel}" ya lleva a "${transitions[action].to}"; `
+                + `no puede llevar también a "${toLabel}" — usá un nombre distinto para esa transición`,
+            };
+          }
+          if (!transitions[action].from.includes(fromLabel)) transitions[action].from.push(fromLabel);
+        } else {
+          transitions[action] = { from: [fromLabel], to: toLabel, label: rawLabel };
+        }
+      }
+    }
+  }
+
+  if (Object.keys(transitions).length === 0) {
+    return { error: 'Conectá al menos dos estados para tener una transición.' };
+  }
+
+  return { states, initial, transitions };
+}
+
+// ========================================
+// Modo texto (Mermaid)
+// ========================================
 
 function bindDiagramInput() {
-  $('sf-diagram').addEventListener('input', debounce(onDiagramChange, DIAGRAM_DEBOUNCE_MS));
+  $('sf-diagram').addEventListener('input', debounce(onDiagramChange, DEBOUNCE_MS));
 }
 
 async function onDiagramChange() {
@@ -149,8 +376,6 @@ async function onDiagramChange() {
     return;
   }
 
-  // El dibujo (mermaid.js) y la validación del motor (nuestro parser) son dos
-  // cosas separadas: una es cosmética, la otra es la que de verdad importa.
   renderMermaidPreview(source);
 
   try {
@@ -183,9 +408,19 @@ async function onDiagramChange() {
   }
 }
 
+let mermaidReady = false;
+
 async function renderMermaidPreview(source) {
   const previewBox = $('sf-mermaid-preview');
-  if (!mermaidReady) return;
+  if (!mermaidReady) {
+    try {
+      await loadScript('/static/vendor/mermaid/mermaid.min.js');
+      window.mermaid.initialize({ startOnLoad: false, theme: 'neutral' });
+      mermaidReady = true;
+    } catch {
+      return;
+    }
+  }
 
   try {
     const id = 'sf-diagram-' + Date.now();
@@ -196,7 +431,9 @@ async function renderMermaidPreview(source) {
   }
 }
 
-// --- Paso 3: campos ---
+// ========================================
+// Paso 3: campos
+// ========================================
 
 function bindFieldEditor() {
   $('sf-add-field').addEventListener('click', () => {
@@ -241,22 +478,31 @@ function renderFields() {
   });
 }
 
-// --- Paso 4: generar ---
+// ========================================
+// Paso 4: generar
+// ========================================
+
+// Resuelve el flujo activo sin importar de qué pestaña vino.
+function resolveFlow() {
+  if (activeTab === 'canvas') return graphToWorkflow();
+  return parsedFlow; // el modo texto ya validó contra el motor al escribir
+}
 
 function buildPayload() {
   const extending = currentMode() === 'extend';
   const module = extending ? $('sf-existing-module').value.trim() : $('sf-module').value.trim();
   const model = $('sf-model').value.trim();
+  const flow = resolveFlow();
 
   const payloadFields = {};
   let sequence = 20;
 
   const stateField = $('sf-state-field').value.trim();
-  if (parsedFlow && stateField) {
+  if (flow && !flow.error && stateField) {
     payloadFields[stateField] = {
       type: 'string',
       label: 'Estado',
-      options: parsedFlow.states,
+      options: flow.states,
       sequence: 5,
     };
   }
@@ -284,21 +530,26 @@ function buildPayload() {
     payload.module_icon = $('sf-module-icon').value.trim() || undefined;
   }
 
-  if (parsedFlow && stateField) {
-    payload.workflow = {
-      field: stateField,
-      initial: parsedFlow.initial,
-      transitions: parsedFlow.transitions,
-    };
+  if (flow && !flow.error && stateField) {
+    payload.workflow = { field: stateField, initial: flow.initial, transitions: flow.transitions };
   }
 
   return payload;
 }
 
 async function generate() {
-  const payload = buildPayload();
+  const flow = resolveFlow();
   const box = $('sf-generate-result');
   const button = $('sf-generate');
+
+  if (flow?.error) {
+    box.hidden = false;
+    box.className = 'sf-result sf-result-error';
+    box.textContent = flow.error;
+    return;
+  }
+
+  const payload = buildPayload();
 
   if (!payload.module || !payload.model) {
     box.hidden = false;

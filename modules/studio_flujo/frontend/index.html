@@ -63,26 +63,58 @@
   <!-- Paso 2: diagrama -->
   <section class="sf-card">
     <h2>2. El flujo</h2>
-    <p class="sf-hint">
-      Un diagrama de estados de Mermaid. La etiqueta de cada flecha es el
-      nombre de la acción — <code>[*] --&gt; estado</code> marca el estado
-      inicial.
-    </p>
 
-    <div class="sf-diagram-layout">
-      <div class="sf-field">
-        <label for="sf-state-field">Nombre del campo de estado</label>
-        <input id="sf-state-field" value="estado" spellcheck="false">
+    <div class="sf-field" style="max-width: 260px; margin-bottom: .9rem;">
+      <label for="sf-state-field">Nombre del campo de estado</label>
+      <input id="sf-state-field" value="estado" spellcheck="false">
+    </div>
+
+    <div class="sf-tabs">
+      <button type="button" class="sf-tab sf-tab-active" data-tab="canvas">🖱️ Dibujar</button>
+      <button type="button" class="sf-tab" data-tab="text">⌨️ Texto (Mermaid)</button>
+    </div>
+
+    <!-- Modo lienzo: cajas que se arrastran y se conectan -->
+    <div id="sf-panel-canvas" class="sf-panel">
+      <p class="sf-hint">
+        «+ Estado» agrega una caja — arrastrala para acomodarla, tocá el texto
+        para renombrarla. Arrastrá desde el punto de salida (derecha) de una
+        caja hasta la entrada (izquierda) de otra para crear una transición;
+        te va a pedir el nombre de la acción. La ⭐ marca cuál es el estado
+        inicial.
+      </p>
+      <div class="sf-canvas-toolbar">
+        <button type="button" id="sf-add-state" class="sf-btn-secondary">+ Estado</button>
       </div>
-      <textarea id="sf-diagram" class="sf-diagram-input" spellcheck="false"
-        placeholder="stateDiagram-v2
+      <div class="sf-canvas-layout">
+        <div id="sf-drawflow" class="sf-drawflow"></div>
+        <div class="sf-transitions-panel">
+          <h3>Transiciones</h3>
+          <div id="sf-transitions-list" class="sf-transitions-list">
+            <div class="sf-empty">Conectá dos estados para crear una.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modo texto: para quien prefiera escribir el diagrama -->
+    <div id="sf-panel-text" class="sf-panel" hidden>
+      <p class="sf-hint">
+        Un diagrama de estados de Mermaid. La etiqueta de cada flecha es el
+        nombre de la acción — <code>[*] --&gt; estado</code> marca el estado
+        inicial.
+      </p>
+      <div class="sf-diagram-layout">
+        <textarea id="sf-diagram" class="sf-diagram-input" spellcheck="false"
+          placeholder="stateDiagram-v2
     [*] --> prospecto
     prospecto --> activo : Activar
     activo --> inactivo : Desactivar
     inactivo --> activo : Activar"></textarea>
 
-      <div id="sf-mermaid-preview" class="sf-mermaid-preview">
-        <div class="sf-empty">El dibujo del diagrama aparece acá.</div>
+        <div id="sf-mermaid-preview" class="sf-mermaid-preview">
+          <div class="sf-empty">El dibujo del diagrama aparece acá.</div>
+        </div>
       </div>
     </div>
 
