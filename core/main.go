@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -107,9 +108,28 @@ func main() {
 	// API Contacts
 	mux.HandleFunc("/api/contacts/list", contactHandler.ListContacts)
 	mux.HandleFunc("/api/contacts", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodPost:
+		// GET /api/contacts → list (pero no usado en UI)
+		// POST /api/contacts → create
+		if r.Method == http.MethodPost {
 			contactHandler.CreateContact(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+	// Catch /api/contacts/{id} con trailing slash pattern
+	mux.HandleFunc("/api/contacts/", func(w http.ResponseWriter, r *http.Request) {
+		// Extraer ID del path: /api/contacts/xxx/
+		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/contacts/"), "/")
+		if len(parts) == 0 || parts[0] == "" {
+			http.Error(w, "ID required", http.StatusBadRequest)
+			return
+		}
+		id := parts[0]
+
+		// Inyectar ID en query string para que lo encuentre el handler
+		r.URL.RawQuery = fmt.Sprintf("id=%s&%s", id, r.URL.RawQuery)
+
+		switch r.Method {
 		case http.MethodPut:
 			contactHandler.UpdateContact(w, r)
 		case http.MethodDelete:
