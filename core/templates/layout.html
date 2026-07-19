@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}} - FastERP</title>
+
+    <!-- Theme application ANTES de cargar CSS para evitar flash -->
+    <script>
+      (function() {
+        const LIGHT = 'light';
+        const DARK = 'dark';
+        const AUTO = 'auto';
+        const theme = localStorage.getItem('fasterp-theme') || AUTO;
+        const html = document.documentElement;
+
+        function applyTheme(t) {
+          if (t === DARK) {
+            html.style.colorScheme = 'dark';
+            html.style.setProperty('--primary', '#579DFF');
+            html.style.setProperty('--primary-hover', '#85B8FF');
+            html.style.setProperty('--bg-primary', '#161A1D');
+            html.style.setProperty('--bg-secondary', '#22272B');
+            html.style.setProperty('--text-primary', '#B6C2CF');
+            html.style.setProperty('--text-secondary', '#8590A2');
+            html.style.setProperty('--border', '#38414B');
+          } else if (t === LIGHT) {
+            html.style.colorScheme = 'light';
+            html.style.setProperty('--primary', '#0052CC');
+            html.style.setProperty('--primary-hover', '#003DA8');
+            html.style.setProperty('--bg-primary', '#F7F8FA');
+            html.style.setProperty('--bg-secondary', '#FFFFFF');
+            html.style.setProperty('--text-primary', '#172B4D');
+            html.style.setProperty('--text-secondary', '#626F86');
+            html.style.setProperty('--border', '#DCDFE4');
+          }
+        }
+
+        applyTheme(theme);
+      })();
+    </script>
+
+    <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+
+        .dashboard {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        .sidebar {
+            width: 250px;
+            background: var(--bg-secondary);
+            border-right: 1px solid var(--border);
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .logo {
+            font-size: 24px;
+            font-weight: bold;
+            color: var(--primary);
+            margin-bottom: 30px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .user-info {
+            background: var(--bg-primary);
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border: 1px solid var(--border);
+        }
+
+        .user-avatar {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, var(--primary) 0%, #667eea 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .user-name {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .user-email {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 2px;
+        }
+
+        .nav-section {
+            margin-bottom: 30px;
+        }
+
+        .nav-title {
+            font-size: 12px;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 15px;
+            margin-bottom: 5px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s;
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 14px;
+        }
+
+        .nav-item:hover {
+            background: var(--bg-primary);
+            color: var(--primary);
+        }
+
+        .nav-item.active {
+            background: linear-gradient(135deg, var(--primary) 0%, #667eea 100%);
+            color: white;
+        }
+
+        .nav-icon {
+            width: 20px;
+            text-align: center;
+            font-size: 16px;
+        }
+
+        .logout-btn {
+            width: 100%;
+            padding: 10px 15px;
+            background: rgba(174, 42, 25, 0.15);
+            color: #AE2A19;
+            border: 1px solid rgba(174, 42, 25, 0.3);
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            transition: all 0.3s;
+            margin-top: 20px;
+        }
+
+        .logout-btn:hover {
+            background: rgba(174, 42, 25, 0.25);
+            border-color: rgba(174, 42, 25, 0.5);
+        }
+
+        @media (prefers-color-scheme: dark) {
+            .logout-btn {
+                background: rgba(248, 116, 98, 0.15);
+                color: #F87462;
+                border: 1px solid rgba(248, 116, 98, 0.3);
+            }
+
+            .logout-btn:hover {
+                background: rgba(248, 116, 98, 0.25);
+                border-color: rgba(248, 116, 98, 0.5);
+            }
+        }
+
+        .main-content {
+            flex: 1;
+            padding: 40px;
+            overflow-y: auto;
+        }
+
+        .header {
+            margin-bottom: 40px;
+        }
+
+        .header h1 {
+            font-size: 32px;
+            margin-bottom: 10px;
+            color: var(--text-primary);
+        }
+
+        .header p {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        @media (max-width: 768px) {
+            .dashboard {
+                flex-direction: column;
+            }
+
+            .sidebar {
+                width: 100%;
+                border-right: none;
+                border-bottom: 1px solid var(--border);
+                display: flex;
+                gap: 20px;
+                overflow-x: auto;
+            }
+
+            .main-content {
+                padding: 20px;
+            }
+
+            .header h1 {
+                font-size: 24px;
+            }
+        }
+
+        {{.ExtraStyles}}
+    </style>
+</head>
+<body>
+    <div class="dashboard">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="logo">
+                <span>⚡</span>
+                <span>FastERP</span>
+            </div>
+
+            <div class="user-info">
+                <div class="user-avatar" id="userAvatar">A</div>
+                <div class="user-name" id="userName">Admin</div>
+                <div class="user-email" id="userEmail">admin@fastherp.com</div>
+            </div>
+
+            <div class="nav-section">
+                <div class="nav-title">Principal</div>
+                <a href="/admin" class="nav-item {{if eq .CurrentPage "dashboard"}}active{{end}}">
+                    <span class="nav-icon">📊</span>
+                    <span>Dashboard</span>
+                </a>
+            </div>
+
+            <div class="nav-section">
+                <div class="nav-title">Aplicaciones</div>
+                <a href="/admin/modules" class="nav-item {{if eq .CurrentPage "modules"}}active{{end}}">
+                    <span class="nav-icon">🎮</span>
+                    <span>Module Store</span>
+                </a>
+            </div>
+
+            <div class="nav-section">
+                <div class="nav-title">Administración</div>
+                <a href="/admin/audit" class="nav-item {{if eq .CurrentPage "audit"}}active{{end}}">
+                    <span class="nav-icon">🔍</span>
+                    <span>Auditoría</span>
+                </a>
+            </div>
+
+            <button class="logout-btn" onclick="logout()">Cerrar Sesión</button>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            {{.Content}}
+        </div>
+    </div>
+
+    <script>
+        // Cargar datos del usuario
+        function loadUserInfo() {
+            const user = localStorage.getItem('user_name') || 'Admin';
+            const email = localStorage.getItem('user_email') || 'admin@fastherp.com';
+
+            document.getElementById('userName').textContent = user;
+            document.getElementById('userEmail').textContent = email;
+
+            const avatar = user.charAt(0).toUpperCase();
+            document.getElementById('userAvatar').textContent = avatar;
+        }
+
+        // Logout
+        function logout() {
+            if (confirm('¿Cerrar sesión?')) {
+                localStorage.removeItem('access_token');
+                localStorage.removeItem('user_id');
+                localStorage.removeItem('user_name');
+                window.location.href = '/login';
+            }
+        }
+
+        loadUserInfo();
+    </script>
+
+    <script src="/static/js/theme.js"></script>
+    {{.ExtraScripts}}
+</body>
+</html>

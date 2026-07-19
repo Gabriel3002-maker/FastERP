@@ -1,0 +1,252 @@
+<!-- Header -->
+<div class="header">
+    <h1>🔍 Auditoría</h1>
+    <p>Registro de actividad y compliance del sistema</p>
+</div>
+
+<!-- Stats -->
+<div class="quick-stats" id="stats">
+    <div class="stat-card">
+        <div class="stat-icon">📝</div>
+        <div class="stat-number" id="total-events">0</div>
+        <div class="stat-label">Eventos Totales</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon">👤</div>
+        <div class="stat-number" id="user-count">0</div>
+        <div class="stat-label">Usuarios Activos</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon">🔄</div>
+        <div class="stat-number" id="24h-events">0</div>
+        <div class="stat-label">Eventos (24h)</div>
+    </div>
+</div>
+
+<!-- Loading -->
+<div id="loading" class="loading">
+    <div class="spinner"></div>
+</div>
+
+<!-- Audit Table -->
+<div id="table-container" style="display:none;">
+    <table class="audit-table">
+        <thead>
+            <tr>
+                <th>Usuario</th>
+                <th>Acción</th>
+                <th>Entidad</th>
+                <th>ID</th>
+                <th>Estado</th>
+                <th>Fecha</th>
+            </tr>
+        </thead>
+        <tbody id="audit-tbody"></tbody>
+    </table>
+</div>
+
+<!-- Empty State -->
+<div id="empty-state" class="empty-state" style="display:none;">
+    <div class="empty-state-icon">📭</div>
+    <h2>Sin eventos de auditoría</h2>
+    <p>No hay registros de auditoría disponibles</p>
+</div>
+
+<style>
+.quick-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 20px;
+    margin-bottom: 40px;
+}
+
+.stat-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    padding: 20px;
+    border-radius: 8px;
+    transition: all 0.3s;
+}
+
+.stat-card:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    transform: translateY(-2px);
+}
+
+.stat-icon {
+    font-size: 32px;
+    margin-bottom: 10px;
+}
+
+.stat-number {
+    font-size: 24px;
+    font-weight: bold;
+    color: var(--primary);
+    margin-bottom: 5px;
+}
+
+.stat-label {
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.audit-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.audit-table thead {
+    background: var(--bg-primary);
+    border-bottom: 1px solid var(--border);
+}
+
+.audit-table th {
+    padding: 15px;
+    text-align: left;
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 13px;
+    text-transform: uppercase;
+}
+
+.audit-table td {
+    padding: 15px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.audit-table tbody tr:hover {
+    background: var(--bg-primary);
+}
+
+.action-badge {
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.action-create {
+    background: rgba(54, 179, 126, 0.2);
+    color: #36B37E;
+}
+
+.action-update {
+    background: rgba(88, 157, 255, 0.2);
+    color: #579DFF;
+}
+
+.action-delete {
+    background: rgba(174, 42, 25, 0.2);
+    color: #AE2A19;
+}
+
+.action-login {
+    background: rgba(102, 126, 234, 0.2);
+    color: #667eea;
+}
+
+.loading {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 300px;
+}
+
+.spinner {
+    width: 30px;
+    height: 30px;
+    border: 3px solid var(--border);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-secondary);
+}
+
+.empty-state-icon {
+    font-size: 64px;
+    margin-bottom: 20px;
+}
+</style>
+
+<script>
+const tenantID = localStorage.getItem('tenant_id') || 'default-123';
+const token = localStorage.getItem('access_token');
+
+async function loadAuditData() {
+    try {
+        const response = await fetch('/api/audit/entity', {
+            headers: {
+                'X-Tenant-ID': tenantID,
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        const data = await response.json();
+        const events = data.events || [];
+
+        // Update stats
+        document.getElementById('total-events').textContent = events.length;
+
+        const statsRes = await fetch('/api/audit/stats?days=1', {
+            headers: {
+                'X-Tenant-ID': tenantID,
+                'Authorization': `Bearer ${token}`
+            }
+        });
+        const statsData = await statsRes.json();
+        document.getElementById('24h-events').textContent = statsData.stats?.total_events || 0;
+        document.getElementById('user-count').textContent = new Set(events.map(e => e.user_id)).size;
+
+        document.getElementById('loading').style.display = 'none';
+        renderAuditTable(events);
+    } catch (error) {
+        console.error('Error loading audit data:', error);
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('empty-state').style.display = 'block';
+    }
+}
+
+function renderAuditTable(events) {
+    const tbody = document.getElementById('audit-tbody');
+    const tableContainer = document.getElementById('table-container');
+    const emptyState = document.getElementById('empty-state');
+
+    if (!events || events.length === 0) {
+        tableContainer.style.display = 'none';
+        emptyState.style.display = 'block';
+        return;
+    }
+
+    tbody.innerHTML = events.slice(0, 50).map(event => `
+        <tr>
+            <td>${event.user_id || '-'}</td>
+            <td><span class="action-badge action-${event.action?.toLowerCase() || 'other'}">${event.action || '-'}</span></td>
+            <td>${event.entity || '-'}</td>
+            <td>${event.entity_id || '-'}</td>
+            <td>${event.status || 'OK'}</td>
+            <td>${new Date(event.created_at).toLocaleString('es-ES')}</td>
+        </tr>
+    `).join('');
+
+    tableContainer.style.display = 'block';
+    emptyState.style.display = 'none';
+}
+
+loadAuditData();
+</script>

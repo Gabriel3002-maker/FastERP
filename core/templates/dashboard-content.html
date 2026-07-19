@@ -1,0 +1,279 @@
+<!-- Header -->
+<div class="header">
+    <h1>📊 Dashboard</h1>
+    <p>Resumen general del sistema</p>
+</div>
+
+<!-- Welcome Banner -->
+<style>
+.welcome-banner {
+    background: linear-gradient(135deg, var(--primary) 0%, #667eea 100%);
+    color: white;
+    padding: 30px;
+    border-radius: 8px;
+    margin-bottom: 40px;
+}
+
+.welcome-banner h2 {
+    font-size: 24px;
+    margin-bottom: 10px;
+}
+
+.welcome-banner p {
+    opacity: 0.9;
+    font-size: 14px;
+}
+
+.quick-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 20px;
+    margin-bottom: 40px;
+}
+
+.stat-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    padding: 20px;
+    border-radius: 8px;
+    transition: all 0.3s;
+}
+
+.stat-card:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    transform: translateY(-2px);
+}
+
+.stat-icon {
+    font-size: 32px;
+    margin-bottom: 10px;
+}
+
+.stat-number {
+    font-size: 24px;
+    font-weight: bold;
+    color: var(--primary);
+    margin-bottom: 5px;
+}
+
+.stat-label {
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.sections {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px;
+}
+
+.section-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    transition: all 0.3s;
+}
+
+.section-card:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    transform: translateY(-2px);
+}
+
+.section-header {
+    padding: 20px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+}
+
+.section-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 5px;
+}
+
+.section-icon {
+    font-size: 24px;
+}
+
+.section-desc {
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.section-content {
+    padding: 20px;
+}
+
+.section-items {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.section-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px;
+    border-radius: 6px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    text-decoration: none;
+    transition: all 0.3s;
+    cursor: pointer;
+}
+
+.section-item:hover {
+    background: linear-gradient(135deg, rgba(102, 126, 234, 0.2) 0%, rgba(118, 75, 162, 0.2) 100%);
+    color: var(--primary);
+}
+
+.section-item-icon {
+    font-size: 18px;
+}
+
+.section-item-text {
+    flex: 1;
+    margin-left: 10px;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.section-item-arrow {
+    color: var(--text-secondary);
+    transition: all 0.3s;
+}
+
+.section-item:hover .section-item-arrow {
+    color: var(--primary);
+    transform: translateX(3px);
+}
+</style>
+
+<div class="welcome-banner">
+    <h2>¡Bienvenido a FastERP! 👋</h2>
+    <p>Panel administrativo centralizado - Gestiona tu ERP multitenant con auditoría completa</p>
+</div>
+
+<!-- Quick Stats -->
+<div class="quick-stats">
+    <div class="stat-card">
+        <div class="stat-icon">📦</div>
+        <div class="stat-number" id="modulesCount">0</div>
+        <div class="stat-label">Módulos Instalados</div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-icon">✓</div>
+        <div class="stat-number">Online</div>
+        <div class="stat-label">Estado del Sistema</div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-icon">🔍</div>
+        <div class="stat-number" id="auditCount">0</div>
+        <div class="stat-label">Eventos Auditados (24h)</div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-icon">🔐</div>
+        <div class="stat-number">v1.0</div>
+        <div class="stat-label">FastERP</div>
+    </div>
+</div>
+
+<!-- Main Sections -->
+<div class="sections">
+    <!-- Módulos -->
+    <div class="section-card">
+        <div class="section-header">
+            <div class="section-title">
+                <span class="section-icon">🎮</span>
+                <span>Módulos</span>
+            </div>
+            <div class="section-desc">Gestiona las extensiones del sistema</div>
+        </div>
+        <div class="section-content">
+            <div class="section-items">
+                <a href="/admin/modules" class="section-item">
+                    <span class="section-item-text">📱 Tienda de Módulos</span>
+                    <span class="section-item-arrow">→</span>
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Auditoría -->
+    <div class="section-card">
+        <div class="section-header">
+            <div class="section-title">
+                <span class="section-icon">🔍</span>
+                <span>Auditoría</span>
+            </div>
+            <div class="section-desc">Registros de actividad y compliance</div>
+        </div>
+        <div class="section-content">
+            <div class="section-items">
+                <a href="/admin/audit" class="section-item">
+                    <span class="section-item-text">📊 Dashboard de Auditoría</span>
+                    <span class="section-item-arrow">→</span>
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sistema -->
+    <div class="section-card">
+        <div class="section-header">
+            <div class="section-title">
+                <span class="section-icon">⚡</span>
+                <span>FastERP</span>
+            </div>
+            <div class="section-desc">Sistema modular con auditoría</div>
+        </div>
+        <div class="section-content">
+            <div class="section-items">
+                <a href="/health" class="section-item">
+                    <span class="section-item-text">✓ Estado del Sistema</span>
+                    <span class="section-item-arrow">→</span>
+                </a>
+                <a href="#" class="section-item" onclick="alert('v1.0.0 - Multi-tenant ERP'); return false;">
+                    <span class="section-item-text">ℹ️ Información</span>
+                    <span class="section-item-arrow">→</span>
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Cargar estadísticas
+async function loadStats() {
+    const tenantID = localStorage.getItem('tenant_id') || 'default-123';
+    const token = localStorage.getItem('access_token');
+
+    try {
+        const auditRes = await fetch(`/api/audit/stats?days=1`, {
+            headers: {
+                'X-Tenant-ID': tenantID,
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if (auditRes.ok) {
+            const auditData = await auditRes.json();
+            document.getElementById('auditCount').textContent =
+                auditData.stats?.total_events || 0;
+        }
+    } catch (error) {
+        console.error('Error loading stats:', error);
+    }
+}
+
+loadStats();
+</script>
