@@ -37,6 +37,14 @@ func NewAuthHandler(database *db.DB) *AuthHandler {
 	}
 }
 
+// SessionManager expone el gestor de sesión para que otros handlers puedan
+// validar el mismo token que este emitió, sin duplicar el secreto en otro
+// lugar (un secreto duplicado que se actualiza en un solo sitio es un bug
+// esperando a pasar).
+func (ah *AuthHandler) SessionManager() *SessionManager {
+	return ah.sessionManager
+}
+
 func (ah *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)

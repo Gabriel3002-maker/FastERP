@@ -1,20 +1,187 @@
 {
   "name": "contacts",
-  "version": "2.0.1",
   "label": "Contactos",
-  "description": "Gestor de contactos empresariales",
-  "author": "FastERP Team",
-  "icon": "users",
-  "main": "module.wasm",
-  "frontend": {
-    "entry": "frontend/index.ts",
-    "pages": [
-      {
-        "name": "ContactsPage",
-        "path": "/admin/contacts",
-        "label": "Contactos",
-        "icon": "users"
+  "version": "1.0.0",
+  "author": "EcuaByte",
+  "description": "Gestión de contactos con datos tributarios para LATAM",
+  "icon": "👥",
+  "models": {
+    "contact": {
+      "name": "contact",
+      "label": "Contacto",
+      "fields": {
+        "name": {
+          "type": "string",
+          "length": 160,
+          "required": true,
+          "index": true,
+          "label": "Nombre",
+          "example": "María López",
+          "sequence": 10
+        },
+        "estado": {
+          "type": "string",
+          "length": 20,
+          "label": "Estado",
+          "options": ["prospecto", "activo", "inactivo"],
+          "help": "Lo mueve el flujo, no se edita directamente.",
+          "sequence": 15
+        },
+        "email": {
+          "type": "email",
+          "length": 160,
+          "label": "Correo electrónico",
+          "example": "maria@empresa.com",
+          "sequence": 50
+        },
+        "phone": {
+          "type": "phone",
+          "length": 30,
+          "label": "Teléfono",
+          "sequence": 60
+        },
+        "mobile": {
+          "type": "phone",
+          "length": 30,
+          "label": "Celular",
+          "sequence": 70
+        },
+        "company": {
+          "type": "string",
+          "length": 160,
+          "index": true,
+          "label": "Empresa",
+          "sequence": 80
+        },
+        "job_title": {
+          "type": "string",
+          "length": 120,
+          "label": "Cargo",
+          "sequence": 90
+        },
+        "tax_id_type": {
+          "type": "string",
+          "length": 20,
+          "label": "Tipo de identificación",
+          "options": [
+            "RUC",
+            "CEDULA",
+            "PASAPORTE",
+            "NIT",
+            "RFC",
+            "CUIT"
+          ],
+          "help": "Documento tributario según el país.",
+          "sequence": 20
+        },
+        "tax_id": {
+          "type": "string",
+          "length": 20,
+          "index": true,
+          "label": "Número de identificación",
+          "example": "1790012345001",
+          "sequence": 30
+        },
+        "person_type": {
+          "type": "string",
+          "length": 20,
+          "label": "Tipo de persona",
+          "options": [
+            "NATURAL",
+            "JURIDICA"
+          ],
+          "sequence": 40
+        },
+        "tax_regime": {
+          "type": "string",
+          "length": 60,
+          "label": "Régimen tributario",
+          "sequence": 100
+        },
+        "accounting_obligation": {
+          "type": "string",
+          "length": 20,
+          "label": "Obligado a llevar contabilidad",
+          "options": [
+            "SI",
+            "NO"
+          ],
+          "sequence": 110
+        },
+        "retention_agent": {
+          "type": "string",
+          "length": 20,
+          "label": "Agente de retención",
+          "options": [
+            "SI",
+            "NO"
+          ],
+          "sequence": 120
+        },
+        "credit_limit": {
+          "type": "money",
+          "precision": 14,
+          "scale": 2,
+          "label": "Límite de crédito",
+          "sequence": 130
+        },
+        "address": {
+          "type": "text",
+          "label": "Dirección",
+          "sequence": 140
+        },
+        "city": {
+          "type": "string",
+          "length": 80,
+          "label": "Ciudad",
+          "sequence": 150
+        },
+        "province": {
+          "type": "string",
+          "length": 80,
+          "label": "Provincia / Estado",
+          "sequence": 160
+        },
+        "country": {
+          "type": "string",
+          "length": 80,
+          "label": "País",
+          "sequence": 170
+        },
+        "postal_code": {
+          "type": "string",
+          "length": 20,
+          "label": "Código postal",
+          "sequence": 180
+        },
+        "website": {
+          "type": "url",
+          "length": 200,
+          "label": "Sitio web",
+          "sequence": 190
+        },
+        "notes": {
+          "type": "text",
+          "label": "Notas",
+          "sequence": 200
+        }
+      },
+      "workflow": {
+        "field": "estado",
+        "initial": "prospecto",
+        "transitions": {
+          "activar": {
+            "from": ["prospecto", "inactivo"],
+            "to": "activo",
+            "label": "Activar"
+          },
+          "desactivar": {
+            "from": ["prospecto", "activo"],
+            "to": "inactivo",
+            "label": "Desactivar"
+          }
+        }
       }
-    ]
+    }
   }
 }

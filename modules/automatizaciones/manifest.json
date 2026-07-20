@@ -1,0 +1,150 @@
+{
+  "name": "automatizaciones",
+  "label": "Automatizaciones",
+  "version": "1.1.0",
+  "author": "EcuaByte",
+  "description": "Armá un pipeline de pasos (crear, actualizar, buscar, condición) y probalo contra un registro real, con variables entre nodos y disparadores automáticos. No es una máquina de estados — para eso está Studio-Flujo.",
+  "icon": "🔀",
+  "models": {
+    "automation": {
+      "name": "automation",
+      "label": "Automatización",
+      "fields": {
+        "name": {
+          "type": "string",
+          "length": 160,
+          "required": true,
+          "label": "Nombre",
+          "example": "Marcar clientes VIP",
+          "sequence": 10
+        },
+        "target_module": {
+          "type": "string",
+          "length": 80,
+          "label": "Módulo disparador",
+          "help": "El módulo del registro contra el que se pensó este pipeline — sólo para precargar el editor al reabrirla.",
+          "sequence": 20
+        },
+        "target_model": {
+          "type": "string",
+          "length": 80,
+          "label": "Modelo disparador",
+          "sequence": 30
+        },
+        "definition": {
+          "type": "text",
+          "required": true,
+          "label": "Definición (JSON)",
+          "help": "El grafo de nodos y conexiones, tal como lo arma el editor visual.",
+          "sequence": 40
+        },
+        "active": {
+          "type": "boolean",
+          "label": "Activa",
+          "sequence": 50
+        },
+        "trigger_type": {
+          "type": "string",
+          "length": 20,
+          "label": "Disparador",
+          "options": ["manual", "webhook", "schedule"],
+          "default": "manual",
+          "help": "manual: sólo con «Probar». webhook: un sistema externo la dispara con un token. schedule: corre sola cada tantos minutos.",
+          "sequence": 60
+        },
+        "webhook_token": {
+          "type": "string",
+          "length": 60,
+          "label": "Token del webhook",
+          "help": "Se genera solo al guardar con disparador webhook. Se manda como ?token=... al llamar la URL del webhook.",
+          "sequence": 70
+        },
+        "schedule_minutes": {
+          "type": "integer",
+          "label": "Cada cuántos minutos",
+          "help": "Sólo con disparador schedule.",
+          "sequence": 80
+        },
+        "cron_trigger_module": {
+          "type": "string",
+          "length": 80,
+          "label": "Módulo del registro fijo (schedule/webhook)",
+          "sequence": 90
+        },
+        "cron_trigger_model": {
+          "type": "string",
+          "length": 80,
+          "label": "Modelo del registro fijo",
+          "sequence": 100
+        },
+        "cron_trigger_id": {
+          "type": "string",
+          "length": 60,
+          "label": "ID del registro fijo",
+          "help": "A qué registro dispara cada corrida programada — schedule siempre corre contra el mismo registro, no por lote.",
+          "sequence": 110
+        },
+        "last_run_at": {
+          "type": "datetime",
+          "label": "Última corrida",
+          "readonly": true,
+          "sequence": 120
+        }
+      }
+    },
+    "automation_run": {
+      "name": "automation_run",
+      "label": "Corrida de automatización",
+      "fields": {
+        "automation_id": {
+          "type": "string",
+          "length": 60,
+          "required": true,
+          "index": true,
+          "label": "Automatización",
+          "sequence": 10
+        },
+        "trigger_module": {
+          "type": "string",
+          "length": 80,
+          "label": "Módulo disparador",
+          "sequence": 20
+        },
+        "trigger_model": {
+          "type": "string",
+          "length": 80,
+          "label": "Modelo disparador",
+          "sequence": 30
+        },
+        "trigger_id": {
+          "type": "string",
+          "length": 60,
+          "label": "Registro disparador",
+          "sequence": 40
+        },
+        "source": {
+          "type": "string",
+          "length": 20,
+          "label": "Origen",
+          "options": ["manual", "webhook", "schedule"],
+          "sequence": 45
+        },
+        "ok": {
+          "type": "boolean",
+          "label": "OK",
+          "sequence": 50
+        },
+        "error": {
+          "type": "text",
+          "label": "Error",
+          "sequence": 60
+        },
+        "steps": {
+          "type": "text",
+          "label": "Pasos (JSON)",
+          "sequence": 70
+        }
+      }
+    }
+  }
+}

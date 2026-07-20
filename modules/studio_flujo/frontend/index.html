@@ -1,0 +1,175 @@
+<div class="sf-module">
+  <div class="module-header">
+    <h1>🧩 Studio-Flujo</h1>
+    <p class="sf-subtitle">
+      Primero el flujo, después los detalles. Nada se escribe a disco hasta
+      que apretás «Generar» en el paso final.
+    </p>
+  </div>
+
+  <div class="sf-steps-indicator">
+    <button type="button" class="sf-step-dot sf-step-dot-active" data-step="1">
+      <span class="sf-step-num">1</span> Flujo
+    </button>
+    <span class="sf-step-arrow">→</span>
+    <button type="button" class="sf-step-dot" data-step="2">
+      <span class="sf-step-num">2</span> Detalles
+    </button>
+  </div>
+
+  <!-- ============================================ -->
+  <!-- Paso 1: SÓLO el flujo. Nada más en pantalla.  -->
+  <!-- ============================================ -->
+  <section id="sf-step-1" class="sf-card sf-step">
+    <div class="sf-field" style="max-width: 260px; margin-bottom: .9rem;">
+      <label for="sf-state-field">Nombre del campo de estado</label>
+      <input id="sf-state-field" value="estado" spellcheck="false">
+    </div>
+
+    <div class="sf-tabs">
+      <button type="button" class="sf-tab sf-tab-active" data-tab="canvas">🖱️ Dibujar</button>
+      <button type="button" class="sf-tab" data-tab="text">⌨️ Texto (Mermaid)</button>
+      <button type="button" class="sf-tab" data-tab="bpmn">🔗 BPMN</button>
+    </div>
+
+    <!-- Modo lienzo: cajas que se arrastran y se conectan -->
+    <div id="sf-panel-canvas" class="sf-panel">
+      <p class="sf-hint">
+        «+ Estado» agrega una caja — arrastrala para acomodarla, tocá el texto
+        para renombrarla. Arrastrá desde el punto de salida (derecha) de una
+        caja hasta la entrada (izquierda) de otra para crear una transición;
+        te va a pedir el nombre de la acción. La ⭐ marca cuál es el estado
+        inicial.
+      </p>
+      <div class="sf-canvas-toolbar">
+        <button type="button" id="sf-add-state" class="sf-btn-secondary">+ Estado</button>
+      </div>
+      <div class="sf-canvas-layout">
+        <div id="sf-drawflow" class="sf-drawflow"></div>
+        <div class="sf-transitions-panel">
+          <h3>Transiciones</h3>
+          <div id="sf-transitions-list" class="sf-transitions-list">
+            <div class="sf-empty">Conectá dos estados para crear una.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modo texto: para quien prefiera escribir el diagrama -->
+    <div id="sf-panel-text" class="sf-panel" hidden>
+      <p class="sf-hint">
+        Un diagrama de estados de Mermaid. La etiqueta de cada flecha es el
+        nombre de la acción — <code>[*] --&gt; estado</code> marca el estado
+        inicial.
+      </p>
+      <div class="sf-diagram-layout">
+        <textarea id="sf-diagram" class="sf-diagram-input" spellcheck="false"
+          placeholder="stateDiagram-v2
+    [*] --> prospecto
+    prospecto --> activo : Activar
+    activo --> inactivo : Desactivar
+    inactivo --> activo : Activar"></textarea>
+
+        <div id="sf-mermaid-preview" class="sf-mermaid-preview">
+          <div class="sf-empty">El dibujo del diagrama aparece acá.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modo BPMN: editor visual embebido (bpmn-js), o importar un .bpmn dibujado afuera -->
+    <div id="sf-panel-bpmn" class="sf-panel" hidden>
+      <p class="sf-hint">
+        Dibujá acá o importá un diagrama BPMN hecho en bpmn.io, Camunda
+        Modeler u otra herramienta. Por ahora se soporta: un evento de inicio,
+        tareas (cada una es un estado), el evento de fin, y flujos de
+        secuencia con nombre entre tareas — el nombre del flujo es la acción.
+        Compuertas y subprocesos todavía no se interpretan.
+      </p>
+      <div class="sf-canvas-toolbar">
+        <label class="sf-btn-secondary sf-file-btn">
+          📂 Importar archivo .bpmn
+          <input type="file" id="sf-bpmn-file" accept=".bpmn,.xml" hidden>
+        </label>
+      </div>
+      <div id="sf-bpmn-canvas" class="sf-bpmn-canvas"></div>
+    </div>
+
+    <div id="sf-flow-result" class="sf-result" hidden></div>
+
+    <div class="sf-step-nav">
+      <button type="button" id="sf-next" class="sf-btn-primary">Siguiente →</button>
+    </div>
+  </section>
+
+  <!-- ============================================ -->
+  <!-- Paso 2: resumen del flujo + destino + campos  -->
+  <!-- ============================================ -->
+  <section id="sf-step-2" class="sf-card sf-step" hidden>
+    <div class="sf-flow-summary">
+      <span id="sf-flow-summary-text">Sin flujo definido.</span>
+      <button type="button" id="sf-back" class="sf-btn-link">← Editar flujo</button>
+    </div>
+
+    <h2>¿Dónde va esto?</h2>
+    <div class="sf-radio-group">
+      <label>
+        <input type="radio" name="sf-mode" value="create" checked>
+        Crear un módulo nuevo
+      </label>
+      <label>
+        <input type="radio" name="sf-mode" value="extend">
+        Agregar un modelo a un módulo que ya existe
+      </label>
+    </div>
+
+    <div id="sf-create-fields" class="sf-grid">
+      <div class="sf-field">
+        <label for="sf-module">Nombre del módulo</label>
+        <input id="sf-module" placeholder="crm" spellcheck="false">
+        <small>Minúsculas, sin espacios — se usa como identificador interno.</small>
+      </div>
+      <div class="sf-field">
+        <label for="sf-module-label">Título</label>
+        <input id="sf-module-label" placeholder="CRM">
+      </div>
+      <div class="sf-field">
+        <label for="sf-module-icon">Ícono (un emoji)</label>
+        <input id="sf-module-icon" placeholder="📇" maxlength="4">
+      </div>
+    </div>
+
+    <div id="sf-extend-fields" class="sf-grid" hidden>
+      <div class="sf-field sf-wide">
+        <label for="sf-existing-module">Módulo existente</label>
+        <select id="sf-existing-module">
+          <option value="">Cargando catálogo…</option>
+        </select>
+        <small id="sf-existing-info"></small>
+      </div>
+    </div>
+
+    <div class="sf-grid">
+      <div class="sf-field">
+        <label for="sf-model">Nombre del modelo</label>
+        <input id="sf-model" placeholder="lead" spellcheck="false">
+      </div>
+      <div class="sf-field">
+        <label for="sf-model-label">Título del modelo</label>
+        <input id="sf-model-label" placeholder="Oportunidad">
+      </div>
+    </div>
+
+    <h2>Campos adicionales</h2>
+    <p class="sf-hint">
+      El campo de estado ya quedó definido en el paso anterior. Estos son los
+      demás datos que necesita el modelo.
+    </p>
+    <div id="sf-fields-list" class="sf-fields-list"></div>
+    <button type="button" id="sf-add-field" class="sf-btn-secondary">+ Agregar campo</button>
+
+    <div class="sf-step-nav">
+      <button type="button" id="sf-generate" class="sf-btn-primary">Generar módulo</button>
+    </div>
+    <div id="sf-generate-result" class="sf-result" hidden></div>
+  </section>
+</div>

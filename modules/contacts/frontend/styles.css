@@ -239,3 +239,53 @@
   background: var(--bg-secondary);
   color: var(--primary);
 }
+
+/* Paginación — los tamaños los publica el SDK en page_sizes */
+.search-bar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.search-bar input {
+  flex: 1;
+  min-width: 220px;
+}
+
+.page-size {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  font-size: .85rem;
+  color: var(--text-muted, #6b7280);
+  white-space: nowrap;
+}
+
+.page-size select {
+  padding: .35rem .5rem;
+  border: 1px solid var(--border, #d1d5db);
+  border-radius: 6px;
+  background: var(--surface, #fff);
+  color: inherit;
+  cursor: pointer;
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.pagination button:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.page-info {
+  font-size: .85rem;
+  color: var(--text-muted, #6b7280);
+}

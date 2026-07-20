@@ -73,3 +73,8 @@ func (db *DB) Ping(ctx context.Context) error {
 func (db *DB) BeginTx(ctx context.Context) (*sql.Tx, error) {
 	return db.conn.BeginTx(ctx, nil)
 }
+
+// Pool retorna el *sql.DB subyacente (para SDK y otros usos)
+func (db *DB) Pool() *sql.DB {
+	return db.conn
+}

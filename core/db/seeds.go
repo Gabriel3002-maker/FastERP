@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"log"
+	"os"
 
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
@@ -65,5 +66,5 @@ func SaveDefaultTenantID(tenantID string) error {
 }
 
 func writeFile(filename, content string) error {
-	return nil // TODO: Implementar
+	return os.WriteFile(filename, []byte(content), 0644)
 }

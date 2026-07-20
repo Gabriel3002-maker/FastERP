@@ -99,6 +99,112 @@ tinygo build -o module.wasm -target wasm main.go
 
 **Key constraint**: WASM modules run in a **sandboxed runtime (wazero)** with **no network access**. Odoo sync and other external integrations are handled by native Go code in `backend/internal/` and exposed via routes.
 
+## @fast API: Zero-SQL CRUD for All Modules
+
+Every module can use **`@fast`** methods directly — **no SQL, no handlers needed.**
+
+### From Any Module:
+```
+@fast.create("model", {...data})    → Create record
+@fast.read("model", id)             → Read single record
+@fast.update("model", id, {...})    → Update record
+@fast.delete("model", id)           → Delete record
+@fast.list("model")                 → List all records
+@fast.search("model", {...filters}) → Search with filters
+```
+
+**Example in module frontend** (`modules/mymodule/frontend/app.js`):
+```javascript
+// Create
+const id = await fetch('/api/mymodule/record', {
+  method: 'POST',
+  headers: {'X-Tenant-ID': tenantID},
+  body: JSON.stringify({title: 'My Title'})
+}).then(r => r.json());
+
+// Read - SDK handles it: @fast.read("record", id)
+const record = await fetch(`/api/mymodule/record/${id}`, 
+  {headers: {'X-Tenant-ID': tenantID}}
+).then(r => r.json());
+
+// Update - @fast.update("record", id, {...})
+await fetch(`/api/mymodule/record/${id}`, {
+  method: 'PUT',
+  headers: {'X-Tenant-ID': tenantID},
+  body: JSON.stringify({title: 'Updated Title'})
+});
+
+// Delete - @fast.delete("record", id)
+await fetch(`/api/mymodule/record/${id}`, {
+  method: 'DELETE',
+  headers: {'X-Tenant-ID': tenantID}
+});
+
+// List - @fast.list("record")
+const records = await fetch(`/api/mymodule/record`, 
+  {headers: {'X-Tenant-ID': tenantID}}
+).then(r => r.json());
+```
+
+### How It Works (Behind the Scenes)
+1. **Module defines schema** in `manifest.json` (models + fields)
+2. **Frontend calls REST API** → `/api/{module}/{model}[/{id}]`
+3. **Core dispatcher** reads manifest + calls `@fast.create/read/update/delete/list`
+4. **SDK executes** with automatic:
+   - ✅ RLS enforcement (tenant isolation)
+   - ✅ Field validation (vs manifest schema)
+   - ✅ Audit logging (created_at, updated_at)
+   - ✅ Type safety
+
+### Why This Matters
+
+| Approach | Code | Safety | Dev Time |
+|----------|------|--------|----------|
+| **Raw SQL** | `query := "SELECT * FROM mod_..."` | Manual validation | Slow |
+| **SDK** | `sdk.List(ctx, "contact")` | Type-safe (manifest) | ⚡ Fast |
+
+**Features**:
+- ✅ Zero SQL — schema from `manifest.json`
+- ✅ Auto RLS — tenant isolation at DB level
+- ✅ Type-safe — fields validated vs manifest
+- ✅ Multi-tenant — `tenant_id` handled automatically
+- ✅ Audit ready — `created_at`, `updated_at` automatic
+
+### Example: Creating a New Module (Ultra-Fast)
+
+1. **Define manifest** (`modules/mymodule/manifest.json`):
+```json
+{
+  "name": "mymodule",
+  "models": {
+    "record": {
+      "fields": {
+        "title": {"type": "string", "required": true},
+        "description": {"type": "text"}
+      }
+    }
+  }
+}
+```
+
+2. **Write handler** (`internal/handlers/mymodule.go`):
+```go
+func (h *MyModuleHandler) CreateRecord(w http.ResponseWriter, r *http.Request) {
+    tenantID := r.Header.Get("X-Tenant-ID")
+    h.sdk.TenantID = tenantID
+    
+    id, err := h.sdk.Create(r.Context(), "record", map[string]interface{}{
+        "title": r.FormValue("title"),
+        "description": r.FormValue("description"),
+    })
+    
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(map[string]string{"id": id})
+}
+```
+
+That's it! No migrations, no queries, no boilerplate. The SDK handles everything. See `core/sdk/example_usage.go` for more.
+
 ## Key Development Workflows
 
 ### Adding a Database Column to a Module

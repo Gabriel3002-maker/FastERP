@@ -43,7 +43,10 @@ func main() {
 	auditHandler := handlers.NewAuditHandler(auditLogger)
 	setupHandler := handlers.NewSetupHandler(dbConn)
 	moduleHandler := handlers.NewModuleHandler(dbConn)
-	contactHandler := handlers.NewContactHandler(dbConn)
+	crudHandler := handlers.NewGenericCRUDHandler(dbConn, cfg.Modules.Path, authHandler.SessionManager())
+	docsHandler := handlers.NewDocsHandler(cfg.Modules.Path)
+	studioHandler := handlers.NewStudioHandler(cfg.Modules.Path, authHandler.SessionManager(), crudHandler)
+	automationHandler := handlers.NewAutomationHandler(authHandler.SessionManager(), crudHandler)
 
 	// Configurar router
 	mux := http.NewServeMux()
@@ -103,21 +106,6 @@ func main() {
 	mux.HandleFunc("/api/modules/available", moduleHandler.GetAvailableModules)
 	mux.HandleFunc("/api/modules/install", moduleHandler.InstallModule)
 	mux.HandleFunc("/api/modules/uninstall", moduleHandler.UninstallModule)
-
-	// API Contacts
-	mux.HandleFunc("/api/contacts/list", contactHandler.ListContacts)
-	mux.HandleFunc("/api/contacts", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodPost:
-			contactHandler.CreateContact(w, r)
-		case http.MethodPut:
-			contactHandler.UpdateContact(w, r)
-		case http.MethodDelete:
-			contactHandler.DeleteContact(w, r)
-		default:
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
-	})
 
 	// Admin Dashboard
 	mux.HandleFunc("/admin", func(w http.ResponseWriter, r *http.Request) {
@@ -192,6 +180,45 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"status":"ok","database":"connected"}`))
 	})
+
+	// Documentación de la API generada desde los manifiestos.
+	// Se registra antes del dispatcher: en Go 1.22+ los segmentos literales
+	// ganan sobre los comodines, pero dejarlo explícito evita sorpresas.
+	mux.HandleFunc("/api/openapi.json", docsHandler.OpenAPI)
+	mux.HandleFunc("/api/docs", docsHandler.Docs)
+
+	// Catálogo de módulos instalados: lo que un diseñador visual (Studio-Flujo)
+	// necesita para ofrecer "extender esto" antes de generar algo nuevo.
+	mux.HandleFunc("/api/_catalog", docsHandler.Catalog)
+
+	// Studio-Flujo: interpretar diagramas y validar son cómputo puro; generar
+	// escribe en modules/ y exige admin (verificado dentro del handler).
+	mux.HandleFunc("/api/_studio/parse-mermaid", studioHandler.ParseMermaid)
+	mux.HandleFunc("/api/_studio/parse-bpmn", studioHandler.ParseBPMN)
+	mux.HandleFunc("/api/_studio/validate", studioHandler.Validate)
+	mux.HandleFunc("/api/_studio/generate", studioHandler.Generate)
+
+	// Automatizaciones: correr un pipeline de pasos contra un registro
+	// disparador. Guardar/listar automatizaciones e historial no tienen
+	// ruta propia — son modelos @fast normales (ver modules/automatizaciones).
+	mux.HandleFunc("/api/_automation/run", automationHandler.Run)
+	mux.HandleFunc("/api/_automation/webhook/{id}", automationHandler.Webhook)
+
+	// El disparador "schedule" corre solo, en segundo plano — no depende de
+	// que nadie abra la página. Vive mientras viva el proceso del servidor.
+	go handlers.RunScheduler(context.Background(), dbConn, automationHandler)
+
+	// Flujo (workflow): mover un registro por sus estados y ver su historial.
+	// Van antes del dispatcher genérico: en Go 1.22+ el segmento literal final
+	// ("transition", "history") gana sobre el comodín {id} solo, pero
+	// registrarlas explícitas evita cualquier ambigüedad.
+	mux.HandleFunc("/api/{module}/{model}/{id}/transition", crudHandler.HandleTransition)
+	mux.HandleFunc("/api/{module}/{model}/{id}/history", crudHandler.HandleHistory)
+
+	// Dispatcher genérico para /api/{module}/{model}[/{id}]
+	// Go 1.22+ path parameter syntax
+	mux.HandleFunc("/api/{module}/{model}", crudHandler.HandleCRUD)
+	mux.HandleFunc("/api/{module}/{model}/{id}", crudHandler.HandleCRUD)
 
 	// Iniciar servidor
 	addr := cfg.Server.Host + ":" + cfg.Server.Port

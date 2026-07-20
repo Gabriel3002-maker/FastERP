@@ -1,0 +1,613 @@
+.sf-module {
+  --sf-border: var(--border, #e5e7eb);
+  --sf-surface: var(--surface, #fff);
+  --sf-muted: var(--text-muted, #6b7280);
+  --sf-accent: var(--accent, #2563eb);
+  --sf-radius: var(--radius, 10px);
+  --sf-ok: #16a34a;
+  --sf-error: #dc2626;
+
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  /* Un editor de lienzo se beneficia del ancho disponible — más lugar para
+     acomodar cajas sin que se pisen. 960px lo dejaba angosto en cualquier
+     pantalla normal; esto sólo pone un techo para que no quede absurdo en
+     un monitor ultra-wide. */
+  max-width: 1600px;
+}
+
+.sf-subtitle {
+  margin: .3rem 0 0;
+  color: var(--sf-muted);
+  font-size: .9rem;
+  max-width: 65ch;
+}
+
+.sf-card {
+  border: 1px solid var(--sf-border);
+  border-radius: var(--sf-radius);
+  background: var(--sf-surface);
+  padding: 1.25rem;
+}
+
+.sf-card h2 {
+  margin: 1.6rem 0 .9rem;
+  font-size: 1rem;
+}
+
+/* El primer título de cada paso no necesita el margen superior extra. */
+.sf-step > h2:first-of-type {
+  margin-top: 0;
+}
+
+/* --- Indicador de pasos --- */
+.sf-steps-indicator {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  font-size: .85rem;
+}
+
+.sf-step-dot {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  padding: .3rem .7rem .3rem .3rem;
+  border: 1px solid var(--sf-border);
+  border-radius: 999px;
+  background: var(--sf-surface);
+  color: var(--sf-muted);
+  font: inherit;
+  font-size: .82rem;
+  cursor: pointer;
+}
+
+.sf-step-num {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 50%;
+  background: rgba(127, 127, 127, .15);
+  font-weight: 700;
+  font-size: .75rem;
+}
+
+.sf-step-dot-active {
+  color: var(--sf-accent);
+  border-color: var(--sf-accent);
+}
+
+.sf-step-dot-active .sf-step-num {
+  background: var(--sf-accent);
+  color: #fff;
+}
+
+.sf-step-arrow {
+  color: var(--sf-muted);
+}
+
+/* --- Navegación entre pasos --- */
+.sf-step-nav {
+  margin-top: 1.2rem;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.sf-flow-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: .6rem .9rem;
+  margin-bottom: .5rem;
+  border-radius: 8px;
+  background: rgba(37, 99, 235, .08);
+  font-size: .85rem;
+}
+
+.sf-btn-link {
+  border: 0;
+  background: transparent;
+  color: var(--sf-accent);
+  font: inherit;
+  font-size: .82rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.sf-btn-link:hover {
+  text-decoration: underline;
+}
+
+.sf-hint {
+  margin: -.4rem 0 .9rem;
+  font-size: .85rem;
+  color: var(--sf-muted);
+}
+
+.sf-hint code {
+  background: rgba(127, 127, 127, .12);
+  padding: .1rem .35rem;
+  border-radius: 4px;
+  font-size: .85em;
+}
+
+/* --- Formularios genéricos --- */
+.sf-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: .8rem;
+  margin-bottom: .8rem;
+}
+
+.sf-field {
+  display: flex;
+  flex-direction: column;
+  gap: .3rem;
+}
+
+.sf-field.sf-wide {
+  grid-column: 1 / -1;
+}
+
+.sf-field label {
+  font-size: .8rem;
+  font-weight: 600;
+  color: var(--sf-muted);
+}
+
+.sf-field input,
+.sf-field select {
+  padding: .45rem .6rem;
+  border: 1px solid var(--sf-border);
+  border-radius: 6px;
+  font: inherit;
+  font-size: .88rem;
+  background: transparent;
+  color: inherit;
+}
+
+.sf-field small {
+  font-size: .75rem;
+  color: var(--sf-muted);
+}
+
+.sf-radio-group {
+  display: flex;
+  gap: 1.5rem;
+  margin-bottom: 1rem;
+  font-size: .9rem;
+}
+
+.sf-radio-group label {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  cursor: pointer;
+}
+
+/* --- Pestañas: dibujar vs. texto --- */
+.sf-tabs {
+  display: flex;
+  gap: .4rem;
+  margin-bottom: .9rem;
+  border-bottom: 1px solid var(--sf-border);
+}
+
+.sf-tab {
+  padding: .5rem 1rem;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--sf-muted);
+  font: inherit;
+  font-size: .85rem;
+  font-weight: 600;
+  cursor: pointer;
+  margin-bottom: -1px;
+}
+
+.sf-tab:hover {
+  color: inherit;
+}
+
+.sf-tab-active {
+  color: var(--sf-accent);
+  border-bottom-color: var(--sf-accent);
+}
+
+/* --- Lienzo (Drawflow) --- */
+.sf-canvas-toolbar {
+  margin-bottom: .7rem;
+}
+
+.sf-canvas-layout {
+  display: grid;
+  grid-template-columns: 1fr 260px;
+  gap: 1rem;
+  align-items: start;
+}
+
+.sf-drawflow {
+  height: 420px;
+  border: 1px solid var(--sf-border);
+  border-radius: 8px;
+  background:
+    radial-gradient(circle, rgba(127, 127, 127, .18) 1px, transparent 1px) 0 0 / 18px 18px,
+    var(--sf-surface);
+  position: relative;
+  overflow: hidden;
+}
+
+/* Caja de un estado dentro del lienzo. Drawflow envuelve esto en su propio
+   nodo posicionable/arrastrable; sólo se estiliza el contenido. */
+.sf-node-box {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  padding: .55rem .7rem;
+  min-width: 120px;
+  border: 2px solid var(--sf-border);
+  border-radius: 8px;
+  background: var(--sf-surface);
+  font-size: .85rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .08);
+}
+
+.sf-node-initial {
+  border-color: #d97706;
+  background: rgba(217, 119, 6, .08);
+}
+
+.sf-node-label {
+  flex: 1;
+  outline: none;
+  min-width: 40px;
+  cursor: text;
+}
+
+.sf-node-label:focus {
+  text-decoration: underline;
+}
+
+.sf-node-actions {
+  display: flex;
+  gap: .15rem;
+}
+
+.sf-node-star,
+.sf-node-delete {
+  border: 0;
+  background: transparent;
+  color: var(--sf-muted);
+  font-size: .9rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: .1rem .25rem;
+  border-radius: 4px;
+}
+
+.sf-node-star:hover { color: #d97706; }
+.sf-node-delete:hover { color: var(--sf-error); background: rgba(220, 38, 38, .1); }
+
+/* Puntos de conexión que dibuja Drawflow — ajustados al tamaño de las cajas. */
+.sf-drawflow .drawflow .drawflow-node {
+  padding: 0;
+  min-width: 0;
+  width: auto;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.sf-drawflow .drawflow .connection .main-path {
+  stroke: var(--sf-accent);
+  stroke-width: 2px;
+}
+
+/* --- Panel de transiciones --- */
+.sf-transitions-panel h3 {
+  margin: 0 0 .5rem;
+  font-size: .8rem;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--sf-muted);
+}
+
+.sf-transitions-list {
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+}
+
+.sf-transition-row {
+  display: flex;
+  flex-direction: column;
+  gap: .3rem;
+  padding: .5rem .6rem;
+  border: 1px solid var(--sf-border);
+  border-radius: 6px;
+  font-size: .8rem;
+}
+
+.sf-transition-path {
+  color: var(--sf-muted);
+  font-size: .75rem;
+}
+
+.sf-transition-row {
+  position: relative;
+}
+
+.sf-transition-label {
+  padding: .3rem .5rem;
+  border: 1px solid var(--sf-border);
+  border-radius: 5px;
+  font: inherit;
+  font-size: .8rem;
+  background: transparent;
+  color: inherit;
+}
+
+.sf-transition-remove {
+  position: absolute;
+  top: .3rem;
+  right: .4rem;
+  border: 0;
+  background: transparent;
+  color: var(--sf-muted);
+  font-size: .95rem;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.sf-transition-remove:hover {
+  color: var(--sf-error);
+}
+
+@media (max-width: 780px) {
+  .sf-canvas-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* --- Editor BPMN (bpmn-js) --- */
+.sf-file-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+}
+
+.sf-bpmn-canvas {
+  height: 420px;
+  border: 1px solid var(--sf-border);
+  border-radius: 8px;
+  background: var(--bg-secondary, var(--sf-surface));
+  position: relative;
+  overflow: hidden;
+}
+
+/* bpmn-js asume que puede ocupar todo su contenedor. */
+.sf-bpmn-canvas .djs-container {
+  height: 100%;
+}
+
+/* bpmn-js define su propia paleta de colores como variables CSS en
+   .djs-parent (ver core/static/vendor/bpmn-js/assets/diagram-js.css) —
+   pisarlas acá con las variables de tema de FastERP alcanza para que la
+   paleta, el menú contextual y los buscadores sigan el modo claro/oscuro de
+   la app, sin duplicar la lógica de tema. Las formas del diagrama (tareas,
+   eventos) quedan con su blanco/negro de siempre: es la misma "hoja" que se
+   vería si el mismo XML se abriera en cualquier otra herramienta BPMN, sólo
+   cambia el cromado alrededor. */
+.sf-bpmn-canvas .djs-parent {
+  --canvas-fill-color: var(--bg-secondary, #fff);
+  --palette-background-color: var(--bg-secondary, #fff);
+  --palette-border-color: var(--border, #ccc);
+  --palette-entry-color: var(--text-primary, #333);
+  --palette-entry-hover-color: var(--primary, #2563eb);
+  --palette-entry-selected-color: var(--primary, #2563eb);
+  --palette-separator-color: var(--border, #ccc);
+  --palette-toggle-hover-background-color: var(--bg-hover, #eee);
+  --context-pad-entry-background-color: var(--bg-secondary, #fff);
+  --context-pad-entry-hover-background-color: var(--bg-hover, #eee);
+  --popup-background-color: var(--bg-secondary, #fff);
+  --popup-border-color: var(--border, #ccc);
+  --popup-header-group-divider-color: var(--border, #ccc);
+  --popup-description-color: var(--text-secondary, #666);
+  --popup-no-results-color: var(--text-secondary, #666);
+  --popup-entry-title-color: var(--text-secondary, #666);
+  --popup-entry-hover-color: var(--bg-hover, #eee);
+  --popup-search-border-color: var(--border, #ccc);
+  --popup-search-focus-border-color: var(--primary, #2563eb);
+  --popup-search-focus-background-color: var(--bg-hover, #eee);
+  --search-container-background-color: var(--bg-secondary, #fff);
+  --search-input-border-color: var(--border, #ccc);
+  --search-input-focus-border-color: var(--primary, #2563eb);
+  --search-input-focus-background-color: var(--bg-hover, #eee);
+  --search-result-hover-background-color: var(--bg-hover, #eee);
+  --search-result-secondary-color: var(--text-secondary, #666);
+}
+
+/* --- Diagrama (modo texto) --- */
+.sf-diagram-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  align-items: start;
+}
+
+.sf-diagram-layout .sf-field {
+  grid-column: 1 / -1;
+}
+
+.sf-diagram-input {
+  grid-column: 1;
+  min-height: 220px;
+  padding: .75rem;
+  border: 1px solid var(--sf-border);
+  border-radius: 8px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: .85rem;
+  background: rgba(127, 127, 127, .04);
+  color: inherit;
+  resize: vertical;
+}
+
+.sf-diagram-input:focus {
+  outline: 2px solid var(--sf-accent);
+  outline-offset: -1px;
+}
+
+.sf-mermaid-preview {
+  grid-column: 2;
+  min-height: 220px;
+  border: 1px dashed var(--sf-border);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  padding: .5rem;
+}
+
+.sf-mermaid-preview svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.sf-empty {
+  color: var(--sf-muted);
+  font-size: .85rem;
+  text-align: center;
+  padding: 1rem;
+}
+
+@media (max-width: 720px) {
+  .sf-diagram-layout {
+    grid-template-columns: 1fr;
+  }
+  .sf-diagram-input,
+  .sf-mermaid-preview {
+    grid-column: 1;
+  }
+}
+
+/* --- Resultados --- */
+.sf-result {
+  margin-top: .9rem;
+  padding: .6rem .9rem;
+  border-radius: 8px;
+  font-size: .85rem;
+  background: rgba(127, 127, 127, .08);
+}
+
+.sf-result-ok {
+  background: rgba(22, 163, 74, .1);
+  color: var(--sf-ok);
+}
+
+.sf-result-error {
+  background: rgba(220, 38, 38, .1);
+  color: var(--sf-error);
+}
+
+/* --- Editor de campos --- */
+.sf-fields-list {
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+  margin-bottom: .8rem;
+}
+
+.sf-field-row {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1.2fr auto 1.5fr auto;
+  gap: .5rem;
+  align-items: center;
+}
+
+.sf-field-row input,
+.sf-field-row select {
+  padding: .4rem .55rem;
+  border: 1px solid var(--sf-border);
+  border-radius: 6px;
+  font: inherit;
+  font-size: .85rem;
+  background: transparent;
+  color: inherit;
+  width: 100%;
+}
+
+.sf-f-required {
+  display: flex;
+  align-items: center;
+  gap: .3rem;
+  font-size: .8rem;
+  color: var(--sf-muted);
+  white-space: nowrap;
+}
+
+.sf-f-remove {
+  border: 1px solid var(--sf-border);
+  background: transparent;
+  color: var(--sf-error);
+  border-radius: 6px;
+  width: 2rem;
+  height: 2rem;
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+
+.sf-f-remove:hover {
+  background: var(--sf-error);
+  color: #fff;
+}
+
+@media (max-width: 720px) {
+  .sf-field-row {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* --- Botones --- */
+.sf-btn-secondary,
+.sf-btn-primary {
+  padding: .55rem 1.1rem;
+  border-radius: var(--sf-radius);
+  font: inherit;
+  font-size: .88rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sf-btn-secondary {
+  border: 1px solid var(--sf-border);
+  background: transparent;
+  color: inherit;
+}
+
+.sf-btn-secondary:hover {
+  border-color: var(--sf-accent);
+  color: var(--sf-accent);
+}
+
+.sf-btn-primary {
+  border: 0;
+  background: var(--sf-accent);
+  color: #fff;
+}
+
+.sf-btn-primary:hover {
+  filter: brightness(1.08);
+}
+
+.sf-btn-primary:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+}
+
