@@ -1,0 +1,172 @@
+<div class="am-module">
+  <div class="module-header">
+    <h1>🔀 Automatizaciones</h1>
+    <p class="am-subtitle">
+      Armá un pipeline de pasos (crear, actualizar, buscar, condición), con
+      variables entre nodos, y probalo contra un registro real. Nada se
+      ejecuta hasta que apretás «Probar» o «Guardar».
+    </p>
+  </div>
+
+  <section class="am-card">
+    <div class="am-grid">
+      <div class="am-field">
+        <label for="am-name">Nombre</label>
+        <input id="am-name" placeholder="Marcar clientes VIP" spellcheck="false">
+      </div>
+      <div class="am-field">
+        <label for="am-load">Cargar una guardada</label>
+        <select id="am-load">
+          <option value="">— nueva —</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="am-grid">
+      <div class="am-field">
+        <label for="am-trigger-module">Módulo disparador</label>
+        <select id="am-trigger-module"></select>
+      </div>
+      <div class="am-field">
+        <label for="am-trigger-model">Modelo disparador</label>
+        <select id="am-trigger-model"></select>
+      </div>
+    </div>
+    <p class="am-hint">
+      El módulo/modelo disparador es de qué registro va a partir el pipeline
+      — de ahí salen los campos que se ofrecen en «Actualizar disparador» y
+      «Condición». «Crear registro» y «Buscar registro» pueden apuntar a
+      cualquier otro módulo, elegido dentro de esa caja.
+    </p>
+
+    <div class="am-canvas-toolbar">
+      <button type="button" id="am-add-update" class="am-palette-btn am-palette-update_trigger">
+        <span class="am-node-icon">🔧</span>
+        <span>Actualizar disparador</span>
+      </button>
+      <button type="button" id="am-add-create" class="am-palette-btn am-palette-create">
+        <span class="am-node-icon">➕</span>
+        <span>Crear registro</span>
+      </button>
+      <button type="button" id="am-add-search" class="am-palette-btn am-palette-search">
+        <span class="am-node-icon">🔎</span>
+        <span>Buscar registro</span>
+      </button>
+      <button type="button" id="am-add-condition" class="am-palette-btn am-palette-condition">
+        <span class="am-node-icon">❓</span>
+        <span>Condición</span>
+      </button>
+    </div>
+    <p class="am-hint">
+      Tocá una caja para configurarla en el panel de la derecha. Arrastrá
+      desde la salida (derecha) de una caja hasta la entrada (izquierda) de
+      otra para conectarlas — en una Condición, la salida de <strong>arriba</strong>
+      es <strong>Verdadero</strong> y la de <strong>abajo</strong> es
+      <strong>Falso</strong>. La ⭐ marca por cuál nodo arranca el pipeline.
+      Cualquier valor de texto acepta variables:
+      <code>{{trigger.campo}}</code> es un campo del disparador,
+      <code>{{nodo.campo}}</code> es lo que encontró/creó una caja anterior
+      (mirá el nombre de la caja en el lienzo).
+    </p>
+
+    <div class="am-canvas-layout">
+      <div class="am-canvas-wrap">
+        <div id="am-drawflow" class="am-drawflow"></div>
+        <div class="am-zoom-controls">
+          <button type="button" id="am-zoom-out" title="Alejar">−</button>
+          <button type="button" id="am-zoom-reset" title="Restablecer zoom">⊙</button>
+          <button type="button" id="am-zoom-in" title="Acercar">+</button>
+        </div>
+      </div>
+      <div class="am-config-panel">
+        <h3>Configuración del nodo</h3>
+        <div id="am-node-config">
+          <div class="am-empty">Tocá una caja para configurarla.</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="am-flow-result" class="am-result" hidden></div>
+
+    <div class="am-run-panel">
+      <h2>⚡ Disparador</h2>
+      <p class="am-hint" style="margin-top:0;">
+        Cómo arranca esta automatización sola, además de «Probar» a mano.
+      </p>
+      <div class="am-grid">
+        <div class="am-field">
+          <label for="am-trigger-type">Tipo</label>
+          <select id="am-trigger-type">
+            <option value="manual">Manual (sólo con «Probar»)</option>
+            <option value="webhook">Webhook</option>
+            <option value="schedule">Programado</option>
+          </select>
+        </div>
+      </div>
+
+      <div id="am-trigger-webhook" class="am-trigger-config" hidden>
+        <p class="am-hint" style="margin:0 0 .5rem;">
+          Un sistema externo llama esta URL por <code>POST</code> con
+          <code>{"trigger": {"module": "...", "model": "...", "id": "..."}}</code>
+          en el body. Guardá la automatización primero para que quede activa.
+        </p>
+        <div class="am-field">
+          <label>URL del webhook</label>
+          <div class="am-copy-row">
+            <input id="am-webhook-url" readonly>
+            <button type="button" id="am-webhook-copy" class="am-btn-secondary">Copiar</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="am-trigger-schedule" class="am-trigger-config" hidden>
+        <p class="am-hint" style="margin:0 0 .5rem;">
+          Corre sola, siempre contra el mismo registro fijo (no por lote).
+        </p>
+        <div class="am-grid">
+          <div class="am-field">
+            <label for="am-schedule-minutes">Cada cuántos minutos</label>
+            <select id="am-schedule-minutes">
+              <option value="15">15 minutos</option>
+              <option value="60">1 hora</option>
+              <option value="360">6 horas</option>
+              <option value="1440">1 día</option>
+            </select>
+          </div>
+          <div class="am-field">
+            <label for="am-schedule-module">Módulo del registro fijo</label>
+            <select id="am-schedule-module"></select>
+          </div>
+          <div class="am-field">
+            <label for="am-schedule-model">Modelo del registro fijo</label>
+            <select id="am-schedule-model"></select>
+          </div>
+          <div class="am-field">
+            <label for="am-schedule-id">ID del registro fijo</label>
+            <input id="am-schedule-id" placeholder="uuid del registro" spellcheck="false">
+          </div>
+        </div>
+      </div>
+
+      <h2>▶ Probar</h2>
+      <div class="am-grid">
+        <div class="am-field">
+          <label for="am-run-id">ID del registro disparador</label>
+          <input id="am-run-id" placeholder="uuid del registro" spellcheck="false">
+        </div>
+      </div>
+      <div class="am-actions">
+        <button type="button" id="am-run" class="am-btn-secondary">▶ Probar</button>
+        <button type="button" id="am-save" class="am-btn-primary">💾 Guardar</button>
+      </div>
+      <div id="am-run-result" class="am-result" hidden></div>
+
+      <div id="am-history-section" hidden>
+        <h2>🕘 Historial</h2>
+        <div id="am-history-list" class="am-history-list">
+          <div class="am-empty">Todavía no corrió.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>

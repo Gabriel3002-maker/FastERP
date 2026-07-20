@@ -46,6 +46,7 @@ func main() {
 	crudHandler := handlers.NewGenericCRUDHandler(dbConn, cfg.Modules.Path, authHandler.SessionManager())
 	docsHandler := handlers.NewDocsHandler(cfg.Modules.Path)
 	studioHandler := handlers.NewStudioHandler(cfg.Modules.Path, authHandler.SessionManager(), crudHandler)
+	automationHandler := handlers.NewAutomationHandler(authHandler.SessionManager(), crudHandler)
 
 	// Configurar router
 	mux := http.NewServeMux()
@@ -193,8 +194,19 @@ func main() {
 	// Studio-Flujo: interpretar diagramas y validar son cómputo puro; generar
 	// escribe en modules/ y exige admin (verificado dentro del handler).
 	mux.HandleFunc("/api/_studio/parse-mermaid", studioHandler.ParseMermaid)
+	mux.HandleFunc("/api/_studio/parse-bpmn", studioHandler.ParseBPMN)
 	mux.HandleFunc("/api/_studio/validate", studioHandler.Validate)
 	mux.HandleFunc("/api/_studio/generate", studioHandler.Generate)
+
+	// Automatizaciones: correr un pipeline de pasos contra un registro
+	// disparador. Guardar/listar automatizaciones e historial no tienen
+	// ruta propia — son modelos @fast normales (ver modules/automatizaciones).
+	mux.HandleFunc("/api/_automation/run", automationHandler.Run)
+	mux.HandleFunc("/api/_automation/webhook/{id}", automationHandler.Webhook)
+
+	// El disparador "schedule" corre solo, en segundo plano — no depende de
+	// que nadie abra la página. Vive mientras viva el proceso del servidor.
+	go handlers.RunScheduler(context.Background(), dbConn, automationHandler)
 
 	// Flujo (workflow): mover un registro por sus estados y ver su historial.
 	// Van antes del dispatcher genérico: en Go 1.22+ el segmento literal final
