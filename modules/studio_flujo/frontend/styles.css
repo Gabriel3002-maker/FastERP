@@ -10,7 +10,11 @@
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
-  max-width: 960px;
+  /* Un editor de lienzo se beneficia del ancho disponible — más lugar para
+     acomodar cajas sin que se pisen. 960px lo dejaba angosto en cualquier
+     pantalla normal; esto sólo pone un techo para que no quede absurdo en
+     un monitor ultra-wide. */
+  max-width: 1600px;
 }
 
 .sf-subtitle {
@@ -369,6 +373,64 @@
   .sf-canvas-layout {
     grid-template-columns: 1fr;
   }
+}
+
+/* --- Editor BPMN (bpmn-js) --- */
+.sf-file-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+}
+
+.sf-bpmn-canvas {
+  height: 420px;
+  border: 1px solid var(--sf-border);
+  border-radius: 8px;
+  background: var(--bg-secondary, var(--sf-surface));
+  position: relative;
+  overflow: hidden;
+}
+
+/* bpmn-js asume que puede ocupar todo su contenedor. */
+.sf-bpmn-canvas .djs-container {
+  height: 100%;
+}
+
+/* bpmn-js define su propia paleta de colores como variables CSS en
+   .djs-parent (ver core/static/vendor/bpmn-js/assets/diagram-js.css) —
+   pisarlas acá con las variables de tema de FastERP alcanza para que la
+   paleta, el menú contextual y los buscadores sigan el modo claro/oscuro de
+   la app, sin duplicar la lógica de tema. Las formas del diagrama (tareas,
+   eventos) quedan con su blanco/negro de siempre: es la misma "hoja" que se
+   vería si el mismo XML se abriera en cualquier otra herramienta BPMN, sólo
+   cambia el cromado alrededor. */
+.sf-bpmn-canvas .djs-parent {
+  --canvas-fill-color: var(--bg-secondary, #fff);
+  --palette-background-color: var(--bg-secondary, #fff);
+  --palette-border-color: var(--border, #ccc);
+  --palette-entry-color: var(--text-primary, #333);
+  --palette-entry-hover-color: var(--primary, #2563eb);
+  --palette-entry-selected-color: var(--primary, #2563eb);
+  --palette-separator-color: var(--border, #ccc);
+  --palette-toggle-hover-background-color: var(--bg-hover, #eee);
+  --context-pad-entry-background-color: var(--bg-secondary, #fff);
+  --context-pad-entry-hover-background-color: var(--bg-hover, #eee);
+  --popup-background-color: var(--bg-secondary, #fff);
+  --popup-border-color: var(--border, #ccc);
+  --popup-header-group-divider-color: var(--border, #ccc);
+  --popup-description-color: var(--text-secondary, #666);
+  --popup-no-results-color: var(--text-secondary, #666);
+  --popup-entry-title-color: var(--text-secondary, #666);
+  --popup-entry-hover-color: var(--bg-hover, #eee);
+  --popup-search-border-color: var(--border, #ccc);
+  --popup-search-focus-border-color: var(--primary, #2563eb);
+  --popup-search-focus-background-color: var(--bg-hover, #eee);
+  --search-container-background-color: var(--bg-secondary, #fff);
+  --search-input-border-color: var(--border, #ccc);
+  --search-input-focus-border-color: var(--primary, #2563eb);
+  --search-input-focus-background-color: var(--bg-hover, #eee);
+  --search-result-hover-background-color: var(--bg-hover, #eee);
+  --search-result-secondary-color: var(--text-secondary, #666);
 }
 
 /* --- Diagrama (modo texto) --- */

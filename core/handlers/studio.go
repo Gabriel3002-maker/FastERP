@@ -64,6 +64,35 @@ func (h *StudioHandler) ParseMermaid(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, parsed)
 }
 
+// ParseBPMN interpreta un diagrama BPMN 2.0 (el XML que exportan bpmn.io,
+// Camunda Modeler, etc.) y devuelve el mismo workflow que ParseMermaid — sólo
+// cambia de dónde viene el dibujo.
+func (h *StudioHandler) ParseBPMN(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeErr(w, http.StatusMethodNotAllowed, "método no permitido")
+		return
+	}
+
+	var payload struct {
+		Diagram string `json:"diagram"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		writeErr(w, http.StatusBadRequest, "JSON inválido")
+		return
+	}
+	if strings.TrimSpace(payload.Diagram) == "" {
+		writeErr(w, http.StatusBadRequest, "falta \"diagram\"")
+		return
+	}
+
+	parsed, err := sdk.ParseBPMNDiagram(payload.Diagram)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, parsed)
+}
+
 // studioRequest es lo que el lienzo manda: un modelo (nuevo o agregado a un
 // módulo existente) con sus campos y, opcionalmente, su flujo.
 //

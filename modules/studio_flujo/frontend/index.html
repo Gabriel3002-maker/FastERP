@@ -29,6 +29,7 @@
     <div class="sf-tabs">
       <button type="button" class="sf-tab sf-tab-active" data-tab="canvas">🖱️ Dibujar</button>
       <button type="button" class="sf-tab" data-tab="text">⌨️ Texto (Mermaid)</button>
+      <button type="button" class="sf-tab" data-tab="bpmn">🔗 BPMN</button>
     </div>
 
     <!-- Modo lienzo: cajas que se arrastran y se conectan -->
@@ -73,6 +74,24 @@
           <div class="sf-empty">El dibujo del diagrama aparece acá.</div>
         </div>
       </div>
+    </div>
+
+    <!-- Modo BPMN: editor visual embebido (bpmn-js), o importar un .bpmn dibujado afuera -->
+    <div id="sf-panel-bpmn" class="sf-panel" hidden>
+      <p class="sf-hint">
+        Dibujá acá o importá un diagrama BPMN hecho en bpmn.io, Camunda
+        Modeler u otra herramienta. Por ahora se soporta: un evento de inicio,
+        tareas (cada una es un estado), el evento de fin, y flujos de
+        secuencia con nombre entre tareas — el nombre del flujo es la acción.
+        Compuertas y subprocesos todavía no se interpretan.
+      </p>
+      <div class="sf-canvas-toolbar">
+        <label class="sf-btn-secondary sf-file-btn">
+          📂 Importar archivo .bpmn
+          <input type="file" id="sf-bpmn-file" accept=".bpmn,.xml" hidden>
+        </label>
+      </div>
+      <div id="sf-bpmn-canvas" class="sf-bpmn-canvas"></div>
     </div>
 
     <div id="sf-flow-result" class="sf-result" hidden></div>

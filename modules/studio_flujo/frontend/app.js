@@ -1,14 +1,17 @@
 // ========================================
 // Studio-Flujo
 // ========================================
-// Dos formas de definir el flujo: dibujarlo (cajas que se arrastran y se
-// conectan, con Drawflow) o escribirlo en Mermaid. Cualquiera de las dos
-// termina en la misma estructura — { states, initial, transitions } — que
-// alimenta el mismo payload hacia /api/_studio/generate. El motor no sabe ni
-// le importa de cuál de las dos vino.
+// Tres formas de definir el flujo: dibujarlo a mano (cajas que se arrastran y
+// se conectan, con Drawflow), escribirlo en Mermaid, o dibujarlo/importarlo
+// en BPMN (con bpmn-js, el estándar que ya hablan bpmn.io, Camunda Modeler,
+// etc.). Las tres terminan en la misma estructura —
+// { states, initial, transitions } — que alimenta el mismo payload hacia
+// /api/_studio/generate. El motor no sabe ni le importa de cuál de las tres
+// vino.
 //
 // Endpoints propios (no son @fast, son de este módulo):
 //   POST /api/_studio/parse-mermaid   → interpreta el texto (modo texto)
+//   POST /api/_studio/parse-bpmn      → interpreta el XML (modo BPMN)
 //   POST /api/_studio/generate        → escribe el manifest (admin)
 //   GET  /api/_catalog                → módulos instalados, para "extender"
 
@@ -66,6 +69,61 @@ function loadStyle(href) {
   document.head.appendChild(link);
 }
 
+// Diagrama de arranque del editor BPMN: un startEvent conectado a dos tareas
+// ya nombradas y un endEvent, mismo espíritu que los dos estados ya
+// conectados con los que arranca el lienzo Drawflow — así se ve un ejemplo
+// andando en vez de un lienzo vacío sin pistas.
+const DEFAULT_BPMN_XML = `<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_1" targetNamespace="http://fasterp/bpmn">
+  <bpmn:process id="Process_1" isExecutable="false">
+    <bpmn:startEvent id="StartEvent_1">
+      <bpmn:outgoing>Flow_start</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:task id="Task_prospecto" name="prospecto">
+      <bpmn:incoming>Flow_start</bpmn:incoming>
+      <bpmn:outgoing>Flow_activar</bpmn:outgoing>
+    </bpmn:task>
+    <bpmn:task id="Task_activo" name="activo">
+      <bpmn:incoming>Flow_activar</bpmn:incoming>
+      <bpmn:outgoing>Flow_end</bpmn:outgoing>
+    </bpmn:task>
+    <bpmn:endEvent id="EndEvent_1">
+      <bpmn:incoming>Flow_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_start" sourceRef="StartEvent_1" targetRef="Task_prospecto" />
+    <bpmn:sequenceFlow id="Flow_activar" name="Activar" sourceRef="Task_prospecto" targetRef="Task_activo" />
+    <bpmn:sequenceFlow id="Flow_end" sourceRef="Task_activo" targetRef="EndEvent_1" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
+      <bpmndi:BPMNShape id="StartEvent_1_di" bpmnElement="StartEvent_1">
+        <dc:Bounds x="152" y="102" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_prospecto_di" bpmnElement="Task_prospecto">
+        <dc:Bounds x="240" y="80" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_activo_di" bpmnElement="Task_activo">
+        <dc:Bounds x="400" y="80" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_1_di" bpmnElement="EndEvent_1">
+        <dc:Bounds x="562" y="102" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_start_di" bpmnElement="Flow_start">
+        <di:waypoint x="188" y="120" />
+        <di:waypoint x="240" y="120" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_activar_di" bpmnElement="Flow_activar">
+        <di:waypoint x="340" y="120" />
+        <di:waypoint x="400" y="120" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_end_di" bpmnElement="Flow_end">
+        <di:waypoint x="500" y="120" />
+        <di:waypoint x="562" y="120" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>`;
+
 // Réplica liviana, del lado del cliente, del slugifyAction() del motor
 // (core/sdk/mermaid.go): minúsculas, separadores → "_", sin dígito inicial.
 // No hace normalización Unicode, igual que el original — una tilde se vuelve
@@ -85,7 +143,9 @@ function slugifyAction(label) {
 
 let activeTab = 'canvas';
 let parsedFlow = null; // resultado de parse-mermaid (modo texto)
+let parsedBpmnFlow = null; // resultado de parse-bpmn (modo BPMN)
 let drawflow = null; // instancia de Drawflow (modo lienzo)
+let bpmnModeler = null; // instancia de bpmn-js (modo BPMN)
 let connectionLabels = {}; // "outId->inId" → etiqueta escrita al conectar
 let fields = [{ name: '', type: 'string', label: '', required: false, options: '' }];
 
@@ -97,6 +157,7 @@ async function init() {
   bindModeToggle();
   bindTabs();
   bindDiagramInput();
+  bindBpmnFileInput();
   bindFieldEditor();
   bindSteps();
   $('sf-generate').addEventListener('click', generate);
@@ -173,7 +234,12 @@ function bindTabs() {
       document.querySelectorAll('.sf-tab').forEach((t) => t.classList.toggle('sf-tab-active', t === tab));
       $('sf-panel-canvas').hidden = activeTab !== 'canvas';
       $('sf-panel-text').hidden = activeTab !== 'text';
+      $('sf-panel-bpmn').hidden = activeTab !== 'bpmn';
       $('sf-flow-result').hidden = true;
+
+      // bpmn-js es bastante más pesado que Drawflow — se carga recién la
+      // primera vez que se toca esta pestaña, no en el arranque de la página.
+      if (activeTab === 'bpmn' && !bpmnModeler) initBpmn();
     });
   }
 }
@@ -482,6 +548,116 @@ async function renderMermaidPreview(source) {
 }
 
 // ========================================
+// Modo BPMN (bpmn-js)
+// ========================================
+// El editor queda con su paleta completa (compuertas incluidas) — es el
+// backend el que rechaza con un error claro lo que este subconjunto todavía
+// no interpreta, mismo criterio que ya usa el modo texto con Mermaid.
+
+let bpmnInitPromise = null;
+
+function initBpmn() {
+  if (bpmnInitPromise) return bpmnInitPromise;
+
+  bpmnInitPromise = (async () => {
+    loadStyle('/static/vendor/bpmn-js/assets/diagram-js.css');
+    loadStyle('/static/vendor/bpmn-js/assets/bpmn-js.css');
+    loadStyle('/static/vendor/bpmn-js/assets/bpmn-font/css/bpmn-embedded.css');
+
+    try {
+      await loadScript('/static/vendor/bpmn-js/bpmn-modeler.production.min.js');
+    } catch {
+      $('sf-bpmn-canvas').innerHTML = '<div class="sf-empty">No se pudo cargar el editor BPMN. Usá otra pestaña.</div>';
+      return;
+    }
+
+    bpmnModeler = new window.BpmnJS({ container: '#sf-bpmn-canvas' });
+    bpmnModeler.on('commandStack.changed', debounce(onBpmnChange, DEBOUNCE_MS));
+
+    try {
+      await bpmnModeler.importXML(DEFAULT_BPMN_XML);
+      await onBpmnChange();
+    } catch (error) {
+      $('sf-bpmn-canvas').innerHTML = `<div class="sf-empty">No se pudo iniciar el editor: ${esc(error.message)}</div>`;
+    }
+  })();
+
+  return bpmnInitPromise;
+}
+
+async function onBpmnChange() {
+  const resultBox = $('sf-flow-result');
+  if (!bpmnModeler) return;
+
+  let xml;
+  try {
+    ({ xml } = await bpmnModeler.saveXML({ format: false }));
+  } catch {
+    return; // diagrama momentáneamente inválido a mitad de una edición; se reintenta en el próximo cambio
+  }
+
+  try {
+    const response = await fetch('/api/_studio/parse-bpmn', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ diagram: xml }),
+    });
+    const body = await response.json();
+
+    if (!response.ok) {
+      parsedBpmnFlow = null;
+      resultBox.hidden = false;
+      resultBox.className = 'sf-result sf-result-error';
+      resultBox.textContent = body.error;
+      return;
+    }
+
+    parsedBpmnFlow = body;
+    resultBox.hidden = false;
+    resultBox.className = 'sf-result sf-result-ok';
+    resultBox.innerHTML = `✓ ${body.states.length} estados, `
+      + `${Object.keys(body.transitions).length} acciones. `
+      + `Inicial: <strong>${esc(body.initial)}</strong>`;
+  } catch (error) {
+    parsedBpmnFlow = null;
+    resultBox.hidden = false;
+    resultBox.className = 'sf-result sf-result-error';
+    resultBox.textContent = 'No se pudo validar el diagrama: ' + error.message;
+  }
+}
+
+function bindBpmnFileInput() {
+  $('sf-bpmn-file').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    e.target.value = ''; // permite volver a elegir el mismo archivo después
+    if (!file) return;
+
+    await initBpmn();
+    if (!bpmnModeler) return;
+
+    // canUndo() sólo es true si hubo comandos ejecutados en el editor
+    // (mover, conectar, renombrar...) — el importXML() del arranque no pasa
+    // por el commandStack, así que en un lienzo recién abierto esto da
+    // false y no interrumpe con una confirmación de más.
+    const hayCambiosSinGuardar = bpmnModeler.get('commandStack').canUndo();
+    if (hayCambiosSinGuardar && !confirm('Esto va a reemplazar el diagrama que ya dibujaste. ¿Continuar?')) {
+      return;
+    }
+
+    const text = await file.text();
+    try {
+      await bpmnModeler.importXML(text);
+      await onBpmnChange();
+    } catch (error) {
+      const resultBox = $('sf-flow-result');
+      resultBox.hidden = false;
+      resultBox.className = 'sf-result sf-result-error';
+      resultBox.textContent = 'No se pudo importar el archivo: ' + error.message;
+    }
+  });
+}
+
+// ========================================
 // Paso 3: campos
 // ========================================
 
@@ -535,6 +711,7 @@ function renderFields() {
 // Resuelve el flujo activo sin importar de qué pestaña vino.
 function resolveFlow() {
   if (activeTab === 'canvas') return graphToWorkflow();
+  if (activeTab === 'bpmn') return parsedBpmnFlow; // ya validó contra el motor al editar/importar
   return parsedFlow; // el modo texto ya validó contra el motor al escribir
 }
 
