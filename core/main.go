@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/fasterp/backend/config"
 	"github.com/fasterp/backend/db"
@@ -42,6 +43,7 @@ func main() {
 	auditHandler := handlers.NewAuditHandler(auditLogger)
 	setupHandler := handlers.NewSetupHandler(dbConn)
 	moduleHandler := handlers.NewModuleHandler(dbConn)
+	contactHandler := handlers.NewContactHandler(dbConn)
 
 	// Configurar router
 	mux := http.NewServeMux()
@@ -102,19 +104,26 @@ func main() {
 	mux.HandleFunc("/api/modules/install", moduleHandler.InstallModule)
 	mux.HandleFunc("/api/modules/uninstall", moduleHandler.UninstallModule)
 
-	// Admin routes (protegidas - TODO)
+	// API Contacts
+	mux.HandleFunc("/api/contacts/list", contactHandler.ListContacts)
+	mux.HandleFunc("/api/contacts", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost:
+			contactHandler.CreateContact(w, r)
+		case http.MethodPut:
+			contactHandler.UpdateContact(w, r)
+		case http.MethodDelete:
+			contactHandler.DeleteContact(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+	// Admin Dashboard
 	mux.HandleFunc("/admin", func(w http.ResponseWriter, r *http.Request) {
 		renderer.RenderWithLayout("layout.html", "dashboard-content.html", map[string]interface{}{
 			"Title":       "Dashboard",
 			"CurrentPage": "dashboard",
-		}, w)
-	})
-
-	// Audit dashboard
-	mux.HandleFunc("/admin/audit", func(w http.ResponseWriter, r *http.Request) {
-		renderer.RenderWithLayout("layout.html", "audit-content.html", map[string]interface{}{
-			"Title":       "Auditoría",
-			"CurrentPage": "audit",
 		}, w)
 	})
 
@@ -126,9 +135,57 @@ func main() {
 		}, w)
 	})
 
+	// Audit
+	mux.HandleFunc("/admin/audit", func(w http.ResponseWriter, r *http.Request) {
+		renderer.RenderWithLayout("layout.html", "audit-content.html", map[string]interface{}{
+			"Title":       "Auditoría",
+			"CurrentPage": "audit",
+		}, w)
+	})
+
+	// Módulos dinámicos - captura /admin/:module pero no /admin/modules, /admin/audit
+	mux.HandleFunc("/admin/", func(w http.ResponseWriter, r *http.Request) {
+		moduleName := strings.TrimPrefix(r.URL.Path, "/admin/")
+		moduleName = strings.TrimSuffix(moduleName, "/")
+
+		// Ignorar rutas especiales
+		if moduleName == "" || moduleName == "modules" || moduleName == "audit" {
+			http.NotFound(w, r)
+			return
+		}
+
+		// Verificar que el módulo está instalado
+		tenantID := authHandler.ExtractTenantIDFromCookie(r)
+		if tenantID == "" {
+			http.Redirect(w, r, "/login", http.StatusFound)
+			return
+		}
+
+		ctx := context.Background()
+		var installed bool
+		row := dbConn.QueryRow(ctx, "SELECT COUNT(*) > 0 FROM installed_modules WHERE tenant_id = $1 AND name = $2", tenantID, moduleName)
+		row.Scan(&installed)
+
+		if !installed {
+			http.NotFound(w, r)
+			return
+		}
+
+		// Servir HTML del módulo
+		renderer.RenderWithLayout("layout.html", "module-loader.html", map[string]interface{}{
+			"Title":       moduleName,
+			"ModuleName":  moduleName,
+			"CurrentPage": "module",
+		}, w)
+	})
+
 	// Estáticos
 	fs := http.FileServer(http.Dir("./static"))
 	mux.Handle("/static/", http.StripPrefix("/static/", fs))
+
+	// Módulos frontend (HTML, CSS, JS)
+	modulesFs := http.FileServer(http.Dir("../modules"))
+	mux.Handle("/modules/", http.StripPrefix("/modules/", modulesFs))
 
 	// Health check
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {

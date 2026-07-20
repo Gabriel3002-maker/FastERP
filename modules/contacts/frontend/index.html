@@ -1,0 +1,52 @@
+<div class="contacts-module">
+    <div class="module-header">
+        <h1>👥 Contactos</h1>
+        <button id="addContactBtn" class="btn-primary">+ Nuevo Contacto</button>
+    </div>
+
+    <div class="search-bar">
+        <input type="text" id="searchInput" placeholder="Buscar contactos..." />
+    </div>
+
+    <div id="contactsList" class="contacts-list">
+        <div class="loading">Cargando contactos...</div>
+    </div>
+
+    <!-- Modal para crear/editar -->
+    <div id="contactModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalTitle">Nuevo Contacto</h2>
+                <button class="btn-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="contactForm">
+                    <div class="form-group">
+                        <label>Nombre</label>
+                        <input type="text" id="formName" required />
+                    </div>
+                    <div class="form-group">
+                        <label>Email</label>
+                        <input type="email" id="formEmail" />
+                    </div>
+                    <div class="form-group">
+                        <label>Teléfono</label>
+                        <input type="tel" id="formPhone" />
+                    </div>
+                    <div class="form-group">
+                        <label>Empresa</label>
+                        <input type="text" id="formCompany" />
+                    </div>
+                    <div class="form-group">
+                        <label>Cargo</label>
+                        <input type="text" id="formJobTitle" />
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeModal()">Cancelar</button>
+                <button class="btn-primary" onclick="saveContact()">Guardar</button>
+            </div>
+        </div>
+    </div>
+</div>

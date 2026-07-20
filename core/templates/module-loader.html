@@ -1,0 +1,45 @@
+<!-- Module Container -->
+<div class="module-container" id="moduleContainer">
+    <div style="text-align: center; padding: 40px; color: var(--text-secondary);">
+        <div style="font-size: 32px; margin-bottom: 20px;">⏳</div>
+        <p>Cargando {{.ModuleName}}...</p>
+    </div>
+</div>
+
+<script>
+const moduleName = '{{.ModuleName}}';
+const moduleDir = `/modules/${moduleName}/frontend`;
+
+// Cargar HTML del módulo
+fetch(`${moduleDir}/index.html`)
+    .then(r => r.text())
+    .then(html => {
+        document.getElementById('moduleContainer').innerHTML = html;
+
+        // Cargar CSS del módulo
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = `${moduleDir}/styles.css`;
+        document.head.appendChild(link);
+
+        // Cargar JS del módulo
+        const script = document.createElement('script');
+        script.src = `${moduleDir}/app.js`;
+        script.onload = () => console.log(`Módulo ${moduleName} cargado`);
+        document.body.appendChild(script);
+    })
+    .catch(err => {
+        document.getElementById('moduleContainer').innerHTML = `
+            <div style="text-align: center; padding: 40px; color: var(--text-secondary);">
+                <div style="font-size: 32px; margin-bottom: 20px;">❌</div>
+                <p>Error cargando módulo: ${err.message}</p>
+            </div>
+        `;
+    });
+</script>
+
+<style>
+.module-container {
+    min-height: 500px;
+}
+</style>

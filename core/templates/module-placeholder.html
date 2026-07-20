@@ -1,0 +1,82 @@
+<!-- Module Page -->
+<div class="module-wrapper" id="moduleWrapper" style="min-height: 600px;">
+    <!-- Cargando... -->
+    <div id="loadingState" style="display: flex; align-items: center; justify-content: center; min-height: 600px; background: var(--bg-secondary); border-radius: 8px;">
+        <div style="text-align: center;">
+            <div style="font-size: 48px; margin-bottom: 20px;">⏳</div>
+            <p style="color: var(--text-secondary);">Cargando módulo {{.ModuleName}}...</p>
+        </div>
+    </div>
+
+    <!-- Contenedor para React -->
+    <div id="moduleContainer" style="display: none;"></div>
+</div>
+
+<style>
+.module-wrapper {
+    width: 100%;
+    max-width: 100%;
+}
+
+#moduleContainer {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 20px;
+}
+</style>
+
+<script>
+// Mapeo de módulos a rutas de componentes
+const moduleRoutes = {
+    'contacts': '/admin/contacts',
+    'products': '/admin/products',
+    'sites': '/admin/sites',
+    'tienda_web': '/admin/tienda_web',
+    'sitio_web': '/admin/sitio_web',
+    'odoo_sync': '/admin/odoo_sync',
+    'integracion_odoo_fasterp': '/admin/integracion_odoo_fasterp',
+    'solar_portal': '/admin/solar_portal',
+    'hello': '/admin/hello'
+};
+
+const moduleName = '{{.ModuleName}}';
+const moduleRoute = moduleRoutes[moduleName];
+
+if (moduleRoute) {
+    // En desarrollo con Vite, cambiar a window.location si estás usando desarrollo separado
+    // Por ahora, mostrar que está listo
+    console.log('Module:', moduleName, 'Route:', moduleRoute);
+
+    // Esperar un poco y mostrar mensaje de que necesita Vite
+    setTimeout(() => {
+        const loadingState = document.getElementById('loadingState');
+        const moduleContainer = document.getElementById('moduleContainer');
+
+        loadingState.style.display = 'none';
+        moduleContainer.style.display = 'block';
+
+        moduleContainer.innerHTML = `
+            <div style="text-align: center; padding: 40px;">
+                <div style="font-size: 48px; margin-bottom: 20px;">⚙️</div>
+                <h2 style="color: var(--text-primary); margin-bottom: 10px;">{{.ModuleName}}</h2>
+                <p style="color: var(--text-secondary); margin-bottom: 20px;">
+                    El módulo está instalado pero necesitas iniciar Vite en desarrollo para ver la UI.
+                </p>
+
+                <div style="background: var(--bg-primary); padding: 20px; border-radius: 6px; margin: 20px auto; text-align: left; max-width: 600px; font-family: monospace; font-size: 13px;">
+                    <p style="color: var(--text-secondary); margin: 5px 0;">
+                        En otra terminal:<br>
+                        <strong style="color: var(--primary);">$ cd frontend && npm run dev</strong>
+                    </p>
+                </div>
+
+                <p style="color: var(--text-secondary); font-size: 13px; margin-top: 30px;">
+                    Una vez que Vite esté corriendo en :5173, <a href="http://localhost:5173${moduleRoute}" target="_blank" style="color: var(--primary); text-decoration: none; font-weight: 600;">abre el módulo en la ventana de desarrollo</a>
+                </p>
+            </div>
+        `;
+    }, 1500);
+} else {
+    console.error('Module not found:', moduleName);
+}
+</script>

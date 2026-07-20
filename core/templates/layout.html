@@ -5,6 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{.Title}} - FastERP</title>
 
+    <!-- Auth check ANTES de renderizar contenido -->
+    <script>
+      (function() {
+        const token = localStorage.getItem('access_token');
+        if (!token) {
+          window.location.href = '/login';
+          return;
+        }
+      })();
+    </script>
+
     <!-- Theme application ANTES de cargar CSS para evitar flash -->
     <script>
       (function() {
@@ -260,6 +271,7 @@
                     <span class="nav-icon">🎮</span>
                     <span>Module Store</span>
                 </a>
+                <div id="installed-modules-menu"></div>
             </div>
 
             <div class="nav-section">
@@ -280,6 +292,19 @@
     </div>
 
     <script>
+        // Función global para extraer tenant_id del JWT token
+        function getTenantIDFromToken() {
+            const token = localStorage.getItem('access_token');
+            if (!token) return null;
+            try {
+                const parts = token.split('.');
+                const decoded = JSON.parse(atob(parts[1]));
+                return decoded.tenant_id;
+            } catch (e) {
+                return null;
+            }
+        }
+
         // Cargar datos del usuario
         function loadUserInfo() {
             const user = localStorage.getItem('user_name') || 'Admin';
@@ -303,6 +328,38 @@
         }
 
         loadUserInfo();
+
+        // Cargar módulos instalados en el menú
+        async function loadInstalledModules() {
+            const tenantID = getTenantIDFromToken() || localStorage.getItem('tenant_id');
+            if (!tenantID) return;
+
+            try {
+                const response = await fetch('/api/modules/available', {
+                    headers: { 'X-Tenant-ID': tenantID }
+                });
+                const data = await response.json();
+                const modules = data.modules || [];
+
+                // Filtrar solo módulos instalados (activos o no)
+                const installed = modules.filter(m => m.installed);
+
+                if (installed.length === 0) return;
+
+                // Agregar al menú
+                const menuContainer = document.getElementById('installed-modules-menu');
+                menuContainer.innerHTML = installed.map(m => `
+                    <a href="/admin/${m.name}" class="nav-item" title="${m.label}${m.active ? '' : ' (inactivo)'}">
+                        <span class="nav-icon">${m.icon || '📦'}</span>
+                        <span>${m.label}${m.active ? '' : ' (inactivo)'}</span>
+                    </a>
+                `).join('');
+            } catch (e) {
+                console.error('Error loading modules:', e);
+            }
+        }
+
+        loadInstalledModules();
     </script>
 
     <script src="/static/js/theme.js"></script>

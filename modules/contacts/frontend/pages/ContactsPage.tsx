@@ -148,11 +148,11 @@ export default function ContactsPage() {
     }
   }
 
-  const filtered = contacts.filter((c) =>
+  const filtered = contacts.filter((c: Contact) =>
     !search || `${c.name} ${c.email} ${c.company} ${c.tax_id} ${c.city}`.toLowerCase().includes(search.toLowerCase())
   )
 
-  const updateField = (key: string, value: string) => setForm((prev) => ({ ...prev, [key]: value }))
+  const updateField = (key: string, value: string) => setForm((prev: any) => ({ ...prev, [key]: value }))
 
   const inputStyle = {
     background: 'var(--bg-input)',
@@ -389,19 +389,19 @@ export default function ContactsPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((c, i) => (
+                {filtered.map((c: Contact, i: number) => (
                   <tr
                     key={c.id}
                     className="transition-colors duration-100"
                     style={{ borderBottom: i < filtered.length - 1 ? '1px solid var(--border-primary)' : 'none' }}
-                    onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-tertiary)')}
-                    onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                    onMouseEnter={(e: any) => (e.currentTarget.style.background = 'var(--bg-tertiary)')}
+                    onMouseLeave={(e: any) => (e.currentTarget.style.background = 'transparent')}
                   >
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
                         <div className="w-9 h-9 rounded-lg flex items-center justify-center text-xs font-bold text-white shrink-0"
                           style={{ background: 'linear-gradient(135deg, #3b82f6, #1e40af)' }}>
-                          {c.name?.split(' ').slice(0, 2).map((w) => w[0]).join('').toUpperCase()}
+                          {c.name?.split(' ').slice(0, 2).map((w: string) => w[0]).join('').toUpperCase()}
                         </div>
                         <div>
                           <div className="font-semibold" style={{ color: 'var(--text-primary)' }}>{c.name}</div>

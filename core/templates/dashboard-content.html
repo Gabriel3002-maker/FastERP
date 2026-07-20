@@ -254,7 +254,7 @@
 <script>
 // Cargar estadísticas
 async function loadStats() {
-    const tenantID = localStorage.getItem('tenant_id') || 'default-123';
+    const tenantID = getTenantIDFromToken() || localStorage.getItem('tenant_id');
     const token = localStorage.getItem('access_token');
 
     try {
