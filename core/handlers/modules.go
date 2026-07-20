@@ -175,20 +175,10 @@ func (mh *ModuleHandler) InstallModule(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
 	tenantSlug := r.Header.Get("X-Tenant-ID")
 
-	// Leer JSON body
-	var payload struct {
-		ModuleName string `json:"module_name"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"error": "Invalid JSON",
-		})
-		return
-	}
-
-	moduleName := payload.ModuleName
+	// El nombre del módulo llega por query string (?name=...) — así lo manda
+	// tanto module-store.html como modules-content.html, los dos frontends
+	// reales de esta pantalla. Ninguno manda body.
+	moduleName := r.URL.Query().Get("name")
 
 	// Resolver slug a UUID si es necesario
 	tenantID, err := mh.resolveTenantID(ctx, tenantSlug)
@@ -303,20 +293,10 @@ func (mh *ModuleHandler) UninstallModule(w http.ResponseWriter, r *http.Request)
 	ctx := context.Background()
 	tenantSlug := r.Header.Get("X-Tenant-ID")
 
-	// Leer JSON body
-	var payload struct {
-		ModuleName string `json:"module_name"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"error": "Invalid JSON",
-		})
-		return
-	}
-
-	moduleName := payload.ModuleName
+	// El nombre del módulo llega por query string (?name=...) — así lo manda
+	// tanto module-store.html como modules-content.html, los dos frontends
+	// reales de esta pantalla. Ninguno manda body.
+	moduleName := r.URL.Query().Get("name")
 
 	// Resolver slug a UUID si es necesario
 	tenantID, err := mh.resolveTenantID(ctx, tenantSlug)
