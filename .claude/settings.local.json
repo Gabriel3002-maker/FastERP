@@ -73,7 +73,8 @@
       "Bash(curl -s http://localhost:7099/api/me)",
       "Bash(PGPASSWORD=odoo17 psql -h localhost -U odoo17 -d fasterp -tAc \"INSERT INTO tenants \\(name, slug, active\\) VALUES \\('Tmp Test','tmptest',true\\) RETURNING id;\")",
       "Bash(git add *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(git merge *)"
     ]
   }
 }

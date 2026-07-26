@@ -1,0 +1,126 @@
+{
+  "name": "compras",
+  "label": "Compras",
+  "version": "1.0.0",
+  "author": "Ecuabyte",
+  "description": "Órdenes de compra a proveedores. Al recibir la mercadería, el stock sube solo en Operaciones y se actualiza el costo del producto.",
+  "icon": "📥",
+  "depends": ["products", "contacts"],
+  "models": {
+    "purchase": {
+      "name": "purchase",
+      "label": "Compra",
+      "fields": {
+        "supplier_id": {
+          "type": "string",
+          "length": 60,
+          "index": true,
+          "label": "Proveedor",
+          "sequence": 10
+        },
+        "supplier_name": {
+          "type": "string",
+          "length": 200,
+          "label": "Nombre del proveedor",
+          "sequence": 20
+        },
+        "status": {
+          "type": "string",
+          "length": 20,
+          "options": ["draft", "ordered", "received", "cancelled"],
+          "default": "draft",
+          "label": "Estado",
+          "sequence": 30
+        },
+        "total": {
+          "type": "decimal",
+          "precision": 12,
+          "scale": 2,
+          "label": "Total",
+          "sequence": 40
+        },
+        "expected_date": {
+          "type": "date",
+          "label": "Fecha esperada",
+          "sequence": 50
+        },
+        "note": {
+          "type": "text",
+          "label": "Nota",
+          "sequence": 60
+        }
+      },
+      "workflow": {
+        "field": "status",
+        "initial": "draft",
+        "transitions": {
+          "pedir": {
+            "from": ["draft"],
+            "to": "ordered",
+            "label": "Pedir"
+          },
+          "recibir": {
+            "from": ["ordered"],
+            "to": "received",
+            "label": "Recibir"
+          },
+          "cancelar": {
+            "from": ["draft", "ordered"],
+            "to": "cancelled",
+            "label": "Cancelar"
+          }
+        }
+      }
+    },
+    "purchase_line": {
+      "name": "purchase_line",
+      "label": "Línea de compra",
+      "fields": {
+        "purchase_id": {
+          "type": "string",
+          "length": 60,
+          "required": true,
+          "index": true,
+          "label": "Compra",
+          "sequence": 10
+        },
+        "product_id": {
+          "type": "string",
+          "length": 60,
+          "required": true,
+          "label": "Producto",
+          "sequence": 20
+        },
+        "product_name": {
+          "type": "string",
+          "length": 200,
+          "label": "Nombre del producto",
+          "sequence": 30
+        },
+        "quantity": {
+          "type": "decimal",
+          "precision": 12,
+          "scale": 2,
+          "required": true,
+          "label": "Cantidad",
+          "sequence": 40
+        },
+        "unit_cost": {
+          "type": "decimal",
+          "precision": 12,
+          "scale": 2,
+          "required": true,
+          "label": "Costo unitario",
+          "sequence": 50
+        },
+        "line_total": {
+          "type": "decimal",
+          "precision": 12,
+          "scale": 2,
+          "label": "Total línea",
+          "sequence": 60
+        }
+      }
+    }
+  }
+}

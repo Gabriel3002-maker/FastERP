@@ -1,0 +1,810 @@
+.pr-module {
+  --pr-border: var(--border, #e5e7eb);
+  --pr-surface: var(--bg-secondary, #fff);
+  --pr-bg: var(--bg, #fff);
+  --pr-muted: var(--text-secondary, #6b7280);
+  --pr-accent: var(--primary, #2563eb);
+  --pr-radius: var(--radius, 10px);
+  --pr-ok: var(--success, #16a34a);
+  --pr-warn: var(--warning, #d97706);
+  --pr-error: var(--error, #dc2626);
+
+  display: flex;
+  flex-direction: column;
+  max-width: 1200px;
+}
+
+.pr-subtitle {
+  margin: .3rem 0 0;
+  color: var(--pr-muted);
+  font-size: .9rem;
+  max-width: 70ch;
+}
+
+/* --- Pestaña Stock: lista de existencias + detalle --- */
+
+.pr-stock-layout {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 1rem;
+  align-items: start;
+}
+
+@media (max-width: 860px) {
+  .pr-stock-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.pr-stock-list-panel,
+.pr-stock-detail {
+  border: 1px solid var(--pr-border);
+  border-radius: var(--pr-radius);
+  background: var(--pr-surface);
+  padding: 1rem;
+}
+
+.pr-stock-head {
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+  margin-bottom: .75rem;
+}
+
+.pr-stock-head h2 {
+  margin: 0;
+  font-size: .95rem;
+}
+
+.pr-stock-head input {
+  padding: .45rem .6rem;
+  border: 1px solid var(--pr-border);
+  border-radius: calc(var(--pr-radius) - 4px);
+  background: var(--pr-bg);
+  color: inherit;
+  font: inherit;
+  font-size: .85rem;
+}
+
+.pr-stock-list {
+  display: flex;
+  flex-direction: column;
+  gap: .25rem;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.pr-stock-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    "name qty"
+    "sku  qty";
+  align-items: center;
+  gap: 0 .5rem;
+  padding: .5rem .6rem;
+  border: 1px solid transparent;
+  border-radius: calc(var(--pr-radius) - 4px);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+}
+
+.pr-stock-item:hover { background: var(--pr-bg); }
+
+.pr-stock-active {
+  border-color: var(--pr-accent);
+  background: var(--pr-bg);
+}
+
+.pr-stock-name {
+  grid-area: name;
+  font-weight: 600;
+  font-size: .86rem;
+}
+
+.pr-stock-sku {
+  grid-area: sku;
+  font-size: .74rem;
+  color: var(--pr-muted);
+}
+
+.pr-stock-qty {
+  grid-area: qty;
+  font-weight: 700;
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.pr-stock-low { color: var(--pr-warn); }
+
+/* --- Detalle --- */
+
+.pr-empty-state {
+  color: var(--pr-muted);
+  text-align: center;
+  padding: 3rem 1rem;
+}
+
+.pr-detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: .9rem;
+  border-bottom: 1px solid var(--pr-border);
+  margin-bottom: 1rem;
+}
+
+.pr-detail-head h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.pr-detail-sku {
+  font-size: .8rem;
+  color: var(--pr-muted);
+}
+
+.pr-detail-stock {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.pr-detail-stock-label {
+  font-size: .72rem;
+  color: var(--pr-muted);
+  text-transform: uppercase;
+  letter-spacing: .03em;
+}
+
+.pr-detail-stock strong {
+  font-size: 1.6rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+/* --- Cargar movimiento --- */
+
+.pr-move-box {
+  border: 1px solid var(--pr-border);
+  border-radius: calc(var(--pr-radius) - 2px);
+  padding: .9rem;
+  margin-bottom: 1.25rem;
+  background: var(--pr-bg);
+}
+
+.pr-move-fields {
+  display: grid;
+  grid-template-columns: 120px 1fr 1fr;
+  gap: .75rem;
+  margin-bottom: .75rem;
+}
+
+@media (max-width: 620px) {
+  .pr-move-fields { grid-template-columns: 1fr; }
+}
+
+.pr-field {
+  display: flex;
+  flex-direction: column;
+  gap: .3rem;
+}
+
+.pr-field label {
+  font-size: .78rem;
+  font-weight: 600;
+  color: var(--pr-muted);
+}
+
+.pr-field input,
+.pr-field select {
+  padding: .5rem .6rem;
+  border: 1px solid var(--pr-border);
+  border-radius: calc(var(--pr-radius) - 4px);
+  background: var(--pr-surface);
+  color: inherit;
+  font: inherit;
+  font-size: .85rem;
+}
+
+.pr-move-actions {
+  display: flex;
+  gap: .5rem;
+}
+
+.pr-btn-in,
+.pr-btn-out {
+  flex: 1;
+  padding: .55rem 1rem;
+  border-radius: calc(var(--pr-radius) - 4px);
+  border: 1px solid transparent;
+  font: inherit;
+  font-weight: 600;
+  font-size: .88rem;
+  cursor: pointer;
+  color: #fff;
+}
+
+.pr-btn-in { background: var(--pr-ok); }
+.pr-btn-out { background: var(--pr-error); }
+
+.pr-btn-in:hover,
+.pr-btn-out:hover { filter: brightness(1.08); }
+
+.pr-btn-in:disabled,
+.pr-btn-out:disabled { opacity: .5; cursor: not-allowed; }
+
+/* --- Historial de movimientos --- */
+
+.pr-moves-title {
+  margin: 0 0 .6rem;
+  font-size: .85rem;
+  color: var(--pr-muted);
+}
+
+.pr-moves-list {
+  display: flex;
+  flex-direction: column;
+  gap: .3rem;
+}
+
+.pr-move-row {
+  display: grid;
+  grid-template-columns: 90px 70px 1fr 110px 140px 24px;
+  align-items: center;
+  gap: .5rem;
+  padding: .4rem .5rem;
+  border: 1px solid var(--pr-border);
+  border-radius: calc(var(--pr-radius) - 4px);
+  font-size: .8rem;
+}
+
+@media (max-width: 860px) {
+  .pr-move-row {
+    grid-template-columns: 90px 70px 1fr 24px;
+  }
+  .pr-move-ref,
+  .pr-move-when { display: none; }
+}
+
+.pr-move-dir {
+  font-size: .72rem;
+  font-weight: 700;
+  padding: .15rem .4rem;
+  border-radius: 999px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.pr-move-in-tag {
+  background: color-mix(in srgb, var(--pr-ok) 18%, transparent);
+  color: var(--pr-ok);
+}
+
+.pr-move-out-tag {
+  background: color-mix(in srgb, var(--pr-error) 15%, transparent);
+  color: var(--pr-error);
+}
+
+.pr-move-qty {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.pr-move-reason,
+.pr-move-ref {
+  color: var(--pr-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pr-move-when {
+  color: var(--pr-muted);
+  font-size: .73rem;
+  text-align: right;
+}
+
+.pr-move-delete {
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--pr-muted);
+  cursor: pointer;
+  line-height: 1;
+  font-size: 15px;
+}
+
+.pr-move-delete:hover {
+  background: var(--pr-error);
+  color: #fff;
+}
+
+.pr-empty {
+  color: var(--pr-muted);
+  font-size: .85rem;
+  padding: .5rem 0;
+}
+
+.pr-error { color: var(--pr-error); }
+
+/* --- Gráfico de stock (echarts) --- */
+
+.pr-chart-card {
+  border: 1px solid var(--pr-border);
+  border-radius: var(--pr-radius);
+  background: var(--pr-surface);
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.pr-chart-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: .5rem;
+}
+.pr-chart-head h2 { margin: 0; font-size: 1rem; }
+.pr-chart-hint { font-size: .78rem; color: var(--pr-muted); }
+
+.pr-stock-chart { width: 100%; min-height: 240px; }
+
+/* --- Lotes / vencimientos --- */
+
+.lt-hint { margin: 0 0 1rem; color: var(--pr-muted); font-size: .85rem; max-width: 70ch; }
+.lt-opt { font-weight: 400; color: var(--pr-muted); }
+
+.lt-form {
+  border: 1px solid var(--pr-border);
+  border-radius: var(--pr-radius);
+  background: var(--pr-surface);
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+.lt-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: .75rem;
+}
+.lt-field { display: flex; flex-direction: column; gap: .3rem; }
+.lt-field-wide { grid-column: span 2; min-width: 220px; }
+.lt-field label { font-size: .78rem; font-weight: 600; color: var(--pr-muted); }
+.lt-field input, .lt-field select {
+  padding: .5rem .6rem;
+  border: 1px solid var(--pr-border);
+  border-radius: calc(var(--pr-radius) - 4px);
+  background: var(--pr-bg);
+  color: inherit;
+  font: inherit;
+}
+.lt-form-actions { display: flex; align-items: center; gap: 1rem; margin-top: .75rem; }
+.lt-error { color: var(--pr-error); font-size: .85rem; }
+
+.lt-btn-primary {
+  padding: .5rem 1rem;
+  border-radius: calc(var(--pr-radius) - 4px);
+  border: 1px solid var(--pr-accent);
+  background: var(--pr-accent);
+  color: #fff;
+  font-weight: 600;
+  font-size: .85rem;
+  cursor: pointer;
+}
+.lt-btn-primary:hover { filter: brightness(1.05); }
+
+.lt-list { display: flex; flex-direction: column; gap: .4rem; }
+
+.lt-row {
+  display: grid;
+  grid-template-columns: 1fr auto 110px 28px;
+  align-items: center;
+  gap: .8rem;
+  padding: .55rem .7rem;
+  border: 1px solid var(--pr-border);
+  border-left-width: 4px;
+  border-radius: calc(var(--pr-radius) - 4px);
+  font-size: .85rem;
+}
+.lt-row-main { display: flex; flex-direction: column; gap: .15rem; min-width: 0; }
+.lt-row-name { font-weight: 600; }
+.lt-row-sub { font-size: .76rem; color: var(--pr-muted); }
+.lt-row-status { font-size: .8rem; font-weight: 600; }
+.lt-row-date { font-size: .78rem; color: var(--pr-muted); text-align: right; }
+
+.lt-ok { border-left-color: var(--pr-ok); }
+.lt-ok .lt-row-status { color: var(--pr-ok); }
+.lt-soon { border-left-color: var(--pr-warn); background: color-mix(in srgb, var(--pr-warn) 7%, transparent); }
+.lt-soon .lt-row-status { color: var(--pr-warn); }
+.lt-expired { border-left-color: var(--pr-error); background: color-mix(in srgb, var(--pr-error) 8%, transparent); }
+.lt-expired .lt-row-status { color: var(--pr-error); }
+
+.lt-del {
+  width: 22px; height: 22px; border: none; border-radius: 50%;
+  background: var(--pr-border); color: var(--pr-muted); cursor: pointer; line-height: 1;
+}
+.lt-del:hover { background: var(--pr-error); color: #fff; }
+
+.lt-empty { color: var(--pr-muted); font-size: .85rem; padding: .5rem 0; }
+.lt-blank { text-align: center; padding: 2.5rem 1.5rem; border: 1px dashed var(--pr-border); border-radius: var(--pr-radius); color: var(--pr-muted); }
+.lt-blank-icon { font-size: 2.2rem; }
+.lt-blank p { max-width: 46ch; margin: .6rem auto 0; }
+
+/* ============================================================
+   Recetas + Producción (antes módulo "manufactura")
+   Las variables --mf-* viven acá, en .pr-module, porque este
+   módulo ya no tiene un root .mf-module propio.
+   ============================================================ */
+
+.pr-module {
+  --mf-border: var(--border, #e5e7eb);
+  --mf-surface: var(--bg-secondary, #fff);
+  --mf-bg: var(--bg, #fff);
+  --mf-muted: var(--text-secondary, #6b7280);
+  --mf-accent: var(--primary, #2563eb);
+  --mf-radius: var(--radius, 10px);
+  --mf-ok: var(--success, #16a34a);
+  --mf-warn: var(--warning, #d97706);
+  --mf-error: var(--error, #dc2626);
+}
+
+.mf-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.mf-panel-head h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.mf-hint {
+  margin: 0 0 1rem;
+  color: var(--mf-muted);
+  font-size: .85rem;
+  max-width: 70ch;
+}
+
+.mf-optional {
+  font-weight: 400;
+  text-transform: none;
+}
+
+.mf-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: .5rem;
+}
+
+/* --- Layout recetas (lista + detalle) --- */
+
+.mf-layout {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 1rem;
+  align-items: start;
+}
+
+@media (max-width: 860px) {
+  .mf-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.mf-list-panel {
+  border: 1px solid var(--mf-border);
+  border-radius: calc(var(--mf-radius) - 2px);
+  padding: .75rem;
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+}
+
+.mf-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.mf-list-header h3 {
+  margin: 0;
+  font-size: .9rem;
+}
+
+.mf-list {
+  display: flex;
+  flex-direction: column;
+  gap: .35rem;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.mf-list-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: .1rem;
+  padding: .5rem .6rem;
+  border: 1px solid transparent;
+  border-radius: calc(var(--mf-radius) - 4px);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+}
+
+.mf-list-item:hover {
+  background: var(--mf-bg);
+}
+
+.mf-list-active {
+  border-color: var(--mf-accent);
+  background: var(--mf-bg);
+}
+
+.mf-list-title {
+  font-weight: 600;
+  font-size: .85rem;
+}
+
+.mf-list-sub {
+  font-size: .75rem;
+  color: var(--mf-muted);
+}
+
+.mf-detail-panel {
+  border: 1px solid var(--mf-border);
+  border-radius: calc(var(--mf-radius) - 2px);
+  padding: 1rem;
+  min-height: 240px;
+}
+
+.mf-empty-state {
+  color: var(--mf-muted);
+  text-align: center;
+  padding: 2.5rem 1rem;
+}
+
+/* --- Campos --- */
+
+.mf-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: .75rem;
+  margin-bottom: .75rem;
+}
+
+.mf-field {
+  display: flex;
+  flex-direction: column;
+  gap: .3rem;
+  margin-bottom: .75rem;
+}
+
+.mf-field label {
+  font-size: .8rem;
+  font-weight: 600;
+  color: var(--mf-muted);
+}
+
+.mf-field input,
+.mf-field select,
+.mf-grid select,
+.mf-grid input {
+  padding: .5rem .6rem;
+  border: 1px solid var(--mf-border);
+  border-radius: calc(var(--mf-radius) - 4px);
+  background: var(--mf-bg);
+  color: inherit;
+}
+
+.mf-inline-check {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  font-size: .88rem;
+  margin-bottom: .75rem;
+}
+
+.mf-actions {
+  display: flex;
+  gap: .5rem;
+  margin-bottom: .5rem;
+}
+
+.mf-error {
+  color: var(--mf-error);
+  font-size: .85rem;
+  margin-bottom: .5rem;
+}
+
+/* --- Materiales de la receta --- */
+
+.mf-lines {
+  display: flex;
+  flex-direction: column;
+  gap: .3rem;
+  margin-bottom: .6rem;
+}
+
+.mf-line-row {
+  display: grid;
+  grid-template-columns: 1fr 100px 28px;
+  align-items: center;
+  gap: .5rem;
+  padding: .4rem .5rem;
+  border: 1px solid var(--mf-border);
+  border-radius: calc(var(--mf-radius) - 4px);
+  font-size: .85rem;
+}
+
+.mf-line-qty {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.mf-line-delete {
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 50%;
+  background: var(--mf-border);
+  color: var(--mf-muted);
+  cursor: pointer;
+  line-height: 1;
+}
+
+.mf-line-delete:hover {
+  background: var(--mf-error);
+  color: #fff;
+}
+
+.mf-add-line {
+  display: flex;
+  gap: .5rem;
+}
+
+.mf-add-line select {
+  flex: 1;
+}
+
+/* --- Órdenes de producción --- */
+
+.mf-order-form {
+  border-bottom: 1px solid var(--mf-border);
+  padding-bottom: 1rem;
+  margin-bottom: 1rem;
+}
+
+.mf-orders-list {
+  display: flex;
+  flex-direction: column;
+  gap: .4rem;
+}
+
+.mf-order-row {
+  display: grid;
+  grid-template-columns: 110px 1fr 80px 120px auto;
+  align-items: center;
+  gap: .6rem;
+  padding: .5rem .6rem;
+  border: 1px solid var(--mf-border);
+  border-radius: calc(var(--mf-radius) - 4px);
+  font-size: .85rem;
+}
+
+.mf-order-qty {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.mf-order-date {
+  color: var(--mf-muted);
+  font-size: .8rem;
+}
+
+.mf-order-actions {
+  display: flex;
+  gap: .4rem;
+  justify-content: flex-end;
+}
+
+.mf-order-badge {
+  font-size: .72rem;
+  font-weight: 600;
+  padding: .2rem .5rem;
+  border-radius: 999px;
+  text-align: center;
+  background: var(--mf-border);
+  color: var(--mf-muted);
+}
+
+.mf-status-draft {
+  background: var(--mf-border);
+  color: var(--mf-muted);
+}
+
+.mf-status-in_progress {
+  background: color-mix(in srgb, var(--mf-warn) 20%, transparent);
+  color: var(--mf-warn);
+}
+
+.mf-status-done {
+  background: color-mix(in srgb, var(--mf-ok) 20%, transparent);
+  color: var(--mf-ok);
+}
+
+.mf-status-cancelled {
+  background: color-mix(in srgb, var(--mf-error) 15%, transparent);
+  color: var(--mf-error);
+}
+
+.mf-badge {
+  font-size: .7rem;
+  padding: .1rem .4rem;
+  border-radius: 999px;
+  background: var(--mf-border);
+  color: var(--mf-muted);
+}
+
+/* --- Botones --- */
+
+.mf-btn-primary,
+.mf-btn-secondary,
+.mf-btn-danger {
+  padding: .45rem .9rem;
+  border-radius: calc(var(--mf-radius) - 4px);
+  border: 1px solid var(--mf-border);
+  font-weight: 600;
+  cursor: pointer;
+  font-size: .82rem;
+}
+
+.mf-btn-primary {
+  background: var(--mf-accent);
+  border-color: var(--mf-accent);
+  color: #fff;
+}
+
+.mf-btn-secondary {
+  background: var(--mf-bg);
+  color: var(--mf-accent);
+}
+
+.mf-btn-secondary:hover {
+  background: var(--mf-surface);
+}
+
+.mf-btn-danger {
+  background: var(--mf-bg);
+  color: var(--mf-error);
+}
+
+.mf-btn-danger:hover {
+  background: color-mix(in srgb, var(--mf-error) 12%, transparent);
+}
+
+.mf-btn-primary:disabled,
+.mf-btn-secondary:disabled,
+.mf-btn-danger:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+.mf-empty {
+  color: var(--mf-muted);
+  font-size: .85rem;
+  padding: .5rem 0;
+}

@@ -1,0 +1,113 @@
+<div class="im-module">
+  <div class="module-header">
+    <h1>🚢 Importaciones</h1>
+    <p class="im-subtitle">
+      Importás mercadería y repartís flete, aduana y seguro sobre cada
+      producto para saber su <strong>costo real</strong>. Al recibir, el stock
+      sube con ese costo.
+    </p>
+  </div>
+
+  <div class="ft-guide" data-fast-guide="importaciones">
+    <span>
+      Cargá los productos con su costo <strong>FOB</strong> (lo que pagás al
+      proveedor) y aparte el <strong>flete + aduana + seguro</strong>. El
+      sistema reparte esos gastos entre los productos y te muestra el
+      <strong>costo real por unidad</strong>. Cuando llega, apretá
+      <strong>Recibir</strong> y el inventario se actualiza con ese costo.
+    </span>
+  </div>
+
+  <div class="im-layout">
+    <aside class="im-list-panel">
+      <div class="im-list-header">
+        <h3>Importaciones</h3>
+        <button type="button" id="im-new" class="im-btn-primary">+ Nueva</button>
+      </div>
+      <div id="im-list" class="im-list">
+        <div class="im-empty">Cargando…</div>
+      </div>
+    </aside>
+
+    <div class="im-detail-panel">
+      <div id="im-empty" class="im-empty-state">
+        <p>Elegí una importación de la izquierda, o creá una nueva.</p>
+      </div>
+
+      <div id="im-form" hidden>
+        <div class="im-detail-head">
+          <span id="im-status" class="im-badge">Borrador</span>
+          <div class="im-detail-actions">
+            <button type="button" id="im-send" class="im-btn-secondary" hidden>En tránsito</button>
+            <button type="button" id="im-customs" class="im-btn-secondary" hidden>En aduana</button>
+            <button type="button" id="im-receive" class="im-btn-primary" hidden>✓ Recibir</button>
+            <button type="button" id="im-cancel" class="im-btn-danger" hidden>Cancelar</button>
+            <button type="button" id="im-delete" class="im-btn-danger" hidden>Eliminar</button>
+          </div>
+        </div>
+
+        <div class="im-grid">
+          <div class="im-field">
+            <label for="im-supplier">Proveedor</label>
+            <select id="im-supplier"></select>
+            <a class="im-linklike" href="/admin/contacts" target="_blank" rel="noopener">+ nuevo proveedor</a>
+          </div>
+          <div class="im-field">
+            <label for="im-reference">Referencia (BL / factura)</label>
+            <input id="im-reference" placeholder="Ej. BL-2026-0012">
+          </div>
+          <div class="im-field im-field-sm">
+            <label for="im-currency">Moneda</label>
+            <input id="im-currency" value="USD">
+          </div>
+          <div class="im-field im-field-sm">
+            <label for="im-eta">Llegada estimada <span class="im-muted">(opcional)</span></label>
+            <input id="im-eta" type="date">
+          </div>
+        </div>
+        <div class="im-actions">
+          <button type="button" id="im-save" class="im-btn-secondary">💾 Guardar datos</button>
+          <div id="im-error" class="im-error" hidden></div>
+        </div>
+
+        <div id="im-lines-section" hidden>
+          <h4>Productos importados</h4>
+          <div id="im-lines" class="im-lines"></div>
+
+          <div id="im-add-line" class="im-add-line">
+            <select id="im-line-product"></select>
+            <input id="im-line-qty" type="number" step="any" min="0" placeholder="Cantidad">
+            <input id="im-line-fob" type="number" step="any" min="0" placeholder="FOB unit.">
+            <button type="button" id="im-line-add" class="im-btn-secondary">+ Agregar</button>
+          </div>
+
+          <h4>Gastos de importación</h4>
+          <div class="im-costs">
+            <div class="im-field">
+              <label for="im-freight">Flete</label>
+              <input id="im-freight" type="number" step="any" min="0" value="0">
+            </div>
+            <div class="im-field">
+              <label for="im-customs-cost">Aduana</label>
+              <input id="im-customs-cost" type="number" step="any" min="0" value="0">
+            </div>
+            <div class="im-field">
+              <label for="im-insurance">Seguro</label>
+              <input id="im-insurance" type="number" step="any" min="0" value="0">
+            </div>
+            <div class="im-field">
+              <label for="im-other">Otros</label>
+              <input id="im-other" type="number" step="any" min="0" value="0">
+            </div>
+          </div>
+
+          <div class="im-summary">
+            <div class="im-summary-row"><span>Mercadería (FOB)</span><strong id="im-sum-fob">$0</strong></div>
+            <div class="im-summary-row"><span>+ Flete / aduana / seguro / otros</span><strong id="im-sum-extra">$0</strong></div>
+            <div class="im-summary-row im-summary-total"><span>= Costo total en destino</span><strong id="im-sum-landed">$0</strong></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

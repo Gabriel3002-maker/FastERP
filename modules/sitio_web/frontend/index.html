@@ -1,0 +1,130 @@
+<div class="sw-module">
+  <div class="module-header">
+    <h1>🌐 Sitio Web</h1>
+  </div>
+
+  <div class="ft-guide" data-fast-guide="sitio_web">
+    <span>
+      Acá armás las páginas de tu sitio público. Elegí una <strong>plantilla</strong>
+      para arrancar rápido o describí lo que querés y dejá que la
+      <strong>IA</strong> la genere — después ajustás y publicás. Tus páginas
+      se ven en <code>/site</code>.
+    </span>
+  </div>
+
+  <div class="ft-tabs" data-fast-tabs>
+    <button type="button" class="ft-tab" data-tab="paginas">📄 Páginas</button>
+    <button type="button" class="ft-tab" data-tab="medios">🗂️ Medios</button>
+  </div>
+
+  <section class="ft-panel sw-layout" data-tab-panel="paginas">
+    <aside class="sw-pages-list">
+      <div class="sw-pages-header">
+        <h2>Mis páginas</h2>
+        <button type="button" id="sw-new-page" class="sw-btn-primary">+ Nueva</button>
+      </div>
+      <div id="sw-pages" class="sw-pages">
+        <div class="sw-empty">Cargando…</div>
+      </div>
+    </aside>
+
+    <div class="sw-editor">
+      <!-- ONBOARDING: elegir cómo arrancar una página -->
+      <div id="sw-start" class="sw-start">
+        <h2 class="sw-start-title">Creá una página</h2>
+        <p class="sw-start-sub">Elegí una plantilla para empezar con algo hecho:</p>
+        <div id="sw-templates" class="sw-templates"></div>
+
+        <div class="sw-start-ai">
+          <label for="sw-start-prompt">…o describí lo que querés y la genera la IA</label>
+          <div class="sw-ai-row">
+            <textarea id="sw-start-prompt" rows="2" placeholder="Ej: una página de inicio para una tienda de paneles solares, con catálogo de productos y un formulario de contacto"></textarea>
+            <button type="button" id="sw-start-generate" class="sw-btn-primary">✨ Generar</button>
+          </div>
+          <div id="sw-start-error" class="sw-error" hidden></div>
+        </div>
+
+        <button type="button" id="sw-start-blank" class="sw-linklike">Prefiero empezar de una página en blanco</button>
+      </div>
+
+      <!-- EDITOR de una página -->
+      <div id="sw-editor-form" hidden>
+        <div class="sw-grid">
+          <div class="sw-field">
+            <label for="sw-title">Título de la página</label>
+            <input id="sw-title" placeholder="Inicio">
+          </div>
+          <div class="sw-field">
+            <label for="sw-slug">Dirección</label>
+            <input id="sw-slug" placeholder="inicio" spellcheck="false">
+            <small class="sw-field-note">La parte final de la URL. La página de inicio se ve en <code>/site</code>; el resto en <code>/site/&lt;dirección&gt;</code>.</small>
+          </div>
+        </div>
+
+        <div class="sw-switches">
+          <label class="sw-switch">
+            <input type="checkbox" id="sw-published">
+            <span class="sw-switch-slider"></span>
+            <span class="sw-switch-label">Publicada <small>(visible en tu sitio)</small></span>
+          </label>
+          <label class="sw-switch">
+            <input type="checkbox" id="sw-is-home">
+            <span class="sw-switch-slider"></span>
+            <span class="sw-switch-label">Página de inicio</span>
+          </label>
+          <input type="hidden" id="sw-seq" value="0">
+        </div>
+
+        <div class="sw-ai-box">
+          <label for="sw-ai-prompt">✨ Cambiar con IA</label>
+          <div class="sw-ai-row">
+            <textarea id="sw-ai-prompt" rows="2" placeholder="Ej: agregá una sección de testimonios y cambiá los colores a azul"></textarea>
+            <button type="button" id="sw-ai-generate" class="sw-btn-primary">✨ Generar</button>
+          </div>
+          <small class="sw-field-note">Reemplaza el contenido actual de la página — revisá la vista previa y guardá cuando te guste.</small>
+        </div>
+
+        <div class="sw-preview-head">
+          <span>Vista previa</span>
+          <a id="sw-public-link" class="sw-preview-link" href="#" target="_blank" rel="noopener" hidden>↗ Ver en vivo</a>
+        </div>
+        <iframe id="sw-preview" class="sw-preview" title="Vista previa"></iframe>
+
+        <details id="sw-code-details" class="sw-code-details">
+          <summary>✏️ Editar el código (avanzado)</summary>
+          <div class="sw-code-tabs">
+            <button type="button" class="sw-code-tab sw-code-tab-active" data-code="html">HTML</button>
+            <button type="button" class="sw-code-tab" data-code="css">CSS</button>
+            <button type="button" class="sw-code-tab" data-code="js">JavaScript</button>
+          </div>
+          <textarea id="sw-code-html" class="sw-code sw-code-panel" data-code="html" spellcheck="false" placeholder="&lt;h1&gt;Hola&lt;/h1&gt;"></textarea>
+          <textarea id="sw-code-css" class="sw-code sw-code-panel" data-code="css" hidden spellcheck="false" placeholder="h1 { color: teal; }"></textarea>
+          <textarea id="sw-code-js" class="sw-code sw-code-panel" data-code="js" hidden spellcheck="false" placeholder="// tu JS acá"></textarea>
+          <p class="sw-hint">
+            Tu JS puede pedir <code>/api/public/products?t=</code> +
+            <code>window.FASTERP_TENANT</code> para mostrar tu catálogo de
+            Tienda Web (sólo los productos publicados).
+          </p>
+        </details>
+
+        <div class="sw-actions">
+          <button type="button" id="sw-delete-page" class="sw-btn-danger" hidden>Eliminar</button>
+          <span class="sw-actions-spacer"></span>
+          <button type="button" id="sw-save-page" class="sw-btn-primary">💾 Guardar</button>
+        </div>
+        <div id="sw-editor-error" class="sw-error" hidden></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="ft-panel" data-tab-panel="medios">
+    <p class="sw-hint">Subí acá tus imágenes y copiá su dirección para usarlas en tus páginas.</p>
+    <div id="sw-media" class="sw-media-grid">
+      <div class="sw-empty">Cargando…</div>
+    </div>
+    <div class="sw-upload-row">
+      <input type="file" id="sw-media-input" hidden>
+      <button type="button" id="sw-media-upload" class="sw-btn-secondary">+ Subir archivo</button>
+    </div>
+  </section>
+</div>

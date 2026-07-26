@@ -1,0 +1,81 @@
+<div class="cp-module">
+  <div class="module-header">
+    <h1>📥 Compras</h1>
+    <p class="cp-subtitle">
+      Pedís mercadería a tus proveedores. Al recibirla, el stock sube solo en
+      Operaciones y se actualiza el costo del producto.
+    </p>
+  </div>
+
+  <div class="ft-guide" data-fast-guide="compras">
+    <span>
+      Creá una compra, elegí el <strong>proveedor</strong> y agregá los
+      productos con su costo. Cuando llega la mercadería apretá
+      <strong>Recibir</strong> y el inventario se actualiza solo. Los
+      proveedores salen del módulo <strong>Contactos</strong>.
+    </span>
+  </div>
+
+  <div class="cp-layout">
+    <aside class="cp-list-panel">
+      <div class="cp-list-header">
+        <h3>Compras</h3>
+        <button type="button" id="cp-new" class="cp-btn-primary">+ Nueva</button>
+      </div>
+      <div id="cp-list" class="cp-list">
+        <div class="cp-empty">Cargando…</div>
+      </div>
+    </aside>
+
+    <div class="cp-detail-panel">
+      <div id="cp-empty" class="cp-empty-state">
+        <p>Elegí una compra de la izquierda, o creá una nueva.</p>
+      </div>
+
+      <div id="cp-form" hidden>
+        <div class="cp-detail-head">
+          <span id="cp-status" class="cp-badge">Borrador</span>
+          <div class="cp-detail-actions">
+            <button type="button" id="cp-order" class="cp-btn-secondary" hidden>Pedir</button>
+            <button type="button" id="cp-receive" class="cp-btn-primary" hidden>✓ Recibir</button>
+            <button type="button" id="cp-cancel" class="cp-btn-danger" hidden>Cancelar</button>
+            <button type="button" id="cp-delete" class="cp-btn-danger" hidden>Eliminar</button>
+          </div>
+        </div>
+
+        <div class="cp-grid">
+          <div class="cp-field">
+            <label for="cp-supplier">Proveedor</label>
+            <select id="cp-supplier"></select>
+            <a class="cp-linklike" href="/admin/contacts" target="_blank" rel="noopener">+ nuevo proveedor</a>
+          </div>
+          <div class="cp-field">
+            <label for="cp-date">Fecha esperada <span class="cp-muted">(opcional)</span></label>
+            <input id="cp-date" type="date">
+          </div>
+        </div>
+        <div class="cp-actions">
+          <button type="button" id="cp-save" class="cp-btn-secondary">💾 Guardar datos</button>
+          <div id="cp-error" class="cp-error" hidden></div>
+        </div>
+
+        <div id="cp-lines-section" hidden>
+          <h4>Productos de esta compra</h4>
+          <div id="cp-lines" class="cp-lines"></div>
+
+          <div id="cp-add-line" class="cp-add-line">
+            <select id="cp-line-product"></select>
+            <input id="cp-line-qty" type="number" step="any" min="0" placeholder="Cantidad">
+            <input id="cp-line-cost" type="number" step="any" min="0" placeholder="Costo unit.">
+            <button type="button" id="cp-line-add" class="cp-btn-secondary">+ Agregar</button>
+          </div>
+
+          <div class="cp-total-row">
+            <span>Total de la compra</span>
+            <strong id="cp-total">$0</strong>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
