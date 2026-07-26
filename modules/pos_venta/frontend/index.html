@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>POS Venta</title>
+  <link rel="stylesheet" href="/static/css/fast-views.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="ft-module">
+    <div class="ft-header">
+      <h1>🛒 POS Venta</h1>
+      <p>Terminal de punto de venta con sincronización de inventario. Gestiona ventas y compras integradas con otros módulos.</p>
+    </div>
+
+    <div class="ft-tabs">
+      <button class="ft-tab-btn active" data-tab="puntos-venta">Puntos de Venta</button>
+      <button class="ft-tab-btn" data-tab="ventas">Ventas</button>
+      <button class="ft-tab-btn" data-tab="compras">Compras</button>
+      <button class="ft-tab-btn" data-tab="reportes">Reportes</button>
+    </div>
+
+    <div class="ft-tab-content active" id="puntos-venta">
+      <div data-fast-view data-model="pos_venta/punto_venta"></div>
+    </div>
+
+    <div class="ft-tab-content" id="ventas">
+      <div data-fast-view data-model="pos_venta/venta"></div>
+    </div>
+
+    <div class="ft-tab-content" id="compras">
+      <div data-fast-view data-model="pos_venta/compra"></div>
+    </div>
+
+    <div class="ft-tab-content" id="reportes">
+      <div class="pos-reportes">
+        <p>Sección de reportes en desarrollo...</p>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/fast-views.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
