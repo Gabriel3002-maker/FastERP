@@ -8,34 +8,92 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div class="ft-module">
-    <div class="ft-header">
-      <h1>🛒 POS Venta</h1>
-      <p>Terminal de punto de venta con sincronización de inventario. Gestiona ventas y compras integradas con otros módulos.</p>
+  <div class="pos-container">
+    <!-- Panel de productos -->
+    <div class="pos-productos">
+      <div class="pos-header">
+        <h1>🛒 Productos</h1>
+        <input type="text" id="pos-buscar" class="pos-input-buscar" placeholder="Buscar producto...">
+      </div>
+      <div id="pos-lista-productos" class="pos-grid">
+        <!-- Cargado por JS -->
+      </div>
     </div>
 
-    <div class="ft-tabs">
-      <button class="ft-tab-btn active" data-tab="puntos-venta">Puntos de Venta</button>
-      <button class="ft-tab-btn" data-tab="ventas">Ventas</button>
-      <button class="ft-tab-btn" data-tab="compras">Compras</button>
-      <button class="ft-tab-btn" data-tab="reportes">Reportes</button>
-    </div>
+    <!-- Panel de venta -->
+    <div class="pos-venta">
+      <div class="pos-header">
+        <h1>📋 Venta</h1>
+      </div>
 
-    <div class="ft-tab-content active" id="puntos-venta">
-      <div data-fast-view data-model="pos_venta/punto_venta"></div>
-    </div>
+      <!-- Datos de venta -->
+      <div class="pos-form">
+        <div class="pos-form-group">
+          <label>Punto de Venta</label>
+          <select id="pos-punto-venta" class="pos-input">
+            <option value="">Seleccionar...</option>
+          </select>
+        </div>
+        <div class="pos-form-group">
+          <label>Cliente</label>
+          <input type="text" id="pos-cliente-nombre" class="pos-input" placeholder="Nombre cliente">
+        </div>
+        <div class="pos-form-group">
+          <label>Tipo Documento</label>
+          <select id="pos-tipo-doc" class="pos-input">
+            <option value="boleta">Boleta</option>
+            <option value="factura">Factura</option>
+            <option value="nota_credito">Nota de Crédito</option>
+          </select>
+        </div>
+      </div>
 
-    <div class="ft-tab-content" id="ventas">
-      <div data-fast-view data-model="pos_venta/venta"></div>
-    </div>
+      <!-- Carrito -->
+      <div class="pos-carrito">
+        <h3>Carrito</h3>
+        <div id="pos-items" class="pos-items-list">
+          <div class="pos-empty">Sin productos</div>
+        </div>
+      </div>
 
-    <div class="ft-tab-content" id="compras">
-      <div data-fast-view data-model="pos_venta/compra"></div>
-    </div>
+      <!-- Totales -->
+      <div class="pos-totales">
+        <div class="pos-total-row">
+          <span>Subtotal:</span>
+          <span id="pos-subtotal">$0.00</span>
+        </div>
+        <div class="pos-total-row">
+          <span>Impuesto (IVA):</span>
+          <span id="pos-impuesto">$0.00</span>
+        </div>
+        <div class="pos-total-row pos-total-final">
+          <span>Total:</span>
+          <span id="pos-total">$0.00</span>
+        </div>
+      </div>
 
-    <div class="ft-tab-content" id="reportes">
-      <div class="pos-reportes">
-        <p>Sección de reportes en desarrollo...</p>
+      <!-- Forma de pago -->
+      <div class="pos-form">
+        <div class="pos-form-group">
+          <label>Forma de Pago</label>
+          <select id="pos-metodo-pago" class="pos-input">
+            <option value="efectivo">Efectivo</option>
+            <option value="tarjeta_credito">Tarjeta Crédito</option>
+            <option value="tarjeta_debito">Tarjeta Débito</option>
+            <option value="transferencia">Transferencia</option>
+            <option value="billetera_digital">Billetera Digital</option>
+          </select>
+        </div>
+        <div class="pos-form-group">
+          <label>Referencia</label>
+          <input type="text" id="pos-referencia" class="pos-input" placeholder="Nº transacción, cheque...">
+        </div>
+      </div>
+
+      <!-- Botones -->
+      <div class="pos-botones">
+        <button id="pos-cancelar" class="pos-btn pos-btn-cancelar">❌ Cancelar</button>
+        <button id="pos-guardar" class="pos-btn pos-btn-guardar">✓ Guardar Venta</button>
       </div>
     </div>
   </div>

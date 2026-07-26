@@ -255,6 +255,21 @@
                 <div class="user-avatar" id="userAvatar">A</div>
                 <div class="user-name" id="userName">Admin</div>
                 <div class="user-email" id="userEmail">admin@fastherp.com</div>
+                <div style="position: relative; margin-top: 8px;">
+                    <button class="fv-notification-bell" id="notifBell" title="Notificaciones">
+                        🔔
+                        <span class="fv-notification-badge" id="notifBadge" hidden>0</span>
+                    </button>
+                    <div class="fv-notification-panel" id="notifPanel">
+                        <div class="fv-notification-panel-header">
+                            <span>Notificaciones</span>
+                            <button class="fv-notification-mark-read" id="notifMarkRead">Marcar todo leído</button>
+                        </div>
+                        <ul class="fv-notification-list" id="notifList">
+                            <li class="fv-notification-empty">Cargando…</li>
+                        </ul>
+                    </div>
+                </div>
             </div>
 
             <div class="nav-section">
@@ -360,6 +375,106 @@
         }
 
         loadInstalledModules();
+
+        // ── Notificaciones (Chatter) ──
+        const NOTIF_API = '/api/chatter/notifications';
+
+        function getUserID() {
+            const token = localStorage.getItem('access_token');
+            if (!token) return null;
+            try { return JSON.parse(atob(token.split('.')[1])).user_id || null; }
+            catch { return null; }
+        }
+
+        async function loadNotifications() {
+            const uid = getUserID();
+            if (!uid) return;
+            const tid = getTenantIDFromToken();
+            try {
+                const res = await fetch(`${NOTIF_API}?user_id=${uid}&limit=20`, {
+                    headers: { 'X-Tenant-ID': tid || '', 'Authorization': 'Bearer ' + (localStorage.getItem('access_token') || '') }
+                });
+                if (!res.ok) return;
+                const data = await res.json();
+                const badge = document.getElementById('notifBadge');
+                const list = document.getElementById('notifList');
+                const count = data.unread_count || 0;
+
+                if (count > 0) {
+                    badge.textContent = count > 99 ? '99+' : count;
+                    badge.hidden = false;
+                } else {
+                    badge.hidden = true;
+                }
+
+                const notifs = data.data || [];
+                if (!notifs.length) {
+                    list.innerHTML = '<li class="fv-notification-empty">Sin notificaciones</li>';
+                    return;
+                }
+
+                list.innerHTML = notifs.map(n => `
+                    <li class="fv-notification-item ${n.read ? '' : 'unread'}" data-id="${n.id}" data-model="${n.record_model || ''}" data-record="${n.record_id || ''}">
+                        <div class="fv-notification-item-text">${escNotif(n.message)}</div>
+                        <div class="fv-notification-item-meta">${escNotif(n.author_name || '')} · ${escNotif(n.type)}</div>
+                    </li>
+                `).join('');
+
+                list.querySelectorAll('.fv-notification-item').forEach(item => {
+                    item.addEventListener('click', () => {
+                        const model = item.dataset.model;
+                        const record = item.dataset.record;
+                        if (model && record) {
+                            const moduleName = model.split('/')[0];
+                            window.location.href = `/admin/${moduleName}`;
+                        }
+                    });
+                });
+            } catch (e) {
+                console.error('Error loading notifications:', e);
+            }
+        }
+
+        function escNotif(v) {
+            return String(v ?? '').replace(/[&<>"']/g, c => ({
+                '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+            })[c]);
+        }
+
+        // Toggle panel
+        document.getElementById('notifBell').addEventListener('click', (e) => {
+            e.stopPropagation();
+            const panel = document.getElementById('notifPanel');
+            panel.classList.toggle('open');
+            if (panel.classList.contains('open')) loadNotifications();
+        });
+
+        document.addEventListener('click', () => {
+            document.getElementById('notifPanel').classList.remove('open');
+        });
+
+        document.getElementById('notifPanel').addEventListener('click', (e) => {
+            e.stopPropagation();
+        });
+
+        // Mark all as read
+        document.getElementById('notifMarkRead').addEventListener('click', async () => {
+            const uid = getUserID();
+            if (!uid) return;
+            const tid = getTenantIDFromToken();
+            try {
+                await fetch(`${NOTIF_API}/read`, {
+                    method: 'POST',
+                    headers: { 'X-Tenant-ID': tid || '', 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem('access_token') || '') },
+                    body: JSON.stringify({ user_id: uid })
+                });
+                loadNotifications();
+            } catch (e) { console.error(e); }
+        });
+
+        // Poll cada 30 segundos
+        loadNotifications();
+        setInterval(loadNotifications, 30000);
     </script>
 
     <script src="/static/js/theme.js"></script>

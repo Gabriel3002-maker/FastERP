@@ -47,6 +47,7 @@ func main() {
 	docsHandler := handlers.NewDocsHandler(cfg.Modules.Path)
 	studioHandler := handlers.NewStudioHandler(cfg.Modules.Path, authHandler.SessionManager(), crudHandler)
 	automationHandler := handlers.NewAutomationHandler(authHandler.SessionManager(), crudHandler)
+	chatterHandler := handlers.NewChatterHandler(dbConn)
 
 	// Configurar router
 	mux := http.NewServeMux()
@@ -101,6 +102,11 @@ func main() {
 	mux.HandleFunc("/api/audit/user", auditHandler.GetUserAudit)
 	mux.HandleFunc("/api/audit/stats", auditHandler.GetAuditStats)
 	mux.HandleFunc("/api/audit/export", auditHandler.ExportAudit)
+
+	// API Chatter (@mentions + notificaciones)
+	mux.HandleFunc("/api/chatter/users", chatterHandler.Users)
+	mux.HandleFunc("/api/chatter/notifications", chatterHandler.Notifications)
+	mux.HandleFunc("/api/chatter/notifications/read", chatterHandler.MarkRead)
 
 	// API Modules
 	mux.HandleFunc("/api/modules/available", moduleHandler.GetAvailableModules)

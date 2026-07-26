@@ -190,6 +190,14 @@
               </header>
               <p class="fv-form-error" hidden></p>
               <div class="fv-form-fields">${this.formFields()}</div>
+              <div class="fv-chatter" hidden>
+                <div class="fv-chatter-divider"></div>
+                <div class="fv-chatter-header">
+                  <span class="fv-chatter-title">💬 Historial</span>
+                  <span class="fv-chatter-record"></span>
+                </div>
+                <div class="fv-chatter-container"></div>
+              </div>
               <footer>
                 <button type="button" class="fv-cancel">Cancelar</button>
                 <button type="button" class="fv-save">Guardar</button>
@@ -332,8 +340,77 @@
         }
       }
 
+      // Chatter: mostrar solo al editar, ocultar al crear
+      const chatterEl = this.el.querySelector('.fv-chatter');
+      if (chatterEl) {
+        if (this.editing) {
+          chatterEl.hidden = false;
+          this.loadChatter(record);
+        } else {
+          chatterEl.hidden = true;
+          this.clearChatter();
+        }
+      }
+
       this.dialog.showModal();
       this.el.querySelector('[data-field]')?.focus();
+    }
+
+    /** Carga el ChatterWidget para el registro being edited. */
+    loadChatter(record) {
+      if (!window.ChatterWidget) {
+        // Cargar dinámicamente el widget si no está disponible
+        this._loadChatterScript().then(() => {
+          if (window.ChatterWidget) this._renderChatter(record);
+        });
+        return;
+      }
+      this._renderChatter(record);
+    }
+
+    _renderChatter(record) {
+      const container = this.el.querySelector('.fv-chatter-container');
+      const recordLabel = this.el.querySelector('.fv-chatter-record');
+      if (!container || !window.ChatterWidget) return;
+
+      const recordName = record?.name || record?.Nombre || record?.titulo || '';
+      if (recordLabel) recordLabel.textContent = recordName;
+
+      const recordModel = `${this.module}/${this.model}`;
+      window.ChatterWidget.render(container, {
+        recordModel: recordModel,
+        recordId: this.editing,
+        showComposer: true,
+        maxHeight: '350px',
+      });
+    }
+
+    clearChatter() {
+      const container = this.el.querySelector('.fv-chatter-container');
+      if (container) container.innerHTML = '';
+      if (window.ChatterWidget) {
+        const recordLabel = this.el.querySelector('.fv-chatter-record');
+        if (recordLabel) recordLabel.textContent = '';
+      }
+    }
+
+    _loadChatterScript() {
+      return new Promise((resolve) => {
+        if (window.ChatterWidget) { resolve(); return; }
+        if (document.querySelector('script[src="/static/js/chatter-widget.js"]')) {
+          // Script tag exists but maybe not loaded yet
+          const check = setInterval(() => {
+            if (window.ChatterWidget) { clearInterval(check); resolve(); }
+          }, 50);
+          setTimeout(() => { clearInterval(check); resolve(); }, 3000);
+          return;
+        }
+        const s = document.createElement('script');
+        s.src = '/static/js/chatter-widget.js';
+        s.onload = resolve;
+        s.onerror = resolve; // no fallar si no está disponible
+        document.body.appendChild(s);
+      });
     }
 
     /**

@@ -364,3 +364,489 @@
 
 .fv-save:hover { filter: brightness(1.08); }
 .fv-save:disabled { opacity: .6; cursor: not-allowed; }
+
+/* ========================================
+   Chatter — integrado en el dialog
+   ======================================== */
+
+.fv-chatter {
+  margin-top: 0;
+  padding: 0 1.25rem;
+}
+
+.fv-chatter[hidden] { display: none; }
+
+.fv-chatter-divider {
+  border-top: 1px solid var(--fv-border);
+  margin-bottom: 0.75rem;
+}
+
+.fv-chatter-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.fv-chatter-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.fv-chatter-record {
+  font-size: 0.8rem;
+  color: var(--fv-muted);
+}
+
+.fv-chatter-container {
+  max-height: 350px;
+  overflow-y: auto;
+  margin-bottom: 0.75rem;
+}
+
+/* Estilos del timeline dentro del dialog */
+.fv-chatter-container .ch-widget {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.fv-chatter-container .ch-msg {
+  display: flex;
+  gap: 0.6rem;
+  padding: 0.5rem;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  font-size: 0.85rem;
+  transition: background 0.1s;
+}
+
+.fv-chatter-container .ch-msg:hover {
+  background: rgba(0,0,0,0.02);
+}
+
+.fv-chatter-container .ch-msg--note {
+  background: #fef3c7;
+  border-color: #fcd34d;
+}
+
+.fv-chatter-container .ch-msg--system {
+  background: #f0f9ff;
+  border-color: #7dd3fc;
+}
+
+.fv-chatter-container .ch-msg--system .ch-msg-text {
+  font-style: italic;
+  color: var(--fv-muted);
+}
+
+.fv-chatter-container .ch-msg-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--fv-accent) 15%, #fff);
+  color: var(--fv-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.fv-chatter-container .ch-msg-body { flex: 1; min-width: 0; }
+
+.fv-chatter-container .ch-msg-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  margin-bottom: 0.15rem;
+  flex-wrap: wrap;
+}
+
+.fv-chatter-container .ch-msg-author { font-weight: 600; font-size: 0.8rem; }
+.fv-chatter-container .ch-msg-time { font-size: 0.7rem; color: var(--fv-muted); }
+
+.fv-chatter-container .ch-msg-badge {
+  font-size: 0.6rem;
+  font-weight: 600;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+
+.fv-chatter-container .ch-msg-badge--comment {
+  background: color-mix(in srgb, var(--fv-accent) 12%, transparent);
+  color: var(--fv-accent);
+}
+
+.fv-chatter-container .ch-msg-badge--note {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.fv-chatter-container .ch-msg-badge--system {
+  background: #f0f9ff;
+  color: #0369a1;
+}
+
+.fv-chatter-container .ch-msg-text {
+  font-size: 0.85rem;
+  line-height: 1.45;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.fv-chatter-container .ch-msg-actions {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.3rem;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+
+.fv-chatter-container .ch-msg:hover .ch-msg-actions { opacity: 1; }
+
+.fv-chatter-container .ch-msg-action {
+  background: none;
+  border: none;
+  color: var(--fv-muted);
+  font-size: 0.7rem;
+  cursor: pointer;
+  padding: 0.1rem 0.3rem;
+  border-radius: 4px;
+}
+
+.fv-chatter-container .ch-msg-action:hover {
+  background: color-mix(in srgb, var(--fv-accent) 10%, transparent);
+  color: var(--fv-accent);
+}
+
+.fv-chatter-container .ch-replies {
+  margin-left: 20px;
+  border-left: 2px solid var(--fv-border);
+  padding-left: 0.4rem;
+}
+
+/* Composer dentro del chatter del dialog */
+.fv-chatter-container .ch-composer {
+  border: 1px solid var(--fv-border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-top: 0.4rem;
+}
+
+.fv-chatter-container .ch-composer-header {
+  display: flex;
+  gap: 0.2rem;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--fv-border);
+}
+
+.fv-chatter-container .ch-composer-tab {
+  background: none;
+  border: none;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  color: var(--fv-muted);
+}
+
+.fv-chatter-container .ch-composer-tab:hover {
+  background: color-mix(in srgb, var(--fv-accent) 8%, transparent);
+}
+
+.fv-chatter-container .ch-composer-tab.active {
+  background: color-mix(in srgb, var(--fv-accent) 12%, transparent);
+  color: var(--fv-accent);
+  font-weight: 600;
+}
+
+.fv-chatter-container .ch-composer textarea {
+  width: 100%;
+  min-height: 60px;
+  padding: 0.6rem;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  resize: vertical;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.fv-chatter-container .ch-composer-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.4rem 0.6rem;
+  border-top: 1px solid var(--fv-border);
+}
+
+.fv-chatter-container .ch-composer-info {
+  font-size: 0.7rem;
+  color: var(--fv-muted);
+}
+
+.fv-chatter-container .ch-composer-submit {
+  padding: 0.35rem 0.8rem;
+  border: none;
+  border-radius: 6px;
+  background: var(--fv-accent);
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.fv-chatter-container .ch-composer-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Reply composer inline */
+.fv-chatter-container .ch-reply-composer {
+  margin-top: 0.4rem;
+  padding: 0.4rem;
+  border: 1px solid var(--fv-border);
+  border-radius: 6px;
+}
+
+.fv-chatter-container .ch-reply-composer textarea {
+  width: 100%;
+  min-height: 40px;
+  padding: 0.4rem;
+  border: 1px solid var(--fv-border);
+  border-radius: 4px;
+  font-size: 0.8rem;
+  resize: vertical;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.fv-chatter-container .ch-reply-composer textarea:focus {
+  border-color: var(--fv-accent);
+}
+
+.fv-chatter-container .ch-reply-composer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  margin-top: 0.3rem;
+}
+
+.fv-chatter-container .ch-reply-cancel {
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--fv-border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fv-muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.fv-chatter-container .ch-reply-send {
+  padding: 0.25rem 0.5rem;
+  border: none;
+  border-radius: 4px;
+  background: var(--fv-accent);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.fv-chatter-container .ch-empty {
+  text-align: center;
+  padding: 1.5rem;
+  color: var(--fv-muted);
+  font-size: 0.85rem;
+}
+
+/* Ancho del dialog para acomodar el chatter */
+.fv-dialog {
+  max-width: 700px;
+}
+
+/* ========================================
+   @Mentions
+   ======================================== */
+
+.ch-mention {
+  background: color-mix(in srgb, var(--fv-accent) 15%, transparent);
+  color: var(--fv-accent);
+  font-weight: 600;
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+  cursor: default;
+}
+
+/* Dropdown de autocomplete */
+.ch-composer-input-wrap {
+  position: relative;
+}
+
+.ch-mention-dropdown {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  max-height: 200px;
+  overflow-y: auto;
+  background: var(--fv-surface, #fff);
+  border: 1px solid var(--fv-border);
+  border-radius: 8px;
+  box-shadow: 0 -4px 12px rgba(0,0,0,0.1);
+  z-index: 10;
+}
+
+.ch-mention-dropdown[hidden] { display: none; }
+
+.ch-mention-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.ch-mention-item:hover {
+  background: color-mix(in srgb, var(--fv-accent) 8%, transparent);
+}
+
+.ch-mention-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--fv-accent) 15%, #fff);
+  color: var(--fv-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.ch-mention-name {
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+/* ========================================
+   Notificaciones (campanita)
+   ======================================== */
+
+.fv-notification-bell {
+  position: relative;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.4rem;
+  border-radius: 6px;
+  transition: background 0.12s;
+  color: inherit;
+  font-size: 1.1rem;
+}
+
+.fv-notification-bell:hover {
+  background: color-mix(in srgb, var(--fv-accent) 8%, transparent);
+}
+
+.fv-notification-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: #dc2626;
+  color: #fff;
+  font-size: 0.6rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.fv-notification-badge[hidden] { display: none; }
+
+.fv-notification-panel {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  width: 360px;
+  max-height: 400px;
+  overflow-y: auto;
+  background: var(--fv-surface, #fff);
+  border: 1px solid var(--fv-border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+  z-index: 100;
+  display: none;
+}
+
+.fv-notification-panel.open { display: block; }
+
+.fv-notification-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--fv-border);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.fv-notification-mark-read {
+  background: none;
+  border: none;
+  color: var(--fv-accent);
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.fv-notification-list {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.fv-notification-item {
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid var(--fv-border);
+  transition: background 0.1s;
+  cursor: pointer;
+}
+
+.fv-notification-item:hover {
+  background: color-mix(in srgb, var(--fv-accent) 5%, transparent);
+}
+
+.fv-notification-item.unread {
+  background: color-mix(in srgb, var(--fv-accent) 3%, transparent);
+}
+
+.fv-notification-item-text {
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.fv-notification-item-meta {
+  font-size: 0.7rem;
+  color: var(--fv-muted);
+  margin-top: 0.2rem;
+}
+
+.fv-notification-empty {
+  padding: 2rem;
+  text-align: center;
+  color: var(--fv-muted);
+  font-size: 0.85rem;
+}

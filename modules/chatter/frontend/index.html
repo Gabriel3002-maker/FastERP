@@ -1,0 +1,50 @@
+<div class="ch-module">
+  <div class="ft-header">
+    <h1>💬 Chatter</h1>
+    <p>Mensajes y discusiones internas del sistema.</p>
+  </div>
+
+  <div class="ft-guide" data-fast-guide="chatter">
+    <span>
+      Usá el Chatter para registrar notas, comentarios y actividad sobre
+      cualquier registro del sistema. Los mensajes se vinculan
+      automáticamente al registro seleccionado.
+    </span>
+  </div>
+
+  <!-- Filtros -->
+  <div class="ch-filters">
+    <select id="ch-filter-type">
+      <option value="">Todos los tipos</option>
+      <option value="comment">Comentarios</option>
+      <option value="note">Notas internas</option>
+      <option value="system">Sistema</option>
+    </select>
+    <select id="ch-filter-channel">
+      <option value="">Todos los canales</option>
+    </select>
+    <input type="search" id="ch-search" placeholder="Buscar mensajes…">
+    <span id="ch-count" style="font-size: 0.8rem; color: var(--ch-muted, #6b7280); white-space: nowrap;"></span>
+  </div>
+
+  <!-- Timeline -->
+  <div id="ch-timeline" class="ch-timeline">
+    <div class="ch-empty">Cargando mensajes…</div>
+  </div>
+
+  <!-- Paginación -->
+  <div id="ch-pagination" class="ch-pagination"></div>
+
+  <!-- Composer para crear nuevos mensajes globales -->
+  <div id="ch-global-composer" class="ch-composer" style="margin-top: 1rem;">
+    <div class="ch-composer-header">
+      <button class="ch-composer-tab active" data-type="comment">💬 Comentario</button>
+      <button class="ch-composer-tab" data-type="note">📝 Nota interna</button>
+    </div>
+    <textarea id="ch-composer-body" placeholder="Escribí un mensaje…" rows="3"></textarea>
+    <div class="ch-composer-footer">
+      <span class="ch-composer-info">Los comentarios son visibles para todos.</span>
+      <button id="ch-composer-submit" class="ch-composer-submit">Enviar</button>
+    </div>
+  </div>
+</div>

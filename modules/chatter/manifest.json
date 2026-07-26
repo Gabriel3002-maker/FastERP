@@ -1,0 +1,155 @@
+{
+  "name": "chatter",
+  "label": "Chatter",
+  "version": "1.0.0",
+  "author": "EcuaByte",
+  "description": "Mensajería interna: comentarios, notas, actividad y notificaciones",
+  "icon": "💬",
+  "frontend": {
+    "pages": [
+      {
+        "name": "ChatterPage",
+        "path": "/admin/chatter",
+        "label": "Chatter",
+        "icon": "💬"
+      }
+    ]
+  },
+  "models": {
+    "message": {
+      "name": "message",
+      "label": "Mensaje",
+      "fields": {
+        "body": {
+          "type": "text",
+          "required": true,
+          "label": "Contenido",
+          "sequence": 10
+        },
+        "message_type": {
+          "type": "string",
+          "length": 20,
+          "required": true,
+          "options": ["comment", "note", "system"],
+          "default": "comment",
+          "label": "Tipo",
+          "sequence": 20
+        },
+        "author_name": {
+          "type": "string",
+          "length": 160,
+          "label": "Autor",
+          "sequence": 30
+        },
+        "author_id": {
+          "type": "string",
+          "length": 60,
+          "label": "ID Autor",
+          "sequence": 40
+        },
+        "record_model": {
+          "type": "string",
+          "length": 80,
+          "index": true,
+          "label": "Modelo vinculado",
+          "help": "ej: contacts/contact, ventas/sale",
+          "sequence": 50
+        },
+        "record_id": {
+          "type": "string",
+          "length": 60,
+          "index": true,
+          "label": "ID registro vinculado",
+          "sequence": 60
+        },
+        "parent_id": {
+          "type": "string",
+          "length": 60,
+          "index": true,
+          "label": "Mensaje padre",
+          "help": "ID del mensaje al que responde (para hilos)",
+          "sequence": 70
+        },
+        "channel": {
+          "type": "string",
+          "length": 80,
+          "index": true,
+          "label": "Canal",
+          "help": "ej: general, ventas, soporte",
+          "sequence": 80
+        },
+        "mentions": {
+          "type": "json",
+          "label": "Menciones",
+          "help": "JSON array de usuarios mencionados: [{id, name}]",
+          "sequence": 90
+        }
+      }
+    },
+    "notification": {
+      "name": "notification",
+      "label": "Notificación",
+      "fields": {
+        "user_id": {
+          "type": "string",
+          "length": 60,
+          "required": true,
+          "index": true,
+          "label": "ID Usuario destino",
+          "sequence": 10
+        },
+        "user_name": {
+          "type": "string",
+          "length": 160,
+          "label": "Nombre usuario",
+          "sequence": 20
+        },
+        "type": {
+          "type": "string",
+          "length": 30,
+          "required": true,
+          "options": ["mention", "reply", "system"],
+          "label": "Tipo",
+          "sequence": 30
+        },
+        "message": {
+          "type": "text",
+          "required": true,
+          "label": "Mensaje",
+          "sequence": 40
+        },
+        "message_id": {
+          "type": "string",
+          "length": 60,
+          "index": true,
+          "label": "ID Mensaje",
+          "sequence": 50
+        },
+        "record_model": {
+          "type": "string",
+          "length": 80,
+          "label": "Modelo vinculado",
+          "sequence": 60
+        },
+        "record_id": {
+          "type": "string",
+          "length": 60,
+          "label": "ID registro vinculado",
+          "sequence": 70
+        },
+        "read": {
+          "type": "boolean",
+          "default": "false",
+          "label": "Leída",
+          "sequence": 80
+        },
+        "author_name": {
+          "type": "string",
+          "length": 160,
+          "label": "Autor original",
+          "sequence": 90
+        }
+      }
+    }
+  }
+}
