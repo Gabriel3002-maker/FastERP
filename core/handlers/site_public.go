@@ -36,7 +36,7 @@ func (h *SitePublicHandler) publicTenant(ctx context.Context, r *http.Request) (
 	if slug == "" {
 		slug = "default"
 	}
-	return h.crud.ResolveTenant(ctx, slug)
+	return h.crud.resolveTenant(ctx, slug)
 }
 
 // PublicHome sirve GET /site: la página publicada marcada is_home, o si

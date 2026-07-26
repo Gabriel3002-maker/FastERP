@@ -1,72 +1,25 @@
-<div class="vt-module">
-  <div class="module-header">
-    <h1>🛒 Ventas</h1>
-    <p class="vt-subtitle">
-      Cobrá en una sola pantalla. Al confirmar la venta, el stock baja solo en
-      Operaciones.
-    </p>
-  </div>
-
-  <div class="ft-guide" data-fast-guide="ventas">
-    <span>
-      Tocá productos para agregarlos al <strong>carrito</strong>, ajustá las
-      cantidades, elegí el cliente (opcional) y la forma de pago, y apretá
-      <strong>Cobrar</strong>. Lo vendido se descuenta del inventario al
-      instante. En <strong>Historial</strong> podés ver y anular ventas.
-    </span>
-  </div>
-
-  <div class="ft-tabs" data-fast-tabs>
-    <button type="button" class="ft-tab" data-tab="vender">🧾 Vender</button>
-    <button type="button" class="ft-tab" data-tab="historial">🕑 Historial</button>
-  </div>
-
-  <!-- VENDER (POS) -->
-  <section class="ft-panel" data-tab-panel="vender">
-    <div class="vt-pos">
-      <div class="vt-catalog">
-        <input id="vt-search" type="search" class="vt-search" placeholder="Buscar producto por nombre o SKU…">
-        <div id="vt-products" class="vt-products">
-          <div class="vt-empty">Cargando…</div>
-        </div>
-      </div>
-
-      <aside class="vt-cart">
-        <h2 class="vt-cart-title">Carrito</h2>
-
-        <div class="vt-field">
-          <label for="vt-customer">Cliente <span class="vt-muted">(opcional)</span></label>
-          <select id="vt-customer"></select>
-          <a class="vt-linklike" href="/admin/contacts" target="_blank" rel="noopener">+ nuevo contacto</a>
-        </div>
-
-        <div id="vt-cart-lines" class="vt-cart-lines">
-          <div class="vt-empty">El carrito está vacío. Tocá un producto para agregarlo.</div>
-        </div>
-
-        <div class="vt-cart-foot">
-          <div class="vt-field">
-            <label for="vt-pay">Forma de pago</label>
-            <select id="vt-pay">
-              <option value="efectivo">Efectivo</option>
-              <option value="transferencia">Transferencia</option>
-              <option value="tarjeta">Tarjeta</option>
-            </select>
-          </div>
-          <div class="vt-total-row">
-            <span>Total</span>
-            <strong id="vt-total">$0</strong>
-          </div>
-          <button type="button" id="vt-checkout" class="vt-btn-primary" disabled>Cobrar</button>
-        </div>
-      </aside>
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ventas</title>
+  <link rel="stylesheet" href="/static/css/fast-views.css">
+</head>
+<body>
+  <div class="ft-module">
+    <div class="ft-header">
+      <h1>🛒 Ventas</h1>
+      <p>Punto de venta (POS): cobrás y el stock baja solo.</p>
     </div>
-  </section>
 
-  <!-- HISTORIAL -->
-  <section class="ft-panel" data-tab-panel="historial">
-    <div id="vt-history" class="vt-history">
-      <div class="vt-empty">Cargando…</div>
+    <div class="ft-guide" data-fast-guide="ventas">
+      <span>Creá una venta, elegí los productos y el cliente. El stock se actualiza automáticamente al cobrar.</span>
     </div>
-  </section>
-</div>
+
+    <div data-fast-view data-model="ventas/sale"></div>
+  </div>
+
+  <script src="/static/js/fast-views.js"></script>
+</body>
+</html>

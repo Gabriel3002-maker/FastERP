@@ -5,6 +5,16 @@
   "author": "EcuaByte",
   "description": "Gestión de contactos con datos tributarios para LATAM",
   "icon": "👥",
+  "frontend": {
+    "pages": [
+      {
+        "name": "ContactsPage",
+        "path": "/admin/contactos",
+        "label": "Contactos",
+        "icon": "👥"
+      }
+    ]
+  },
   "models": {
     "contact": {
       "name": "contact",

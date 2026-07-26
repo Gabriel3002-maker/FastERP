@@ -6,6 +6,16 @@
   "description": "Punto de venta (POS): cobrás y el stock baja solo. Usa el catálogo del módulo Operaciones y los clientes de Contactos.",
   "icon": "🛒",
   "depends": ["products", "contacts"],
+  "frontend": {
+    "pages": [
+      {
+        "name": "VentasPage",
+        "path": "/admin/ventas",
+        "label": "Ventas",
+        "icon": "🛒"
+      }
+    ]
+  },
   "models": {
     "sale": {
       "name": "sale",

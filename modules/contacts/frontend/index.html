@@ -1,10 +1,26 @@
-<div class="contacts-module">
-    <div class="module-header">
-        <h1>👥 Contactos</h1>
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Contactos</title>
+  <link rel="stylesheet" href="/static/css/fast-views.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="ft-module">
+    <div class="ft-header">
+      <h1>👥 Contactos</h1>
+      <p>Clientes, proveedores y otros contactos con datos tributarios para LATAM.</p>
     </div>
 
-    <!-- Todo sale de modules/contacts/manifest.json: tabla, paginación,
-         búsqueda global y por columna, orden, y el formulario de alta y
-         edición con sus 19 campos. Este módulo no escribe UI ni JavaScript. -->
+    <div class="ft-guide" data-fast-guide="contactos">
+      <span>Creá contactos (clientes, proveedores, socios). Los contactos se reutilizan en Compras, Ventas e Importaciones.</span>
+    </div>
+
     <div data-fast-view data-model="contacts/contact"></div>
-</div>
+  </div>
+
+  <script src="/static/js/fast-views.js"></script>
+</body>
+</html>

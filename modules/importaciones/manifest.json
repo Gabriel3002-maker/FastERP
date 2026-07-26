@@ -6,6 +6,16 @@
   "description": "Importás mercadería y repartís flete + aduana + seguro sobre cada producto para saber su costo real de reventa (landed cost). Sirve para autos, comida, lo que sea. Al recibir, el stock sube con ese costo.",
   "icon": "🚢",
   "depends": ["products", "contacts"],
+  "frontend": {
+    "pages": [
+      {
+        "name": "ImportacionesPage",
+        "path": "/admin/importaciones",
+        "label": "Importaciones",
+        "icon": "🚢"
+      }
+    ]
+  },
   "models": {
     "import_order": {
       "name": "import_order",

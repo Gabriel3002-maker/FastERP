@@ -4,5 +4,15 @@
   "version": "1.0.0",
   "author": "EcuaByte",
   "description": "Diseñá el flujo de un módulo con un diagrama y generalo listo para instalar.",
-  "icon": "🧩"
+  "icon": "🧩",
+  "frontend": {
+    "pages": [
+      {
+        "name": "StudioPage",
+        "path": "/admin/studio",
+        "label": "Studio-Flujo",
+        "icon": "🧩"
+      }
+    ]
+  }
 }

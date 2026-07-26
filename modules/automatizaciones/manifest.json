@@ -5,6 +5,16 @@
   "author": "EcuaByte",
   "description": "Armá un pipeline de pasos (crear, actualizar, buscar, condición) y probalo contra un registro real, con variables entre nodos y disparadores automáticos. No es una máquina de estados — para eso está Studio-Flujo.",
   "icon": "🔀",
+  "frontend": {
+    "pages": [
+      {
+        "name": "AutomatizacionesPage",
+        "path": "/admin/automatizaciones",
+        "label": "Automatizaciones",
+        "icon": "🔀"
+      }
+    ]
+  },
   "models": {
     "automation": {
       "name": "automation",

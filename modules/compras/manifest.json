@@ -6,6 +6,16 @@
   "description": "Órdenes de compra a proveedores. Al recibir la mercadería, el stock sube solo en Operaciones y se actualiza el costo del producto.",
   "icon": "📥",
   "depends": ["products", "contacts"],
+  "frontend": {
+    "pages": [
+      {
+        "name": "ComprasPage",
+        "path": "/admin/compras",
+        "label": "Compras",
+        "icon": "📥"
+      }
+    ]
+  },
   "models": {
     "purchase": {
       "name": "purchase",
