@@ -1,9 +1,13 @@
 // Package store implements the "tienda web" (mini-store) backend: it merges the
-// products synced from Odoo (imported_product) with local web-store overrides
-// (name, description, price, published) and an Amazon-style image gallery.
+// product catalogue with local web-store overrides (name, description, price,
+// published) and an Amazon-style image gallery.
 //
 // The tienda_web WASM module only declares the tables; file uploads and the
 // merge queries live here because the WASI sandbox has no filesystem/DB access.
+//
+// The catalogue is the source of truth for product identity. Overrides hang off
+// products.product by UUID, so the storefront never depends on where the
+// catalogue data originally came from.
 package store
 
 import (
@@ -15,24 +19,24 @@ import (
 )
 
 const (
-	tImported = "mod_integracion_odoo_fasterp_imported_product"
-	tProduct  = "mod_tienda_web_store_product"
-	tImage    = "mod_tienda_web_store_image"
+	tCatalog = "mod_products_product"
+	tProduct = "mod_tienda_web_store_product"
+	tImage   = "mod_tienda_web_store_image"
 )
 
 // ProductCard is a row for the storefront grid.
 type ProductCard struct {
-	OdooProductID int     `json:"odoo_product_id"`
-	Name          string  `json:"name"`
-	Sku           string  `json:"sku"`
-	Category      string  `json:"category"`
-	Price         float64 `json:"price"`
-	Stock         float64 `json:"stock"`
-	Image         string  `json:"image"`
-	Published     bool    `json:"published"`
-	Featured      bool    `json:"featured"`
-	ImageCount    int     `json:"image_count"`
-	HasOverride   bool    `json:"has_override"`
+	ProductID   string  `json:"product_id"`
+	Name        string  `json:"name"`
+	Sku         string  `json:"sku"`
+	Category    string  `json:"category"`
+	Price       float64 `json:"price"`
+	Stock       float64 `json:"stock"`
+	Image       string  `json:"image"`
+	Published   bool    `json:"published"`
+	Featured    bool    `json:"featured"`
+	ImageCount  int     `json:"image_count"`
+	HasOverride bool    `json:"has_override"`
 }
 
 // Image is one gallery image.
@@ -45,18 +49,18 @@ type Image struct {
 
 // ProductDetail is the full editor payload for one product.
 type ProductDetail struct {
-	OdooProductID int     `json:"odoo_product_id"`
-	Name          string  `json:"name"`
-	BaseName      string  `json:"base_name"`
-	Sku           string  `json:"sku"`
-	Category      string  `json:"category"`
-	Description   string  `json:"description"`
-	Price         float64 `json:"price"`
-	BasePrice     float64 `json:"base_price"`
-	Stock         float64 `json:"stock"`
-	Published     bool    `json:"published"`
-	Featured      bool    `json:"featured"`
-	Images        []Image `json:"images"`
+	ProductID   string  `json:"product_id"`
+	Name        string  `json:"name"`
+	BaseName    string  `json:"base_name"`
+	Sku         string  `json:"sku"`
+	Category    string  `json:"category"`
+	Description string  `json:"description"`
+	Price       float64 `json:"price"`
+	BasePrice   float64 `json:"base_price"`
+	Stock       float64 `json:"stock"`
+	Published   bool    `json:"published"`
+	Featured    bool    `json:"featured"`
+	Images      []Image `json:"images"`
 }
 
 // UpsertInput carries the editable web-store fields.
@@ -68,24 +72,24 @@ type UpsertInput struct {
 	Featured    bool    `json:"featured"`
 }
 
-func ns(v sql.NullString) string  { return v.String }
+func ns(v sql.NullString) string   { return v.String }
 func nf(v sql.NullFloat64) float64 { return v.Float64 }
 
-// ListProducts returns the storefront grid, merging Odoo base data with local
-// overrides and the first gallery image (falling back to the Odoo image).
+// ListProducts returns the storefront grid: catalogue data merged with local
+// overrides, plus the first gallery image as the thumbnail.
 func ListProducts(ctx context.Context, ex db.QueryExecutor, tenantID string) ([]ProductCard, error) {
 	q := fmt.Sprintf(`
-		SELECT ip.odoo_product_id,
-		       ip.name, ip.default_code, ip.category, ip.list_price, ip.qty_available, ip.image,
+		SELECT p.id,
+		       p.name, p.model, p.category, p.price, p.stock,
 		       sp.id, sp.name, sp.price, sp.published, sp.featured,
-		       (SELECT url FROM %[3]s si WHERE si.odoo_product_id = ip.odoo_product_id
+		       (SELECT url FROM %[3]s si WHERE si.product_id = p.id
 		            AND si.tenant_id = $1 ORDER BY position ASC, created_at ASC LIMIT 1),
-		       (SELECT COUNT(*) FROM %[3]s si WHERE si.odoo_product_id = ip.odoo_product_id
+		       (SELECT COUNT(*) FROM %[3]s si WHERE si.product_id = p.id
 		            AND si.tenant_id = $1)
-		FROM %[1]s ip
-		LEFT JOIN %[2]s sp ON sp.odoo_product_id = ip.odoo_product_id AND sp.tenant_id = $1
-		WHERE ip.tenant_id = $1
-		ORDER BY sp.featured DESC NULLS LAST, ip.name ASC`, tImported, tProduct, tImage)
+		FROM %[1]s p
+		LEFT JOIN %[2]s sp ON sp.product_id = p.id AND sp.tenant_id = $1
+		WHERE p.tenant_id = $1
+		ORDER BY sp.featured DESC NULLS LAST, p.name ASC`, tCatalog, tProduct, tImage)
 
 	rows, err := ex.QueryContext(ctx, q, tenantID)
 	if err != nil {
@@ -96,16 +100,17 @@ func ListProducts(ctx context.Context, ex db.QueryExecutor, tenantID string) ([]
 	out := make([]ProductCard, 0)
 	for rows.Next() {
 		var (
-			odooID                             int
-			baseName, sku, cat, baseImg        sql.NullString
-			listPrice, qty                     sql.NullFloat64
-			spID, ovName                       sql.NullString
-			ovPrice                            sql.NullFloat64
-			published, featured                sql.NullBool
-			mainImg                            sql.NullString
-			imgCount                           int
+			productID           string
+			baseName, sku, cat  sql.NullString
+			basePrice           sql.NullFloat64
+			stock               sql.NullInt64
+			spID, ovName        sql.NullString
+			ovPrice             sql.NullFloat64
+			published, featured sql.NullBool
+			mainImg             sql.NullString
+			imgCount            int
 		)
-		if err := rows.Scan(&odooID, &baseName, &sku, &cat, &listPrice, &qty, &baseImg,
+		if err := rows.Scan(&productID, &baseName, &sku, &cat, &basePrice, &stock,
 			&spID, &ovName, &ovPrice, &published, &featured, &mainImg, &imgCount); err != nil {
 			return nil, err
 		}
@@ -113,17 +118,13 @@ func ListProducts(ctx context.Context, ex db.QueryExecutor, tenantID string) ([]
 		if ovName.Valid && ovName.String != "" {
 			name = ovName.String
 		}
-		price := nf(listPrice)
+		price := nf(basePrice)
 		if ovPrice.Valid {
 			price = ovPrice.Float64
 		}
-		image := ns(baseImg)
-		if mainImg.Valid && mainImg.String != "" {
-			image = mainImg.String
-		}
 		out = append(out, ProductCard{
-			OdooProductID: odooID, Name: name, Sku: ns(sku), Category: ns(cat),
-			Price: price, Stock: nf(qty), Image: image,
+			ProductID: productID, Name: name, Sku: ns(sku), Category: ns(cat),
+			Price: price, Stock: float64(stock.Int64), Image: ns(mainImg),
 			Published: published.Bool, Featured: featured.Bool,
 			ImageCount: imgCount, HasOverride: spID.Valid,
 		})
@@ -132,21 +133,22 @@ func ListProducts(ctx context.Context, ex db.QueryExecutor, tenantID string) ([]
 }
 
 // GetProduct returns one product's editable detail plus its image gallery.
-func GetProduct(ctx context.Context, ex db.QueryExecutor, tenantID string, odooID int) (*ProductDetail, error) {
+func GetProduct(ctx context.Context, ex db.QueryExecutor, tenantID, productID string) (*ProductDetail, error) {
 	q := fmt.Sprintf(`
-		SELECT ip.name, ip.default_code, ip.category, ip.list_price, ip.qty_available,
+		SELECT p.name, p.model, p.category, p.price, p.stock,
 		       sp.name, sp.description, sp.price, sp.published, sp.featured
-		FROM %[1]s ip
-		LEFT JOIN %[2]s sp ON sp.odoo_product_id = ip.odoo_product_id AND sp.tenant_id = $1
-		WHERE ip.odoo_product_id = $2 AND ip.tenant_id = $1`, tImported, tProduct)
+		FROM %[1]s p
+		LEFT JOIN %[2]s sp ON sp.product_id = p.id AND sp.tenant_id = $1
+		WHERE p.id = $2 AND p.tenant_id = $1`, tCatalog, tProduct)
 
 	var (
 		baseName, sku, cat, ovName, ovDesc sql.NullString
-		listPrice, qty, ovPrice            sql.NullFloat64
+		basePrice, ovPrice                 sql.NullFloat64
+		stock                              sql.NullInt64
 		published, featured                sql.NullBool
 	)
-	err := ex.QueryRowContext(ctx, q, tenantID, odooID).Scan(
-		&baseName, &sku, &cat, &listPrice, &qty, &ovName, &ovDesc, &ovPrice, &published, &featured)
+	err := ex.QueryRowContext(ctx, q, tenantID, productID).Scan(
+		&baseName, &sku, &cat, &basePrice, &stock, &ovName, &ovDesc, &ovPrice, &published, &featured)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
 	}
@@ -155,17 +157,17 @@ func GetProduct(ctx context.Context, ex db.QueryExecutor, tenantID string, odooI
 	}
 
 	d := &ProductDetail{
-		OdooProductID: odooID,
-		BaseName:      ns(baseName),
-		Name:          ns(baseName),
-		Sku:           ns(sku),
-		Category:      ns(cat),
-		Description:   ns(ovDesc),
-		BasePrice:     nf(listPrice),
-		Price:         nf(listPrice),
-		Stock:         nf(qty),
-		Published:     published.Bool,
-		Featured:      featured.Bool,
+		ProductID:   productID,
+		BaseName:    ns(baseName),
+		Name:        ns(baseName),
+		Sku:         ns(sku),
+		Category:    ns(cat),
+		Description: ns(ovDesc),
+		BasePrice:   nf(basePrice),
+		Price:       nf(basePrice),
+		Stock:       float64(stock.Int64),
+		Published:   published.Bool,
+		Featured:    featured.Bool,
 	}
 	if ovName.Valid && ovName.String != "" {
 		d.Name = ovName.String
@@ -174,7 +176,7 @@ func GetProduct(ctx context.Context, ex db.QueryExecutor, tenantID string, odooI
 		d.Price = ovPrice.Float64
 	}
 
-	imgs, err := listImages(ctx, ex, tenantID, odooID)
+	imgs, err := listImages(ctx, ex, tenantID, productID)
 	if err != nil {
 		return nil, err
 	}
@@ -182,11 +184,11 @@ func GetProduct(ctx context.Context, ex db.QueryExecutor, tenantID string, odooI
 	return d, nil
 }
 
-func listImages(ctx context.Context, ex db.QueryExecutor, tenantID string, odooID int) ([]Image, error) {
+func listImages(ctx context.Context, ex db.QueryExecutor, tenantID, productID string) ([]Image, error) {
 	q := fmt.Sprintf(`SELECT id, url, position, alt FROM %s
-		WHERE odoo_product_id = $1 AND tenant_id = $2
+		WHERE product_id = $1 AND tenant_id = $2
 		ORDER BY position ASC, created_at ASC`, tImage)
-	rows, err := ex.QueryContext(ctx, q, odooID, tenantID)
+	rows, err := ex.QueryContext(ctx, q, productID, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -205,12 +207,12 @@ func listImages(ctx context.Context, ex db.QueryExecutor, tenantID string, odooI
 	return out, rows.Err()
 }
 
-// productExists checks the product was synced from Odoo for this tenant.
-func productExists(ctx context.Context, ex db.QueryExecutor, tenantID string, odooID int) (bool, error) {
+// productExists checks the product is in the catalogue for this tenant.
+func productExists(ctx context.Context, ex db.QueryExecutor, tenantID, productID string) (bool, error) {
 	var one int
 	err := ex.QueryRowContext(ctx,
-		fmt.Sprintf(`SELECT 1 FROM %s WHERE odoo_product_id = $1 AND tenant_id = $2 LIMIT 1`, tImported),
-		odooID, tenantID).Scan(&one)
+		fmt.Sprintf(`SELECT 1 FROM %s WHERE id = $1 AND tenant_id = $2 LIMIT 1`, tCatalog),
+		productID, tenantID).Scan(&one)
 	if err == sql.ErrNoRows {
 		return false, nil
 	}
@@ -218,8 +220,8 @@ func productExists(ctx context.Context, ex db.QueryExecutor, tenantID string, od
 }
 
 // UpsertProduct creates or updates the web-store override for a product.
-func UpsertProduct(ctx context.Context, ex db.QueryExecutor, tenantID string, odooID int, in UpsertInput) error {
-	exists, err := productExists(ctx, ex, tenantID, odooID)
+func UpsertProduct(ctx context.Context, ex db.QueryExecutor, tenantID, productID string, in UpsertInput) error {
+	exists, err := productExists(ctx, ex, tenantID, productID)
 	if err != nil {
 		return err
 	}
@@ -229,14 +231,14 @@ func UpsertProduct(ctx context.Context, ex db.QueryExecutor, tenantID string, od
 
 	var id string
 	err = ex.QueryRowContext(ctx,
-		fmt.Sprintf(`SELECT id FROM %s WHERE odoo_product_id = $1 AND tenant_id = $2`, tProduct),
-		odooID, tenantID).Scan(&id)
+		fmt.Sprintf(`SELECT id FROM %s WHERE product_id = $1 AND tenant_id = $2`, tProduct),
+		productID, tenantID).Scan(&id)
 
 	if err == sql.ErrNoRows {
 		_, err = ex.ExecContext(ctx, fmt.Sprintf(`INSERT INTO %s
-			(tenant_id, odoo_product_id, name, description, price, published, featured)
+			(tenant_id, product_id, name, description, price, published, featured)
 			VALUES ($1,$2,$3,$4,$5,$6,$7)`, tProduct),
-			tenantID, odooID, in.Name, in.Description, in.Price, in.Published, in.Featured)
+			tenantID, productID, in.Name, in.Description, in.Price, in.Published, in.Featured)
 		return err
 	}
 	if err != nil {
@@ -250,8 +252,8 @@ func UpsertProduct(ctx context.Context, ex db.QueryExecutor, tenantID string, od
 }
 
 // AddImage appends an image to a product's gallery.
-func AddImage(ctx context.Context, ex db.QueryExecutor, tenantID string, odooID int, url, alt string) (Image, error) {
-	exists, err := productExists(ctx, ex, tenantID, odooID)
+func AddImage(ctx context.Context, ex db.QueryExecutor, tenantID, productID, url, alt string) (Image, error) {
+	exists, err := productExists(ctx, ex, tenantID, productID)
 	if err != nil {
 		return Image{}, err
 	}
@@ -261,13 +263,13 @@ func AddImage(ctx context.Context, ex db.QueryExecutor, tenantID string, odooID 
 
 	var nextPos int
 	_ = ex.QueryRowContext(ctx,
-		fmt.Sprintf(`SELECT COALESCE(MAX(position),-1)+1 FROM %s WHERE odoo_product_id=$1 AND tenant_id=$2`, tImage),
-		odooID, tenantID).Scan(&nextPos)
+		fmt.Sprintf(`SELECT COALESCE(MAX(position),-1)+1 FROM %s WHERE product_id=$1 AND tenant_id=$2`, tImage),
+		productID, tenantID).Scan(&nextPos)
 
 	var id string
 	err = ex.QueryRowContext(ctx, fmt.Sprintf(`INSERT INTO %s
-		(tenant_id, odoo_product_id, url, position, alt) VALUES ($1,$2,$3,$4,$5) RETURNING id`, tImage),
-		tenantID, odooID, url, nextPos, alt).Scan(&id)
+		(tenant_id, product_id, url, position, alt) VALUES ($1,$2,$3,$4,$5) RETURNING id`, tImage),
+		tenantID, productID, url, nextPos, alt).Scan(&id)
 	if err != nil {
 		return Image{}, err
 	}

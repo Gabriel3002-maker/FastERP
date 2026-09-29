@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -37,11 +36,23 @@ func (h *Handler) RegisterStoreRoutes() {
 	g := h.router.Group("/api/store", h.TenantMiddleware(), h.AuthMiddleware())
 	{
 		g.GET("/products", h.StoreListProducts)
-		g.GET("/products/:odooId", h.StoreGetProduct)
-		g.PUT("/products/:odooId", h.StoreUpsertProduct)
-		g.POST("/products/:odooId/images", h.StoreUploadImage)
+		g.GET("/products/:id", h.StoreGetProduct)
+		g.PUT("/products/:id", h.StoreUpsertProduct)
+		g.POST("/products/:id/images", h.StoreUploadImage)
 		g.DELETE("/images/:id", h.StoreDeleteImage)
 	}
+}
+
+// storeProductID extracts and validates the product UUID from the route. The id
+// goes straight into a SQL parameter, but rejecting malformed UUIDs here keeps
+// a bad id from becoming a database error in the caller's face.
+func storeProductID(c *gin.Context) (string, bool) {
+	raw := c.Param("id")
+	if _, err := uuid.Parse(raw); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid product id"})
+		return "", false
+	}
+	return raw, true
 }
 
 func (h *Handler) StoreListProducts(c *gin.Context) {
@@ -55,13 +66,12 @@ func (h *Handler) StoreListProducts(c *gin.Context) {
 }
 
 func (h *Handler) StoreGetProduct(c *gin.Context) {
-	ctx, tenantID := c.Request.Context(), c.GetString("tenant_id")
-	odooID, err := strconv.Atoi(c.Param("odooId"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid product id"})
+	productID, ok := storeProductID(c)
+	if !ok {
 		return
 	}
-	d, err := store.GetProduct(ctx, db.Executor(c), tenantID, odooID)
+	ctx, tenantID := c.Request.Context(), c.GetString("tenant_id")
+	d, err := store.GetProduct(ctx, db.Executor(c), tenantID, productID)
 	if errors.Is(err, store.ErrNotFound) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "producto no encontrado"})
 		return
@@ -74,18 +84,17 @@ func (h *Handler) StoreGetProduct(c *gin.Context) {
 }
 
 func (h *Handler) StoreUpsertProduct(c *gin.Context) {
-	ctx, tenantID := c.Request.Context(), c.GetString("tenant_id")
-	odooID, err := strconv.Atoi(c.Param("odooId"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid product id"})
+	productID, ok := storeProductID(c)
+	if !ok {
 		return
 	}
+	ctx, tenantID := c.Request.Context(), c.GetString("tenant_id")
 	var in store.UpsertInput
 	if err := c.ShouldBindJSON(&in); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if err := store.UpsertProduct(ctx, db.Executor(c), tenantID, odooID, in); err != nil {
+	if err := store.UpsertProduct(ctx, db.Executor(c), tenantID, productID, in); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "producto no encontrado"})
 			return
@@ -97,12 +106,11 @@ func (h *Handler) StoreUpsertProduct(c *gin.Context) {
 }
 
 func (h *Handler) StoreUploadImage(c *gin.Context) {
-	ctx, tenantID := c.Request.Context(), c.GetString("tenant_id")
-	odooID, err := strconv.Atoi(c.Param("odooId"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid product id"})
+	productID, ok := storeProductID(c)
+	if !ok {
 		return
 	}
+	ctx, tenantID := c.Request.Context(), c.GetString("tenant_id")
 
 	file, err := c.FormFile("image")
 	if err != nil {
@@ -127,7 +135,7 @@ func (h *Handler) StoreUploadImage(c *gin.Context) {
 	}
 
 	url := "/uploads/products/" + fname
-	img, err := store.AddImage(ctx, db.Executor(c), tenantID, odooID, url, file.Filename)
+	img, err := store.AddImage(ctx, db.Executor(c), tenantID, productID, url, file.Filename)
 	if err != nil {
 		os.Remove(dest) // roll back the file if the DB insert failed
 		if errors.Is(err, store.ErrNotFound) {

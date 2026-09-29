@@ -144,6 +144,22 @@ func modelSchema(model *ModelDef, input bool) map[string]any {
 		if spec.Format != "" {
 			prop["format"] = spec.Format
 		}
+		if def.Type == "many2one" {
+			prop["format"] = "uuid"
+			prop["x-relation"] = map[string]any{
+				"module": def.RelatedModule,
+				"model":  def.RelatedModel,
+				"field":  def.RelatedField,
+			}
+		}
+		if def.Type == "one2many" || def.Type == "many2many" {
+			prop["items"] = map[string]any{"type": "string", "format": "uuid"}
+			prop["x-relation"] = map[string]any{
+				"module": def.RelatedModule,
+				"model":  def.RelatedModel,
+				"field":  def.RelatedField,
+			}
+		}
 		if def.Length > 0 && spec.JSONType == "string" {
 			prop["maxLength"] = def.Length
 		}
@@ -161,7 +177,16 @@ func modelSchema(model *ModelDef, input bool) map[string]any {
 		if def.Example != nil {
 			prop["example"] = def.Example
 		}
-		if def.Readonly {
+		if def.Placeholder != "" {
+			prop["x-placeholder"] = def.Placeholder
+		}
+		if def.VisibleIf != "" {
+			prop["x-visibleIf"] = def.VisibleIf
+		}
+		if def.RequiredIf != "" {
+			prop["x-requiredIf"] = def.RequiredIf
+		}
+		if def.Readonly || def.Computed {
 			prop["readOnly"] = true
 		}
 

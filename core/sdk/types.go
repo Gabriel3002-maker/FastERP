@@ -97,6 +97,32 @@ var typeRegistry = map[string]TypeSpec{
 		JSONType: "string",
 		Format:   "uuid",
 	},
+	"uuid[]": {
+		SQL:        func(f *FieldDef) string { return "UUID[]" },
+		JSONType:   "array",
+		Searchable: false,
+	},
+	"enum": {
+		SQL:        func(f *FieldDef) string { return varchar(f, 255) },
+		JSONType:   "string",
+		Searchable: true,
+	},
+	"many2one": {
+		SQL:        func(f *FieldDef) string { return "UUID" },
+		JSONType:   "string",
+		Format:     "uuid",
+		Searchable: false,
+	},
+	"one2many": {
+		SQL:        func(f *FieldDef) string { return "JSONB" },
+		JSONType:   "array",
+		Searchable: false,
+	},
+	"many2many": {
+		SQL:        func(f *FieldDef) string { return "JSONB" },
+		JSONType:   "array",
+		Searchable: false,
+	},
 }
 
 // Alias para que los módulos puedan escribir el tipo como les resulte natural.
@@ -113,7 +139,10 @@ var typeAliases = map[string]string{
 	"bool":      "boolean",
 	"timestamp": "datetime",
 	"jsonb":     "json",
-	"selection": "string",
+	"selection": "enum",
+	"m2o":       "many2one",
+	"o2m":       "one2many",
+	"m2m":       "many2many",
 }
 
 // resolveType normaliza el tipo declarado y devuelve su spec.

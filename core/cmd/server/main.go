@@ -170,8 +170,8 @@ func seedDefaultModules(ctx context.Context, modulesDir string) {
 		{"contacts", "1.0.0", "Contacts", "Simple contact management", "FastERP Team"},
 		{"products", "1.0.0", "Solar Products", "Gestión de catálogo de productos solares", "FastERP Solar Team"},
 		{"sites", "1.0.0", "Solar Sites", "Gestión de sitios de proyecto", "FastERP Solar Team"},
-		{"odoo_sync", "1.0.0", "Odoo Sync", "Sincronización con Odoo: productos, precios, leads", "FastERP Solar Team"},
-		{"solar_portal", "1.0.0", "Solar Portal", "Portal web público para cotizaciones", "FastERP Solar Team"},
+		{"tienda_web", "2.0.1", "Tienda Web", "Tienda web: ficha de producto, precio y galería de imágenes", "Ecuabyte"},
+		{"sitio_web", "1.0.0", "Sitio Web", "CMS para construir y publicar el sitio público", "Ecuabyte"},
 	}
 
 	for _, p := range presets {

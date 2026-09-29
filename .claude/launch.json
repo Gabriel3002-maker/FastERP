@@ -1,12 +1,27 @@
 {
-  "version": "0.0.1",
+  "version": "0.0.0",
   "configurations": [
     {
-      "name": "frontend",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
-      "port": 5051,
-      "cwd": "frontend"
+      "name": "Core: API (Gin)",
+      "type": "go",
+      "request": "launch",
+      "program": "${workspaceFolder}/core/cmd/server",
+      "cwd": "${workspaceFolder}/core",
+      "env": {
+        "FASTERP_MODULES_DIR": "${workspaceFolder}/modules",
+        "FASTERP_UPLOAD_DIR": "${workspaceFolder}/core/uploads"
+      },
+      "args": [],
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Core: UI + API (legacy)",
+      "type": "go",
+      "request": "launch",
+      "program": "${workspaceFolder}/core",
+      "cwd": "${workspaceFolder}/core",
+      "args": [],
+      "console": "integratedTerminal"
     }
   ]
 }

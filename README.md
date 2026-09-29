@@ -1,281 +1,191 @@
-# 🚀 FastERP — Modular ERP Built for Speed
+# FastERP
 
-**Enterprise-grade, multi-tenant ERP with WebAssembly modules that compile fast.**
+ERP multi-tenant en Go. El core es una plataforma: define el esquema, la
+seguridad y el CRUD, y los módulos aportan sus datos sin tocar el core.
 
-- ⚡ **Super Fast Development**: Create a full CRUD module in minutes
-- 🔐 **Secure by Default**: Row-level security, multi-tenant isolation built-in
-- 📦 **Modular**: Add features without touching core
-- 🎯 **No Boilerplate**: SDK abstracts SQL — handlers focus on logic
+Los módulos viven en **[FastERP-modules](https://github.com/Gabriel3002-maker/FastERP-modules)**
+y entran aquí como submódulo.
 
----
-
-## Quick Start (3 minutes)
-
-### 1. Start the Server
+## Arranque rápido
 
 ```bash
-cd core
-go run cmd/server/main.go
+git clone --recurse-submodules https://github.com/Gabriel3002-maker/FastERP.git
+cd fasterp
+./run.sh
 ```
 
-Server runs at `http://localhost:7071`
+`run.sh` levanta PostgreSQL por Docker, compila el core y lo arranca en
+<http://localhost:7071>. Login inicial: `admin` / `admin123`.
 
-### 2. Login
+Sin submódulos:
 
-- **URL**: `http://localhost:7071`
-- **User**: `admin`
-- **Password**: `admin123`
-
-### 3. Navigate to Modules
-
-Click **"Modules"** in the admin panel to install and manage modules.
-
----
-
-## Create a Module in 5 Minutes
-
-### Step 1: Define Schema
-
-Create `modules/mynewmodule/manifest.json`:
-
-```json
-{
-  "name": "mynewmodule",
-  "models": {
-    "item": {
-      "fields": {
-        "title": {"type": "string", "required": true},
-        "description": {"type": "text"},
-        "status": {"type": "string"}
-      }
-    }
-  }
-}
+```bash
+git submodule update --init --recursive
 ```
 
-### Step 2: Write Handler (No SQL!)
-
-Create `internal/handlers/mynewmodule.go`:
-
-```go
-package handlers
-
-import (
-	"encoding/json"
-	"net/http"
-	"github.com/fasterp/backend/db"
-	"github.com/fasterp/backend/sdk"
-)
-
-type MyModuleHandler struct {
-	dbConn *db.DB
-	sdk    *sdk.ModuleSDK
-}
-
-func NewMyModuleHandler(dbConn *db.DB) *MyModuleHandler {
-	moduleSdk := sdk.NewModuleSDK("mynewmodule", "", "", dbConn.Pool())
-	moduleSdk.LoadManifest(`{...manifest json...}`)
-	return &MyModuleHandler{dbConn: dbConn, sdk: moduleSdk}
-}
-
-// CREATE
-func (h *MyModuleHandler) CreateItem(w http.ResponseWriter, r *http.Request) {
-	tenantID := r.Header.Get("X-Tenant-ID")
-	h.sdk.TenantID = tenantID
-	
-	id, _ := h.sdk.Create(r.Context(), "item", map[string]interface{}{
-		"title": r.FormValue("title"),
-		"description": r.FormValue("description"),
-		"status": r.FormValue("status"),
-	})
-	
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"id": id})
-}
-
-// LIST
-func (h *MyModuleHandler) ListItems(w http.ResponseWriter, r *http.Request) {
-	tenantID := r.Header.Get("X-Tenant-ID")
-	h.sdk.TenantID = tenantID
-	
-	items, _ := h.sdk.List(r.Context(), "item")
-	
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"items": items})
-}
-```
-
-### Step 3: Register Routes
-
-In `internal/api/router.go`, add:
-
-```go
-mymoduleHandler := handlers.NewMyModuleHandler(h.db)
-r.POST("/api/mynewmodule/item", mymoduleHandler.CreateItem)
-r.GET("/api/mynewmodule/item", mymoduleHandler.ListItems)
-```
-
-**Done!** 🎉 Your module has:
-- ✅ Full CRUD (Create, Read, Update, Delete)
-- ✅ Multi-tenant isolation
-- ✅ RLS security at database
-- ✅ Automatic audit trails
-
----
-
-## @fast API — No SQL Needed!
-
-From **any module**, just use `@fast.*` methods:
-
-```javascript
-// Frontend (or module code) — HTTP calls automatically use @fast under the hood
-
-// CREATE
-POST /api/{module}/{model}
-{"field1": value1, "field2": value2}
-
-// READ  
-GET /api/{module}/{model}/{id}
-
-// UPDATE
-PUT /api/{module}/{model}/{id}
-{"field1": newValue}
-
-// DELETE
-DELETE /api/{module}/{model}/{id}
-
-// LIST
-GET /api/{module}/{model}
-```
-
-**Example in module:**
-```javascript
-// Create via @fast.create()
-const resp = await fetch('/api/contacts/contact', {
-  method: 'POST',
-  headers: {'X-Tenant-ID': tenantID},
-  body: JSON.stringify({name: 'Juan', email: 'juan@example.com'})
-});
-const {id} = await resp.json();
-
-// Read via @fast.read()
-const contact = await fetch(`/api/contacts/contact/${id}`, 
-  {headers: {'X-Tenant-ID': tenantID}}
-).then(r => r.json());
-
-// Update via @fast.update()
-await fetch(`/api/contacts/contact/${id}`, {
-  method: 'PUT',
-  headers: {'X-Tenant-ID': tenantID},
-  body: JSON.stringify({name: 'Juan Updated'})
-});
-
-// Delete via @fast.delete()
-await fetch(`/api/contacts/contact/${id}`, {
-  method: 'DELETE',
-  headers: {'X-Tenant-ID': tenantID}
-});
-```
-
----
-
-## Architecture
+## Estructura
 
 ```
-FastERP
-├── core/               # Go backend (HTTP handlers, SDK)
-│   ├── cmd/server/     # Main entry point
+fasterp/
+├── core/                  # el core (todo el Go)
+│   ├── cmd/server/        # entry point: API Gin + JWT
+│   ├── main.go            # entry point legacy: API + UI en templates Go
+│   ├── handlers/          # dispatcher CRUD genérico + UI server-rendered
 │   ├── internal/
-│   │   ├── api/        # Routes
-│   │   ├── handlers/   # Handler logic (uses SDK, not SQL)
-│   │   ├── db/         # Database connection + migrations
-│   │   └── sdk/        # ⭐ SDK with Create, Update, Delete, List
-│   └── templates/      # Go templates (HTML, CSS served server-side)
-│
-├── modules/            # Pluggable features
-│   ├── contacts/       # Example module
-│   │   ├── manifest.json
-│   │   └── frontend/   # HTML/CSS/JS UI
-│   └── tienda_web/     # Store module
-│
-└── db/
-    └── migrations/     # SQL migrations (auto-run on startup)
+│   │   ├── api/           # rutas Gin, auth, middleware
+│   │   ├── module/        # carga de WASM, migración de esquema
+│   │   ├── db/            # pool, RLS, executor por tenant
+│   │   └── web/           # sitio público
+│   ├── sdk/               # SDK/ORM dirigido por manifest
+│   ├── db/  config/  models/  middleware/
+│   └── templates/  static/
+├── modules/               # submódulo → FastERP-modules
+├── docker/                # init de Postgres y roles
+└── run.sh
 ```
 
-**Key Principle**: Backend handlers use **SDK** (type-safe, no SQL), frontend uses **HTTP** (REST API).
+## Los dos entry points
 
----
+Conviene saberlo antes de tocar nada: hay **dos capas HTTP** y no son
+equivalentes.
 
-## Security Features
+| | `core/cmd/server` (Gin) | `core/main.go` (legacy) |
+|---|---|---|
+| Router | `gin.Engine` | `http.ServeMux` |
+| Auth | JWT + refresh | cookie de sesión |
+| Aislamiento | RLS con `app.tenant_id` por conexión | filtros `tenant_id` explícitos |
+| UI | ninguna (solo API) | admin HTML en `templates/` |
+| Docker | sí (`core/Dockerfile`) | no |
 
-- **Multi-tenant RLS**: PostgreSQL row-level security enforces tenant isolation
-- **JWT Auth**: Stateless authentication with refresh tokens
-- **Audit Logs**: Append-only encrypted logs of all changes
-- **Input Validation**: SDK validates against manifest schema
-- **Secure Headers**: CORS, CSP, X-Content-Type-Options configured
+La capa Gin es la que va a producción y la que usa el `docker-compose`. La
+legacy existe porque trae la interfaz de administración; su dispatcher
+genérico (`core/handlers/api_router.go`) es donde se está trabajando la
+reestructuración 1.0.1.
 
----
+Las dos comparten `core/sdk` y `core/internal/module`, así que el esquema y las
+migraciones se comportan igual en ambas.
 
-## Database
+## API
 
-PostgreSQL 16+ required.
+Sin autenticación:
 
-**Auto-migrations**: On startup, the server:
-1. Creates all tables for installed modules
-2. Applies row-level security policies
-3. Creates indexes for performance
-
----
-
-## Development
-
-### Environment
-
-Create `.env`:
-```env
-FASTERP_PORT=7071
-FASTERP_DATABASE_URL=postgres://user:pass@localhost:5432/fasterp
-FASTERP_MODULES_DIR=./modules
-FASTERP_UPLOAD_DIR=./uploads
-FASTERP_JWT_SECRET=dev-secret-change-in-prod
+```
+GET  /health
+POST /api/auth/login
+POST /api/auth/refresh
 ```
 
-### Run
+Con sesión (JWT + `X-Tenant-ID`):
+
+```
+GET    /api/me
+GET    /api/modules
+POST   /api/modules/install
+GET    /api/menus
+GET    /api/{module}/{model}
+POST   /api/{module}/{model}
+GET    /api/{module}/{model}/{id}
+PUT    /api/{module}/{model}/{id}
+DELETE /api/{module}/{model}/{id}
+```
+
+Públicas, sin sesión:
+
+```
+GET /site                 página de inicio del sitio
+GET /site/:slug           página del sitio
+GET /api/public/products  catálogo publicado
+```
+
+Tienda (`tienda_web`):
+
+```
+GET    /api/store/products
+GET    /api/store/products/:id
+PUT    /api/store/products/:id
+POST   /api/store/products/:id/images
+DELETE /api/store/images/:id
+```
+
+## Configuración
+
+Todo por variables de entorno. Las lee `core/internal/config`:
+
+| Variable | Para qué |
+|---|---|
+| `FASTERP_PORT` | Puerto HTTP (7071) |
+| `FASTERP_DATABASE_URL` | Cadena de conexión a Postgres |
+| `FASTERP_JWT_SECRET` | Firma de access tokens |
+| `FASTERP_JWT_REFRESH_SECRET` | Firma de refresh tokens |
+| `FASTERP_MODULES_DIR` | Dónde busca los módulos |
+| `FASTERP_UPLOAD_DIR` | Dónde guard las subidas |
+| `FASTERP_CORS_ORIGINS` | Orígenes permitidos, separados por coma |
+| `FASTERP_RATE_LIMIT` | Límite global de peticiones |
+| `FASTERP_AUTH_RATE_LIMIT` | Límite de `/api/auth/*`, más estricto |
+| `FASTERP_DB_MAX_OPEN` / `FASTERP_DB_MAX_IDLE` | Tamaño del pool |
+
+`docker-compose.yml` no pone valores por defecto a `FASTERP_JWT_SECRET` ni a
+`FASTERP_DATABASE_URL` a propósito: un secreto por defecto en el repo permite
+forjar tokens de admin sin credenciales. Defínelos en `.env`.
+
+## Base de datos
+
+Postgres 16+. `docker/init-db.sh` crea `fasterp_app` con `NOSUPERUSER` y
+`NOBYPASSRLS` en el primer arranque del volumen.
+
+**Conéctate con ese rol, no con el superusuario.** Un superusuario ignora las
+políticas RLS, y entonces el aislamiento entre tenants pasa a depender solo de
+los `WHERE tenant_id` de cada consulta. El servidor avisa al arrancar si el rol
+puede saltarse RLS.
+
+El esquema de los módulos se materializa al arrancar, a partir del manifest que
+expone cada WASM. Las tablas se llaman `mod_<module>_<model>`.
+
+## Módulos
+
+Un módulo es `manifest.json` + `main.go` (compilado a `module.wasm`) + `frontend/`
+opcional. El core crea las tablas y expone el CRUD; no hay que escribir SQL ni
+handlers.
+
+El sandbox WASI no tiene red ni sistema de archivos, así que cualquier
+integración externa (correo, pagos, HMRC) va en Go nativo dentro del core.
+
+Ver [FastERP-modules](https://github.com/Gabriel3002-maker/FastERP-modules)
+para el catálogo de módulos y cómo escribir uno nuevo.
+
+## Desarrollo
 
 ```bash
 cd core
-go run cmd/server/main.go
+go build ./...
+go vet ./...
+go test ./...
 ```
 
-### Test SDK
+En VSCode: `Ctrl+Shift+D` → "Core: API (Gin)" para depurar, o "Core: UI + API
+(legacy)" para la interfaz de administración. La tarea "Módulos: recompilar
+WASM" recompila todos los módulos con `main.go`.
 
-See `core/sdk/example_usage.go` for working examples.
+## Docker
 
----
+```bash
+docker compose up --build -d
+docker compose down
+```
 
-## Next Steps
+Levanta Postgres y el core. La UI en templates no está en la imagen: para
+desarrollarla, corre el entry point legacy con `go run ./main.go` desde `core/`.
 
-1. **Read** `CLAUDE.md` for detailed architecture
-2. **Check** `core/sdk/README.md` for SDK deep dive
-3. **Explore** `modules/contacts/` for a real example
-4. **Create** your first module!
+## Estado
 
----
+Lo que está verificado: `go build`, `go vet` y `go test` pasan en `core/`.
 
-## FAQs
+Lo que está en curso y conviene tener presente:
 
-**Q: Do I need to write SQL?**  
-A: Nope! SDK handles all CRUD. Only SQL if you need custom queries (rare).
-
-**Q: How do I add fields to a model?**  
-A: Edit `manifest.json`, restart server. SDK auto-creates/alters tables.
-
-**Q: Is it secure for multi-tenant?**  
-A: Yes! RLS policies at DB level + tenant_id header validation + JWT checks.
-
-**Q: Can I use WASM modules?**  
-A: Yes! See `CLAUDE.md` → "Module System (WASM)". But for HTTP endpoints, use handlers + SDK.
-
----
-
-**Made with ❤️ for fast, maintainable module development.**
+- **RBAC.** `users` solo tiene `is_admin`. El CRUD genérico aplica
+  `TenantMiddleware` + `AuthMiddleware`, así que cualquier usuario del tenant
+  lee todos los datos de todos los módulos. Antes de meter datos sensibles
+  (nóminas, datos bancarios) hay que añadir roles y permisos por acción
+  aplicados dentro del SDK.
+- **Las dos capas HTTP.** Conviene decidir cuál es la buena y retirar la otra.
+- **La UI.** Hoy es server-rendered en la capa legacy. La capa Gin no la sirve.

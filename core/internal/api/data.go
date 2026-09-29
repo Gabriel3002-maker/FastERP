@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/fasterp/backend/internal/db"
 	"github.com/fasterp/backend/internal/module"
@@ -71,7 +72,7 @@ func listHandler(m module.ModelRegistration) gin.HandlerFunc {
 		ctx, tenantID := c.Request.Context(), c.GetString("tenant_id")
 		qb := module.NewQueryBuilder(m)
 		qb.Where("tenant_id", "=", tenantID).OrderBy("created_at", "DESC")
-		query, args, err := qb.BuildSelect()
+		cols, query, args, err := qb.BuildSelect()
 		if err != nil {
 			internalError(c, "module "+m.Manifest.Name, err)
 			return
@@ -83,7 +84,7 @@ func listHandler(m module.ModelRegistration) gin.HandlerFunc {
 		}
 		defer rows.Close()
 
-		result, err := rowsToMap(rows, m.Manifest.Fields)
+		result, err := rowsToMap(rows, cols, m.Manifest.Fields)
 		if err != nil {
 			internalError(c, "module "+m.Manifest.Name, err)
 			return
@@ -98,13 +99,13 @@ func getHandler(m module.ModelRegistration) gin.HandlerFunc {
 		id, tenantID := c.Param("id"), c.GetString("tenant_id")
 		qb := module.NewQueryBuilder(m)
 		qb.Where("id", "=", id).Where("tenant_id", "=", tenantID)
-		query, args, err := qb.BuildSelect()
+		cols, query, args, err := qb.BuildSelect()
 		if err != nil {
 			internalError(c, "module "+m.Manifest.Name, err)
 			return
 		}
 		row := db.Executor(c).QueryRowContext(ctx, query, args...)
-		result, err := rowToMap(row, m.Manifest.Fields)
+		result, err := rowToMap(row, cols, m.Manifest.Fields)
 		if err == sql.ErrNoRows {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return
@@ -139,7 +140,8 @@ func createHandler(m module.ModelRegistration) gin.HandlerFunc {
 		}
 
 		row := db.Executor(c).QueryRowContext(ctx, query, args...)
-		result, err := rowToMap(row, m.Manifest.Fields)
+		cols := insertReturnColumns(m.Manifest.Fields)
+		result, err := rowToMap(row, cols, m.Manifest.Fields)
 		if err != nil {
 			internalError(c, "module "+m.Manifest.Name, err)
 			return
@@ -172,7 +174,8 @@ func updateHandler(m module.ModelRegistration) gin.HandlerFunc {
 		}
 
 		row := db.Executor(c).QueryRowContext(ctx, query, args...)
-		result, err := rowToMap(row, m.Manifest.Fields)
+		cols := insertReturnColumns(m.Manifest.Fields)
+		result, err := rowToMap(row, cols, m.Manifest.Fields)
 		if err == sql.ErrNoRows {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return
@@ -213,14 +216,24 @@ func deleteHandler(m module.ModelRegistration) gin.HandlerFunc {
 
 type FieldInfo struct{ Name string }
 
-func rowsToMap(rows *sql.Rows, fields []module.FieldDef) ([]map[string]interface{}, error) {
-	infos := make([]FieldInfo, 0, len(fields)+3)
-	infos = append(infos, FieldInfo{Name: "id"})
-	for _, f := range fields {
-		infos = append(infos, FieldInfo{Name: f.Name})
+func buildFieldInfos(cols []string) []FieldInfo {
+	infos := make([]FieldInfo, 0, len(cols))
+	for _, col := range cols {
+		field := col
+		upper := strings.ToUpper(col)
+		if idx := strings.LastIndex(upper, " AS "); idx != -1 {
+			field = strings.TrimSpace(col[idx+4:])
+		} else if idx := strings.LastIndex(col, "."); idx != -1 {
+			field = col[idx+1:]
+		}
+		field = strings.Trim(field, `"`)
+		infos = append(infos, FieldInfo{Name: field})
 	}
-	infos = append(infos, FieldInfo{Name: "created_at"})
-	infos = append(infos, FieldInfo{Name: "updated_at"})
+	return infos
+}
+
+func rowsToMap(rows *sql.Rows, cols []string, fields []module.FieldDef) ([]map[string]interface{}, error) {
+	infos := buildFieldInfos(cols)
 
 	var result []map[string]interface{}
 	for rows.Next() {
@@ -236,14 +249,8 @@ func rowsToMap(rows *sql.Rows, fields []module.FieldDef) ([]map[string]interface
 	return result, rows.Err()
 }
 
-func rowToMap(row *sql.Row, fields []module.FieldDef) (map[string]interface{}, error) {
-	infos := make([]FieldInfo, 0, len(fields)+3)
-	infos = append(infos, FieldInfo{Name: "id"})
-	for _, f := range fields {
-		infos = append(infos, FieldInfo{Name: f.Name})
-	}
-	infos = append(infos, FieldInfo{Name: "created_at"})
-	infos = append(infos, FieldInfo{Name: "updated_at"})
+func rowToMap(row *sql.Row, cols []string, fields []module.FieldDef) (map[string]interface{}, error) {
+	infos := buildFieldInfos(cols)
 	return scanRow(row, infos)
 }
 
@@ -269,6 +276,16 @@ func scanRow(row interface {
 		}
 	}
 	return m, nil
+}
+
+func insertReturnColumns(fields []module.FieldDef) []string {
+	cols := make([]string, 0, len(fields)+3)
+	cols = append(cols, "id")
+	for _, f := range fields {
+		cols = append(cols, f.Name)
+	}
+	cols = append(cols, "created_at", "updated_at")
+	return cols
 }
 
 func validateInput(fields []module.FieldDef, body map[string]interface{}) error {

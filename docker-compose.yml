@@ -22,7 +22,7 @@ services:
 
   backend:
     build:
-      context: ./backend
+      context: ./core
       dockerfile: Dockerfile
     ports:
       - "7071:7071"
@@ -47,15 +47,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    ports:
-      - "5000:80"
-    depends_on:
-      - backend
 
 volumes:
   pgdata:

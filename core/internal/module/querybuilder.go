@@ -57,6 +57,79 @@ func (qb *QueryBuilder) hasField(name string) bool {
 	return false
 }
 
+func (qb *QueryBuilder) fieldDef(name string) *FieldDef {
+	for i := range qb.model.Manifest.Fields {
+		if qb.model.Manifest.Fields[i].Name == name {
+			return &qb.model.Manifest.Fields[i]
+		}
+	}
+	return nil
+}
+
+func (qb *QueryBuilder) selectColumnsAndJoins() ([]string, []string, error) {
+	fieldNames := qb.fields
+	if len(fieldNames) == 0 {
+		fieldNames = make([]string, 0, len(qb.model.Manifest.Fields))
+		for _, f := range qb.model.Manifest.Fields {
+			fieldNames = append(fieldNames, f.Name)
+		}
+	}
+
+	cols := make([]string, 0, len(fieldNames)+5)
+	joins := make([]string, 0, len(fieldNames))
+	seen := map[string]bool{"id": true}
+
+	cols = append(cols, "base.id")
+	for _, name := range fieldNames {
+		if seen[name] {
+			continue
+		}
+		if !qb.hasField(name) {
+			return nil, nil, fmt.Errorf("query: unknown field %q in model %s", name, qb.model.Manifest.Name)
+		}
+		seen[name] = true
+		if name == "id" || name == "created_at" || name == "updated_at" || name == "tenant_id" {
+			cols = append(cols, "base."+quoteIdent(name))
+			continue
+		}
+		def := qb.fieldDef(name)
+		if def != nil && def.Type == "many2one" && def.RelatedModel != "" && def.RelatedField != "" {
+			displayAlias := name + "_display"
+			joinAlias := "rel_" + name
+			cols = append(cols, "base."+quoteIdent(name))
+			cols = append(cols, fmt.Sprintf("%s.%s AS %s", quoteIdent(joinAlias), quoteIdent(def.RelatedField), quoteIdent(displayAlias)))
+			joins = append(joins, fmt.Sprintf(
+				"LEFT JOIN %s %s ON %s.id = base.%s",
+				quoteIdent(qb.relatedTableName(def)), quoteIdent(joinAlias), quoteIdent(joinAlias), quoteIdent(name),
+			))
+			continue
+		}
+		cols = append(cols, "base."+quoteIdent(name))
+	}
+
+	if !seen["created_at"] {
+		cols = append(cols, "base.created_at")
+	}
+	if !seen["updated_at"] {
+		cols = append(cols, "base.updated_at")
+	}
+
+	return cols, joins, nil
+}
+
+func (qb *QueryBuilder) relatedTableName(def *FieldDef) string {
+	if def.RelatedModule != "" {
+		return fmt.Sprintf("mod_%s_%s", def.RelatedModule, def.RelatedModel)
+	}
+
+	// Infer the module name from the current table prefix: mod_<module>_<model>.
+	parts := strings.SplitN(qb.model.TableName, "_", 3)
+	if len(parts) == 3 {
+		return fmt.Sprintf("mod_%s_%s", parts[1], def.RelatedModel)
+	}
+	return fmt.Sprintf("mod_%s_%s", "unknown", def.RelatedModel)
+}
+
 // Select sets the columns to return. Defaults to all fields + id + timestamps.
 func (qb *QueryBuilder) Select(fields ...string) *QueryBuilder {
 	for _, f := range fields {
@@ -113,28 +186,53 @@ func quoteIdent(name string) string {
 	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
 }
 
-func (qb *QueryBuilder) BuildSelect() (string, []interface{}, error) {
+func validateSelectColumn(column string) error {
+	upper := strings.ToUpper(column)
+	expr := column
+	alias := ""
+	if idx := strings.LastIndex(upper, " AS "); idx != -1 {
+		expr = column[:idx]
+		alias = strings.TrimSpace(column[idx+4:])
+	}
+
+	if alias != "" {
+		alias = strings.Trim(alias, `"`)
+		if !safeIdent(alias) {
+			return fmt.Errorf("query: unsafe alias %q", alias)
+		}
+	}
+
+	for _, part := range strings.Split(expr, ".") {
+		part = strings.Trim(part, `"`)
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if !safeIdent(part) {
+			return fmt.Errorf("query: unsafe identifier %q", part)
+		}
+	}
+	return nil
+}
+
+func (qb *QueryBuilder) BuildSelect() ([]string, string, []interface{}, error) {
 	if qb.err != nil {
-		return "", nil, qb.err
+		return nil, "", nil, qb.err
 	}
 
 	tn := qb.model.TableName
 	if !safeIdent(tn) {
-		return "", nil, fmt.Errorf("query: unsafe table name %q", tn)
+		return nil, "", nil, fmt.Errorf("query: unsafe table name %q", tn)
 	}
 
-	cols := qb.fields
-	if len(cols) == 0 {
-		cols = make([]string, 0, len(qb.model.Manifest.Fields)+3)
-		cols = append(cols, "id")
-		for _, f := range qb.model.Manifest.Fields {
-			cols = append(cols, f.Name)
-		}
-		cols = append(cols, "created_at", "updated_at")
+	cols, joins, err := qb.selectColumnsAndJoins()
+	if err != nil {
+		return nil, "", nil, err
 	}
+
 	for _, c := range cols {
-		if !safeIdent(c) {
-			return "", nil, fmt.Errorf("query: unsafe column name %q", c)
+		if err := validateSelectColumn(c); err != nil {
+			return nil, "", nil, err
 		}
 	}
 
@@ -144,10 +242,15 @@ func (qb *QueryBuilder) BuildSelect() (string, []interface{}, error) {
 		if i > 0 {
 			buf.WriteString(", ")
 		}
-		buf.WriteString(quoteIdent(c))
+		buf.WriteString(c)
 	}
 	buf.WriteString(" FROM ")
 	buf.WriteString(quoteIdent(tn))
+	buf.WriteString(" AS base")
+	for _, join := range joins {
+		buf.WriteString(" ")
+		buf.WriteString(join)
+	}
 
 	var args []interface{}
 	argIdx := 1
@@ -175,7 +278,7 @@ func (qb *QueryBuilder) BuildSelect() (string, []interface{}, error) {
 		fmt.Fprintf(&buf, " OFFSET %d", qb.offset)
 	}
 
-	return buf.String(), args, nil
+	return cols, buf.String(), args, nil
 }
 
 // BuildInsert generates INSERT ... RETURNING. values is a map of field→value.

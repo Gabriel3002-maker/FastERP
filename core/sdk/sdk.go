@@ -20,6 +20,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/lib/pq"
 )
 
 // PageSizes son los únicos tamaños de página que el usuario puede elegir.
@@ -39,6 +42,35 @@ var reservedFields = map[string]bool{
 	"updated_at": true,
 }
 
+type HookEvent string
+
+const (
+	HookBeforeCreate     HookEvent = "before_create"
+	HookAfterCreate      HookEvent = "after_create"
+	HookBeforeUpdate     HookEvent = "before_update"
+	HookAfterUpdate      HookEvent = "after_update"
+	HookBeforeDelete     HookEvent = "before_delete"
+	HookAfterDelete      HookEvent = "after_delete"
+	HookBeforeTransition HookEvent = "before_transition"
+	HookAfterTransition  HookEvent = "after_transition"
+	HookBeforeList       HookEvent = "before_list"
+	HookAfterList        HookEvent = "after_list"
+)
+
+type HookContext struct {
+	Event    HookEvent
+	Module   string
+	Model    string
+	ID       string
+	Action   string
+	Data     map[string]any
+	Result   any
+	TenantID string
+	UserID   string
+}
+
+type HookFunc func(ctx context.Context, info *HookContext) error
+
 // ModuleSDK es la interfaz que los módulos usan para hablar con el core.
 type ModuleSDK struct {
 	ModuleID string
@@ -46,6 +78,7 @@ type ModuleSDK struct {
 	UserID   string
 	DB       *sql.DB
 	Manifest *Manifest
+	hooks    map[HookEvent][]HookFunc
 }
 
 // Manifest define la estructura de un módulo.
@@ -58,11 +91,13 @@ type Manifest struct {
 
 // ModelDef define una tabla en el módulo.
 type ModelDef struct {
-	Name     string               `json:"name"`
-	Label    string               `json:"label,omitempty"`
-	Fields   map[string]*FieldDef `json:"fields"`
-	Views    *ViewsDef            `json:"views,omitempty"`
-	Workflow *WorkflowDef         `json:"workflow,omitempty"`
+	Name        string               `json:"name"`
+	Label       string               `json:"label,omitempty"`
+	Fields      map[string]*FieldDef `json:"fields"`
+	Views       *ViewsDef            `json:"views,omitempty"`
+	Workflow    *WorkflowDef         `json:"workflow,omitempty"`
+	Permissions map[string][]string  `json:"permissions,omitempty"`
+	Hooks       map[string]any       `json:"hooks,omitempty"`
 
 	// FieldOrder conserva el orden en que el módulo declaró los campos.
 	// Un map de Go no tiene orden, y ese orden es información: quien escribió
@@ -207,14 +242,21 @@ type FieldDef struct {
 	Index   bool `json:"index,omitempty"`
 
 	// Metadatos para la UI y la documentación OpenAPI
-	Label    string   `json:"label,omitempty"`
-	Help     string   `json:"help,omitempty"`
-	Options  []string `json:"options,omitempty"`
-	Readonly bool     `json:"readonly,omitempty"`
-	Example  any      `json:"example,omitempty"`
+	Label         string   `json:"label,omitempty"`
+	Help          string   `json:"help,omitempty"`
+	Placeholder   string   `json:"placeholder,omitempty"`
+	VisibleIf     string   `json:"visibleIf,omitempty"`
+	RequiredIf    string   `json:"requiredIf,omitempty"`
+	Options       []string `json:"options,omitempty"`
+	Readonly      bool     `json:"readonly,omitempty"`
+	Computed      bool     `json:"computed,omitempty"`
+	Example       any      `json:"example,omitempty"`
+	RelatedModule string   `json:"related_module,omitempty"`
+	RelatedModel  string   `json:"related_model,omitempty"`
+	RelatedField  string   `json:"related_field,omitempty"`
 
 	// Sequence controla el orden de presentación (columnas y formulario).
-	// Convención tipo Odoo: 10, 20, 30… Un campo sin sequence recibe una
+	// Convención de numeración: 10, 20, 30… Un campo sin sequence recibe una
 	// implícita según su posición en el manifest —(posición+1)*10— así que
 	// poner "sequence": 5 lo manda al frente y 15 lo mete entre el primero y
 	// el segundo, sin tener que numerar todos los demás.
@@ -296,7 +338,36 @@ type Page struct {
 
 // NewModuleSDK crea una instancia del SDK para un módulo.
 func NewModuleSDK(moduleID, tenantID, userID string, db *sql.DB) *ModuleSDK {
-	return &ModuleSDK{ModuleID: moduleID, TenantID: tenantID, UserID: userID, DB: db}
+	return &ModuleSDK{
+		ModuleID: moduleID,
+		TenantID: tenantID,
+		UserID:   userID,
+		DB:       db,
+		hooks:    make(map[HookEvent][]HookFunc),
+	}
+}
+
+// RegisterHook agrega un hook al SDK para un evento específico.
+func (s *ModuleSDK) RegisterHook(event HookEvent, hook HookFunc) {
+	if s.hooks == nil {
+		s.hooks = make(map[HookEvent][]HookFunc)
+	}
+	s.hooks[event] = append(s.hooks[event], hook)
+}
+
+func (s *ModuleSDK) runHooks(ctx context.Context, event HookEvent, info *HookContext, failFast bool) error {
+	if s.hooks == nil {
+		return nil
+	}
+	for _, hook := range s.hooks[event] {
+		if err := hook(ctx, info); err != nil {
+			if failFast {
+				return err
+			}
+			log.Printf("[SDK] hook %s error: %v", event, err)
+		}
+	}
+	return nil
 }
 
 // LoadManifest carga y valida el manifest.json del módulo.
@@ -324,6 +395,26 @@ func (s *ModuleSDK) LoadManifest(manifestJSON string) error {
 			if _, known := resolveType(def.Type); !known {
 				log.Printf("[SDK] %s.%s.%s: tipo %q desconocido, se usará TEXT (tipos válidos: %s)",
 					s.ModuleID, modelName, fieldName, def.Type, strings.Join(KnownTypes(), ", "))
+			}
+			fieldType := strings.ToLower(strings.TrimSpace(def.Type))
+			if fieldType == "many2one" || fieldType == "one2many" || fieldType == "many2many" {
+				if def.RelatedModel == "" {
+					return fmt.Errorf("campo de relación %q en modelo %q debe declarar related_model", fieldName, modelName)
+				}
+				if !identRe.MatchString(def.RelatedModel) {
+					return fmt.Errorf("related_model %q en campo %q no es un identificador válido", def.RelatedModel, fieldName)
+				}
+				if def.RelatedModule != "" && !identRe.MatchString(def.RelatedModule) {
+					return fmt.Errorf("related_module %q en campo %q no es un identificador válido", def.RelatedModule, fieldName)
+				}
+				if def.RelatedModule == "" {
+					def.RelatedModule = s.ModuleID
+				}
+			}
+			if fieldType == "enum" || fieldType == "selection" {
+				if len(def.Options) == 0 {
+					return fmt.Errorf("campo %q en modelo %q de tipo %q requiere opciones", fieldName, modelName, def.Type)
+				}
 			}
 		}
 		if err := validateWorkflow(modelName, model); err != nil {
@@ -411,6 +502,54 @@ func (s *ModuleSDK) tableName(modelName string) string {
 	return fmt.Sprintf("mod_%s_%s", s.ModuleID, modelName)
 }
 
+func quoteIdent(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+}
+
+func (s *ModuleSDK) relatedTableName(def *FieldDef) string {
+	module := def.RelatedModule
+	if module == "" {
+		module = s.ModuleID
+	}
+	return fmt.Sprintf("mod_%s_%s", module, def.RelatedModel)
+}
+
+func (s *ModuleSDK) relatedDisplayField(def *FieldDef) string {
+	if def.RelatedField != "" && identRe.MatchString(def.RelatedField) {
+		return def.RelatedField
+	}
+	if def.RelatedModule == "" || def.RelatedModule == s.ModuleID {
+		if related, ok := s.Manifest.Models[def.RelatedModel]; ok {
+			return identifierField(related, related.OrderedFields())
+		}
+	}
+	return "id"
+}
+
+func (s *ModuleSDK) selectColumnsWithJoins(model *ModelDef) ([]string, []string) {
+	cols := []string{"base.id"}
+	joins := []string{}
+
+	for fieldName, def := range model.Fields {
+		if def.Type == "many2one" && def.RelatedModel != "" {
+			displayField := s.relatedDisplayField(def)
+			alias := "rel_" + fieldName
+			cols = append(cols,
+				fmt.Sprintf("base.%s", quoteIdent(fieldName)),
+				fmt.Sprintf("%s.%s AS __rel_%s", quoteIdent(alias), quoteIdent(displayField), fieldName),
+			)
+			joins = append(joins, fmt.Sprintf(
+				"LEFT JOIN %s %s ON %s.id = base.%s",
+				quoteIdent(s.relatedTableName(def)), quoteIdent(alias), quoteIdent(alias), quoteIdent(fieldName),
+			))
+			continue
+		}
+		cols = append(cols, fmt.Sprintf("base.%s", quoteIdent(fieldName)))
+	}
+	cols = append(cols, "base.created_at", "base.updated_at")
+	return cols, joins
+}
+
 // Create inserta un registro validando contra el manifest. → @fast.create()
 func (s *ModuleSDK) Create(ctx context.Context, modelName string, data map[string]any) (string, error) {
 	model, err := s.model(modelName)
@@ -437,8 +576,12 @@ func (s *ModuleSDK) Create(ctx context.Context, modelName string, data map[strin
 		if err := checkLength(fieldName, def, raw); err != nil {
 			return "", err
 		}
+		prepared, err := prepareValue(def, raw)
+		if err != nil {
+			return "", err
+		}
 		cols = append(cols, fieldName)
-		vals = append(vals, raw)
+		vals = append(vals, prepared)
 		holders = append(holders, fmt.Sprintf("$%d", len(vals)))
 	}
 
@@ -455,10 +598,32 @@ func (s *ModuleSDK) Create(ctx context.Context, modelName string, data map[strin
 	)
 
 	var id string
+	if err := s.runHooks(ctx, HookBeforeCreate, &HookContext{
+		Event:    HookBeforeCreate,
+		Module:   s.ModuleID,
+		Model:    modelName,
+		Data:     data,
+		TenantID: s.TenantID,
+		UserID:   s.UserID,
+	}, true); err != nil {
+		return "", err
+	}
+
 	if err := s.DB.QueryRowContext(ctx, query, vals...).Scan(&id); err != nil {
 		log.Printf("[SDK] Create %s: %v", s.tableName(modelName), err)
 		return "", err
 	}
+
+	_ = s.runHooks(ctx, HookAfterCreate, &HookContext{
+		Event:    HookAfterCreate,
+		Module:   s.ModuleID,
+		Model:    modelName,
+		ID:       id,
+		Data:     data,
+		Result:   id,
+		TenantID: s.TenantID,
+		UserID:   s.UserID,
+	}, false)
 	return id, nil
 }
 
@@ -512,12 +677,28 @@ func (s *ModuleSDK) Update(ctx context.Context, modelName, id string, data map[s
 		if err := checkLength(fieldName, def, raw); err != nil {
 			return err
 		}
-		vals = append(vals, raw)
+		prepared, err := prepareValue(def, raw)
+		if err != nil {
+			return err
+		}
+		vals = append(vals, prepared)
 		sets = append(sets, fmt.Sprintf("%s = $%d", fieldName, len(vals)))
 	}
 
 	if len(sets) == 0 {
 		return fmt.Errorf("no hay campos válidos para actualizar")
+	}
+
+	if err := s.runHooks(ctx, HookBeforeUpdate, &HookContext{
+		Event:    HookBeforeUpdate,
+		Module:   s.ModuleID,
+		Model:    modelName,
+		ID:       id,
+		Data:     data,
+		TenantID: s.TenantID,
+		UserID:   s.UserID,
+	}, true); err != nil {
+		return err
 	}
 
 	query := fmt.Sprintf(
@@ -533,12 +714,33 @@ func (s *ModuleSDK) Update(ctx context.Context, modelName, id string, data map[s
 	if n, _ := res.RowsAffected(); n == 0 {
 		return fmt.Errorf("registro no encontrado")
 	}
+
+	_ = s.runHooks(ctx, HookAfterUpdate, &HookContext{
+		Event:    HookAfterUpdate,
+		Module:   s.ModuleID,
+		Model:    modelName,
+		ID:       id,
+		Data:     data,
+		TenantID: s.TenantID,
+		UserID:   s.UserID,
+	}, false)
 	return nil
 }
 
 // Delete borra un registro. → @fast.delete()
 func (s *ModuleSDK) Delete(ctx context.Context, modelName, id string) error {
 	if _, err := s.model(modelName); err != nil {
+		return err
+	}
+
+	if err := s.runHooks(ctx, HookBeforeDelete, &HookContext{
+		Event:    HookBeforeDelete,
+		Module:   s.ModuleID,
+		Model:    modelName,
+		ID:       id,
+		TenantID: s.TenantID,
+		UserID:   s.UserID,
+	}, true); err != nil {
 		return err
 	}
 
@@ -551,10 +753,18 @@ func (s *ModuleSDK) Delete(ctx context.Context, modelName, id string) error {
 	if n, _ := res.RowsAffected(); n == 0 {
 		return fmt.Errorf("registro no encontrado")
 	}
+
+	_ = s.runHooks(ctx, HookAfterDelete, &HookContext{
+		Event:    HookAfterDelete,
+		Module:   s.ModuleID,
+		Model:    modelName,
+		ID:       id,
+		TenantID: s.TenantID,
+		UserID:   s.UserID,
+	}, false)
 	return nil
 }
 
-// rejectWorkflowField impide que Create/Update toquen el campo de estado
 // directamente.
 //
 // Si se pudiera, el flujo sería decorativo: cualquiera podría saltarse las
@@ -625,6 +835,19 @@ func (s *ModuleSDK) Transition(ctx context.Context, modelName, id, action string
 		return nil, fmt.Errorf("no se puede %q desde %q (estado actual)", action, current)
 	}
 
+	if err := s.runHooks(ctx, HookBeforeTransition, &HookContext{
+		Event:    HookBeforeTransition,
+		Module:   s.ModuleID,
+		Model:    modelName,
+		ID:       id,
+		Action:   action,
+		Data:     map[string]any{"from": current, "to": def.To},
+		TenantID: s.TenantID,
+		UserID:   s.UserID,
+	}, true); err != nil {
+		return nil, err
+	}
+
 	update := fmt.Sprintf(
 		"UPDATE %s SET %s = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND tenant_id = $3",
 		table, wf.Field)
@@ -641,10 +864,75 @@ func (s *ModuleSDK) Transition(ctx context.Context, modelName, id, action string
 		return nil, err
 	}
 
-	return &TransitionResult{ID: id, Action: action, From: current, To: def.To}, nil
+	result := &TransitionResult{ID: id, Action: action, From: current, To: def.To}
+	_ = s.runHooks(ctx, HookAfterTransition, &HookContext{
+		Event:    HookAfterTransition,
+		Module:   s.ModuleID,
+		Model:    modelName,
+		ID:       id,
+		Action:   action,
+		Result:   result,
+		TenantID: s.TenantID,
+		UserID:   s.UserID,
+	}, false)
+
+	return result, nil
 }
 
-// History devuelve las transiciones aplicadas a un registro, más antigua primero.
+// History devuelve el historial de transiciones de un registro.
+func (s *ModuleSDK) CanTransition(ctx context.Context, modelName, id, action string) (bool, error) {
+	model, err := s.model(modelName)
+	if err != nil {
+		return false, err
+	}
+	wf := model.Workflow
+	if wf == nil {
+		return false, fmt.Errorf("el modelo %q no tiene un flujo definido", modelName)
+	}
+	def, ok := wf.Transitions[action]
+	if !ok {
+		return false, fmt.Errorf("la acción %q no existe en el flujo de %q", action, modelName)
+	}
+
+	var current string
+	query := fmt.Sprintf("SELECT %s FROM %s WHERE id = $1 AND tenant_id = $2 LIMIT 1", wf.Field, s.tableName(modelName))
+	if err := s.DB.QueryRowContext(ctx, query, id, s.TenantID).Scan(&current); err != nil {
+		if err == sql.ErrNoRows {
+			return false, fmt.Errorf("registro no encontrado")
+		}
+		return false, err
+	}
+	return containsState(def.From, current), nil
+}
+
+func (s *ModuleSDK) AvailableTransitions(ctx context.Context, modelName, id string) ([]string, error) {
+	model, err := s.model(modelName)
+	if err != nil {
+		return nil, err
+	}
+	wf := model.Workflow
+	if wf == nil {
+		return nil, fmt.Errorf("el modelo %q no tiene un flujo definido", modelName)
+	}
+
+	var current string
+	query := fmt.Sprintf("SELECT %s FROM %s WHERE id = $1 AND tenant_id = $2 LIMIT 1", wf.Field, s.tableName(modelName))
+	if err := s.DB.QueryRowContext(ctx, query, id, s.TenantID).Scan(&current); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("registro no encontrado")
+		}
+		return nil, err
+	}
+
+	available := make([]string, 0, len(wf.Transitions))
+	for action, def := range wf.Transitions {
+		if containsState(def.From, current) {
+			available = append(available, action)
+		}
+	}
+	return available, nil
+}
+
 func (s *ModuleSDK) History(ctx context.Context, modelName, id string) ([]map[string]any, error) {
 	model, err := s.model(modelName)
 	if err != nil {
@@ -773,6 +1061,24 @@ func (s *ModuleSDK) List(ctx context.Context, modelName string, opts ListOptions
 
 	var total int
 	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s", table, whereSQL)
+	if err := s.runHooks(ctx, HookBeforeList, &HookContext{
+		Event:  HookBeforeList,
+		Module: s.ModuleID,
+		Model:  modelName,
+		Data: map[string]any{
+			"page":      page,
+			"limit":     limit,
+			"order_by":  opts.OrderBy,
+			"order_dir": opts.OrderDir,
+			"filters":   opts.Filters,
+			"search":    opts.Search,
+		},
+		TenantID: s.TenantID,
+		UserID:   s.UserID,
+	}, true); err != nil {
+		return nil, err
+	}
+
 	if err := s.DB.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
 		log.Printf("[SDK] Count %s: %v", table, err)
 		return nil, err
@@ -811,14 +1117,26 @@ func (s *ModuleSDK) List(ctx context.Context, modelName string, opts ListOptions
 		return nil, err
 	}
 
-	return &Page{
+	pageResult := &Page{
 		Data:       records,
 		Total:      total,
 		Page:       page,
 		Limit:      limit,
 		TotalPages: totalPages,
 		PageSizes:  PageSizes,
-	}, nil
+	}
+
+	_ = s.runHooks(ctx, HookAfterList, &HookContext{
+		Event:    HookAfterList,
+		Module:   s.ModuleID,
+		Model:    modelName,
+		Data:     map[string]any{"page": page, "limit": limit},
+		Result:   pageResult,
+		TenantID: s.TenantID,
+		UserID:   s.UserID,
+	}, false)
+
+	return pageResult, nil
 }
 
 // Search es azúcar sintáctico sobre List con un término de búsqueda.
@@ -914,6 +1232,14 @@ func normalizeValue(value any, def *FieldDef) any {
 		return string(text)
 	}
 
+	fieldType := strings.ToLower(strings.TrimSpace(def.Type))
+	if fieldType == "uuid[]" {
+		if arr, err := parsePostgresUUIDArray(string(text)); err == nil {
+			return arr
+		}
+		return string(text)
+	}
+
 	switch def.Spec().JSONType {
 	case "number":
 		if n, err := strconv.ParseFloat(string(text), 64); err == nil {
@@ -927,8 +1253,238 @@ func normalizeValue(value any, def *FieldDef) any {
 		if b, err := strconv.ParseBool(string(text)); err == nil {
 			return b
 		}
+	case "array", "object":
+		var decoded any
+		if err := json.Unmarshal(text, &decoded); err == nil {
+			return decoded
+		}
 	}
 	return string(text)
+}
+
+func prepareValue(def *FieldDef, value any) (any, error) {
+	if value == nil {
+		return nil, nil
+	}
+
+	fieldType := strings.ToLower(strings.TrimSpace(def.Type))
+	switch fieldType {
+	case "uuid", "many2one":
+		s, ok := value.(string)
+		if !ok || strings.TrimSpace(s) == "" {
+			return nil, fmt.Errorf("el campo %q debe ser un UUID como string", def.Type)
+		}
+		if _, err := uuid.Parse(s); err != nil {
+			return nil, fmt.Errorf("el campo %q debe ser un UUID válido: %w", def.Type, err)
+		}
+		return s, nil
+	case "uuid[]":
+		ids, err := parseUUIDArray(value)
+		if err != nil {
+			return nil, err
+		}
+		return pq.Array(ids), nil
+	case "enum", "selection":
+		s, ok := value.(string)
+		if !ok {
+			return nil, fmt.Errorf("el campo %q debe ser un texto", def.Type)
+		}
+		if !isAllowedOption(def.Options, s) {
+			return nil, fmt.Errorf("el campo %q debe ser una de las opciones válidas", def.Type)
+		}
+		return s, nil
+	case "date":
+		return parseDateTime(value, []string{"2006-01-02"})
+	case "datetime", "timestamp":
+		return parseDateTime(value, []string{time.RFC3339, "2006-01-02T15:04:05", "2006-01-02 15:04:05"})
+	case "one2many", "many2many", "json":
+		if raw, ok := value.([]byte); ok {
+			return raw, nil
+		}
+		if s, ok := value.(string); ok {
+			return []byte(s), nil
+		}
+		marshaled, err := json.Marshal(value)
+		if err != nil {
+			return nil, fmt.Errorf("no se puede serializar %q como JSON: %w", def.Type, err)
+		}
+		return marshaled, nil
+	default:
+		return value, nil
+	}
+}
+
+// prepareUUIDDefault valida el default de un campo uuid[] declarado en el
+// manifest y lo devuelve como lista de UUIDs lista para el literal SQL.
+func prepareUUIDDefault(value any) ([]string, error) {
+	if value == nil {
+		return nil, nil
+	}
+	items, err := parseUUIDArray(value)
+	if err != nil {
+		return nil, err
+	}
+	for _, id := range items {
+		if _, err := uuid.Parse(id); err != nil {
+			return nil, fmt.Errorf("default uuid[] inválido: %w", err)
+		}
+	}
+	return items, nil
+}
+
+// parsePostgresUUIDArray convierte la literal de array que devuelve Postgres
+// (`{a,b,c}`, y `{}` cuando viene vacía) en []string.
+//
+// El driver entrega uuid[] como []byte, no como un arreglo nativo: sin esto el
+// campo saldría en la API como el texto "{a,b}" en lugar de un arreglo JSON.
+func parsePostgresUUIDArray(text string) ([]string, error) {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return nil, nil
+	}
+	// "{}" y "NULL" son las dos formas en que Postgres representa un vacío.
+	if strings.EqualFold(trimmed, "null") {
+		return nil, nil
+	}
+	if !strings.HasPrefix(trimmed, "{") || !strings.HasSuffix(trimmed, "}") {
+		return nil, fmt.Errorf("literal de array de Postgres inválida: %q", text)
+	}
+
+	body := strings.TrimSpace(trimmed[1 : len(trimmed)-1])
+	if body == "" {
+		return nil, nil
+	}
+
+	items := make([]string, 0, 4)
+	var current strings.Builder
+	inQuotes := false
+	escaped := false
+	quoted := false
+
+	flush := func() {
+		item := strings.TrimSpace(current.String())
+		current.Reset()
+		quoted = false
+		// Un elemento NULL de Postgres significa "sin valor", no la cadena.
+		if !quoted && strings.EqualFold(item, "null") {
+			return
+		}
+		items = append(items, item)
+	}
+
+	for _, r := range body {
+		switch {
+		case escaped:
+			current.WriteRune(r)
+			escaped = false
+		case r == '\\' && inQuotes:
+			escaped = true
+		case r == '"':
+			inQuotes = !inQuotes
+			quoted = true
+		case r == ',' && !inQuotes:
+			flush()
+		default:
+			current.WriteRune(r)
+		}
+	}
+	if inQuotes || escaped {
+		return nil, fmt.Errorf("literal de array de Postgres sin cerrar: %q", text)
+	}
+	flush()
+
+	for _, id := range items {
+		if _, err := uuid.Parse(id); err != nil {
+			return nil, fmt.Errorf("uuid[] contiene un UUID inválido: %w", err)
+		}
+	}
+	return items, nil
+}
+
+func parseUUIDArray(value any) ([]string, error) {
+	var items []string
+
+	switch v := value.(type) {
+	case []string:
+		items = v
+	case []any:
+		for _, item := range v {
+			s, ok := item.(string)
+			if !ok {
+				return nil, fmt.Errorf("uuid[] debe ser un arreglo de strings")
+			}
+			items = append(items, s)
+		}
+	case string:
+		trimmed := strings.TrimSpace(v)
+		if trimmed == "" {
+			return nil, nil
+		}
+		if strings.HasPrefix(trimmed, "[") {
+			if err := json.Unmarshal([]byte(trimmed), &items); err != nil {
+				return nil, fmt.Errorf("uuid[] debe ser un arreglo JSON de strings: %w", err)
+			}
+			return items, nil
+		}
+		return nil, fmt.Errorf("uuid[] debe ser un arreglo de UUIDs")
+	case []byte:
+		trimmed := strings.TrimSpace(string(v))
+		if strings.HasPrefix(trimmed, "[") {
+			if err := json.Unmarshal(v, &items); err != nil {
+				return nil, fmt.Errorf("uuid[] debe ser un arreglo JSON de strings: %w", err)
+			}
+			return items, nil
+		}
+		return nil, fmt.Errorf("uuid[] debe ser un arreglo de UUIDs")
+	default:
+		return nil, fmt.Errorf("uuid[] debe ser un arreglo de UUIDs")
+	}
+
+	for _, id := range items {
+		if strings.TrimSpace(id) == "" {
+			return nil, fmt.Errorf("uuid[] no puede contener valores vacíos")
+		}
+		if _, err := uuid.Parse(id); err != nil {
+			return nil, fmt.Errorf("uuid[] contiene un UUID inválido: %w", err)
+		}
+	}
+	return items, nil
+}
+
+func parseDateTime(value any, layouts []string) (any, error) {
+	if value == nil {
+		return nil, nil
+	}
+	if t, ok := value.(time.Time); ok {
+		return t, nil
+	}
+	var text string
+	switch v := value.(type) {
+	case string:
+		text = strings.TrimSpace(v)
+	case []byte:
+		text = strings.TrimSpace(string(v))
+	default:
+		return nil, fmt.Errorf("el campo debe ser una cadena de fecha/hora")
+	}
+	if text == "" {
+		return nil, nil
+	}
+	for _, layout := range layouts {
+		if parsed, err := time.Parse(layout, text); err == nil {
+			return parsed, nil
+		}
+	}
+	return nil, fmt.Errorf("el campo debe ser una fecha/hora válida en uno de los formatos aceptados")
+}
+
+func isAllowedOption(options []string, value string) bool {
+	for _, option := range options {
+		if option == value {
+			return true
+		}
+	}
+	return false
 }
 
 func isEmpty(v any) bool {

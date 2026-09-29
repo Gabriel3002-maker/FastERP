@@ -90,6 +90,44 @@ func TestLoadManifestRechazaModuloInvalido(t *testing.T) {
 	}
 }
 
+func TestLoadManifestRechazaRelacionesSinRelatedModel(t *testing.T) {
+	s := NewModuleSDK("contacts", "tenant", "", nil)
+	manifest := `{
+		"name":"contacts",
+		"models":{
+			"contact":{
+				"fields":{
+					"company_id":{"type":"many2one"}
+				}
+			}
+		}
+	}`
+	if err := s.LoadManifest(manifest); err == nil {
+		t.Fatal("se esperaba error por falta de related_model")
+	}
+}
+
+func TestLoadManifestAceptaRelacionesConRelatedModel(t *testing.T) {
+	s := NewModuleSDK("contacts", "tenant", "", nil)
+	manifest := `{
+		"name":"contacts",
+		"models":{
+			"contact":{
+				"fields":{
+					"company_id":{"type":"many2one","related_model":"company"}
+				}
+			}
+		}
+	}`
+	if err := s.LoadManifest(manifest); err != nil {
+		t.Fatalf("manifiesto válido rechazado: %v", err)
+	}
+	field := s.Manifest.Models["contact"].Fields["company_id"]
+	if field.RelatedModule != "contacts" || field.RelatedModel != "company" {
+		t.Fatalf("relación no inicializada correctamente: %#v", field)
+	}
+}
+
 // El usuario elige entre 10/20/50/100; cualquier otra cosa cae al default.
 func TestNormalizeLimit(t *testing.T) {
 	tests := []struct {
@@ -164,22 +202,39 @@ func TestSelectColumnsNoExponeTenantID(t *testing.T) {
 // Los defaults del manifest se escapan antes de tocar el DDL.
 func TestSQLLiteral(t *testing.T) {
 	tests := []struct {
+		def     *FieldDef
 		in      any
 		want    string
 		wantErr bool
 	}{
-		{true, "true", false},
-		{float64(42), "42", false},
-		{float64(1.5), "1.5", false},
-		{"hola", "'hola'", false},
-		{"O'Brien", "'O''Brien'", false},                             // comilla escapada
-		{"'; DROP TABLE users--", "'''; DROP TABLE users--'", false}, // inyección neutralizada
-		{"NOW()", "NOW()", false},                                    // palabra clave permitida
-		{[]string{"a"}, "", true},                                    // tipo no soportado
+		{nil, true, "true", false},
+		{nil, float64(42), "42", false},
+		{nil, float64(1.5), "1.5", false},
+		{nil, "hola", "'hola'", false},
+		{nil, "O'Brien", "'O''Brien'", false},                             // comilla escapada
+		{nil, "'; DROP TABLE users--", "'''; DROP TABLE users--'", false}, // inyección neutralizada
+		{nil, "NOW()", "NOW()", false},                                    // palabra clave permitida
+		{nil, []string{"a"}, "", true},                                    // tipo no soportado
+
+		// El tipo del campo decide la serialización del default.
+		{&FieldDef{Type: "json"}, map[string]any{"a": 1}, `'{"a":1}'`, false},
+		{&FieldDef{Type: "one2many"}, []string{"x"}, `'["x"]'`, false},
+		{&FieldDef{Type: "many2many"}, []string{"x"}, `'["x"]'`, false},
+		{&FieldDef{Type: "json"}, map[string]any{"a": "O'Brien"}, `'{"a":"O''Brien"}'`, false},
+
+		{&FieldDef{Type: "uuid[]"}, nil, "ARRAY[]::UUID[]", false},
+		{&FieldDef{Type: "uuid[]"}, []string{}, "ARRAY[]::UUID[]", false},
+		{
+			&FieldDef{Type: "uuid[]"},
+			[]string{"6f1c1a3e-0000-4000-8000-000000000001"},
+			"ARRAY['6f1c1a3e-0000-4000-8000-000000000001'::uuid]::UUID[]",
+			false,
+		},
+		{&FieldDef{Type: "uuid[]"}, []string{"no-es-uuid"}, "", true},
 	}
 
 	for _, tc := range tests {
-		got, err := sqlLiteral(tc.in)
+		got, err := sqlLiteral(tc.def, tc.in)
 		if tc.wantErr {
 			if err == nil {
 				t.Errorf("sqlLiteral(%v): se esperaba error", tc.in)
@@ -193,6 +248,78 @@ func TestSQLLiteral(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("sqlLiteral(%v) = %q, want %q", tc.in, got, tc.want)
 		}
+	}
+}
+
+// El driver entrega uuid[] como bytes con la literal de Postgres: si no se
+// convierte, la API devolvería el texto "{a,b}" en vez de un arreglo.
+func TestParsePostgresUUIDArray(t *testing.T) {
+	a := "6f1c1a3e-0000-4000-8000-000000000001"
+	b := "6f1c1a3e-0000-4000-8000-000000000002"
+
+	tests := []struct {
+		in      string
+		want    []string
+		wantErr bool
+	}{
+		{"{}", nil, false},
+		{"", nil, false},
+		{"{ }", nil, false},
+		{"NULL", nil, false},
+		{"{" + a + "}", []string{a}, false},
+		{"{" + a + "," + b + "}", []string{a, b}, false},
+		{"{ " + a + " , " + b + " }", []string{a, b}, false}, // espacios del driver
+		{"{\"x\",\"y\"}", nil, true},                         // elementos no-UUID entrecomillados
+		{"{" + a + ",NULL}", []string{a}, false},             // NULL = sin valor
+		{"{roto", nil, true},
+		{"no-es-array", nil, true},
+		{"{" + a + ",no-es-uuid}", nil, true},
+	}
+
+	for _, tc := range tests {
+		got, err := parsePostgresUUIDArray(tc.in)
+		if tc.wantErr {
+			if err == nil {
+				t.Errorf("parsePostgresUUIDArray(%q): se esperaba error", tc.in)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("parsePostgresUUIDArray(%q): error inesperado: %v", tc.in, err)
+			continue
+		}
+		if len(got) != len(tc.want) {
+			t.Errorf("parsePostgresUUIDArray(%q) = %v, want %v", tc.in, got, tc.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != tc.want[i] {
+				t.Errorf("parsePostgresUUIDArray(%q) = %v, want %v", tc.in, got, tc.want)
+				break
+			}
+		}
+	}
+}
+
+// El OpenAPI promete un arreglo para uuid[]: el valor debe llegar como tal.
+func TestNormalizeValueDeserializaUUIDArray(t *testing.T) {
+	def := &FieldDef{Type: "uuid[]"}
+	a := "6f1c1a3e-0000-4000-8000-000000000001"
+	b := "6f1c1a3e-0000-4000-8000-000000000002"
+
+	got := normalizeValue([]byte("{"+a+","+b+"}"), def)
+	arr, ok := got.([]string)
+	if !ok {
+		t.Fatalf("normalizeValue devolvió %T, se esperaba []string", got)
+	}
+	if len(arr) != 2 || arr[0] != a || arr[1] != b {
+		t.Errorf("normalizeValue = %v, want [%s %s]", arr, a, b)
+	}
+
+	// Un array vacío es un arreglo vacío, no null: el tipo declarado es array.
+	empty := normalizeValue([]byte("{}"), def)
+	if arr, ok := empty.([]string); !ok || len(arr) != 0 {
+		t.Errorf("normalizeValue(\"{}\") = %#v, want []string vacío", empty)
 	}
 }
 

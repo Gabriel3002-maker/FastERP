@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strconv"
@@ -115,7 +116,7 @@ func (s *ModuleSDK) addColumn(ctx context.Context, table, field string, def *Fie
 	clause := fmt.Sprintf("%s %s", field, def.SQLType())
 
 	if def.Default != nil {
-		literal, err := sqlLiteral(def.Default)
+		literal, err := sqlLiteral(def, def.Default)
 		if err != nil {
 			return fmt.Errorf("default inválido en %s: %w", field, err)
 		}
@@ -172,6 +173,7 @@ func (s *ModuleSDK) ensureIndexes(ctx context.Context, table string, model *Mode
 // columnInfo es el tipo que la columna tiene HOY en PostgreSQL.
 type columnInfo struct {
 	DataType  string
+	UDTName   string
 	MaxLength int
 	Precision int
 	Scale     int
@@ -199,6 +201,20 @@ func (c columnInfo) SQLType() string {
 		return "BIGINT"
 	case "double precision":
 		return "DOUBLE PRECISION"
+	case "ARRAY":
+		if strings.HasPrefix(c.UDTName, "_") {
+			elem := strings.TrimPrefix(c.UDTName, "_")
+			switch elem {
+			case "uuid":
+				return "UUID[]"
+			case "text":
+				return "TEXT[]"
+			case "varchar":
+				return "VARCHAR[]"
+			}
+			return strings.ToUpper(elem) + "[]"
+		}
+		return "ARRAY"
 	case "boolean":
 		return "BOOLEAN"
 	case "date":
@@ -294,7 +310,7 @@ func isSafeWidening(current columnInfo, desired string) bool {
 
 func (s *ModuleSDK) existingColumns(ctx context.Context, table string) (map[string]columnInfo, error) {
 	rows, err := s.DB.QueryContext(ctx,
-		`SELECT column_name, data_type,
+		`SELECT column_name, data_type, udt_name, udt_name,
 		        COALESCE(character_maximum_length, 0),
 		        COALESCE(numeric_precision, 0),
 		        COALESCE(numeric_scale, 0)
@@ -309,7 +325,7 @@ func (s *ModuleSDK) existingColumns(ctx context.Context, table string) (map[stri
 	for rows.Next() {
 		var name string
 		var info columnInfo
-		if err := rows.Scan(&name, &info.DataType, &info.MaxLength, &info.Precision, &info.Scale); err != nil {
+		if err := rows.Scan(&name, &info.DataType, &info.UDTName, &info.MaxLength, &info.Precision, &info.Scale); err != nil {
 			return nil, err
 		}
 		cols[name] = info
@@ -344,7 +360,33 @@ func (s *ModuleSDK) ensureRLS(ctx context.Context, table string) error {
 
 // sqlLiteral convierte un default del manifest en literal SQL.
 // Sólo acepta escalares: nada del manifest se interpola sin pasar por aquí.
-func sqlLiteral(v any) (string, error) {
+func sqlLiteral(def *FieldDef, v any) (string, error) {
+	if def != nil {
+		typeName := strings.ToLower(strings.TrimSpace(def.Type))
+		if typeName == "json" || typeName == "one2many" || typeName == "many2many" {
+			marshaled, err := json.Marshal(v)
+			if err != nil {
+				return "", fmt.Errorf("default JSON inválido: %w", err)
+			}
+			escaped := strings.ReplaceAll(string(marshaled), "'", "''")
+			return "'" + escaped + "'", nil
+		}
+		if typeName == "uuid[]" {
+			ids, err := prepareUUIDDefault(v)
+			if err != nil {
+				return "", err
+			}
+			if len(ids) == 0 {
+				return "ARRAY[]::UUID[]", nil
+			}
+			quoted := make([]string, len(ids))
+			for i, id := range ids {
+				quoted[i] = fmt.Sprintf("'%s'::uuid", strings.ReplaceAll(id, "'", "''"))
+			}
+			return fmt.Sprintf("ARRAY[%s]::UUID[]", strings.Join(quoted, ",")), nil
+		}
+	}
+
 	switch value := v.(type) {
 	case bool:
 		return strconv.FormatBool(value), nil

@@ -47,7 +47,7 @@ func main() {
 	docsHandler := handlers.NewDocsHandler(cfg.Modules.Path)
 	studioHandler := handlers.NewStudioHandler(cfg.Modules.Path, authHandler.SessionManager(), crudHandler)
 	automationHandler := handlers.NewAutomationHandler(authHandler.SessionManager(), crudHandler)
-	chatterHandler := handlers.NewChatterHandler(dbConn)
+	chatterHandler := handlers.NewChatterHandler(dbConn.Pool())
 
 	// Configurar router
 	mux := http.NewServeMux()
@@ -215,16 +215,16 @@ func main() {
 	go handlers.RunScheduler(context.Background(), dbConn, automationHandler)
 
 	// Flujo (workflow): mover un registro por sus estados y ver su historial.
-	// Van antes del dispatcher genérico: en Go 1.22+ el segmento literal final
-	// ("transition", "history") gana sobre el comodín {id} solo, pero
-	// registrarlas explícitas evita cualquier ambigüedad.
-	mux.HandleFunc("/api/{module}/{model}/{id}/transition", crudHandler.HandleTransition)
-	mux.HandleFunc("/api/{module}/{model}/{id}/history", crudHandler.HandleHistory)
-
-	// Dispatcher genérico para /api/{module}/{model}[/{id}]
-	// Go 1.22+ path parameter syntax
-	mux.HandleFunc("/api/{module}/{model}", crudHandler.HandleCRUD)
-	mux.HandleFunc("/api/{module}/{model}/{id}", crudHandler.HandleCRUD)
+	// Van antes del dispatcher genérico para que se resuelvan las rutas más
+	// específicas primero.
+	mux.Handle("/api/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			r = handlers.WithPathParams(r, handlers.PathParams{})
+			handlers.HandleAPIRoute(w, r, crudHandler)
+			return
+		}
+		http.NotFound(w, r)
+	}))
 
 	// Iniciar servidor
 	addr := cfg.Server.Host + ":" + cfg.Server.Port

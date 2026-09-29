@@ -90,9 +90,6 @@ func SetupRouter(cfg *config.Config, modManager *module.ModuleManager) *gin.Engi
 		}
 	}
 
-	// Native Odoo integration endpoints (WASM sandbox cannot do network I/O)
-	h.RegisterOdooRoutes()
-
 	// Mini-store (tienda_web): product enrichment + image uploads
 	h.RegisterStoreRoutes()
 

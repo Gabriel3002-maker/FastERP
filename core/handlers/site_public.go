@@ -188,7 +188,7 @@ func jsonToInnerText(quoted []byte) string {
 }
 
 // productCard es lo que ve la tienda pública por producto — sin nada
-// interno (id de Odoo, stock exacto no hace falta acá, etc.).
+// interno (id del catálogo, stock exacto no hace falta acá, etc.).
 type productCard struct {
 	ID          string  `json:"id"`
 	Name        string  `json:"name"`

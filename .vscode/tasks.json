@@ -2,83 +2,47 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Backend: Run (dev)",
+      "label": "Core: build",
       "type": "shell",
-      "command": "cd backend && go run ./cmd/server",
-      "isBackground": true,
-      "problemMatcher": {
-        "pattern": {
-          "regexp": "^.*$",
-          "file": 1,
-          "location": 2,
-          "message": 3
-        },
-        "background": {
-          "activeOnStart": true,
-          "beginsPattern": "^.*Server starting.*",
-          "endsPattern": "^.*$"
-        }
-      },
-      "presentation": {
-        "echo": true,
-        "reveal": "always",
-        "focus": false,
-        "panel": "shared",
-        "showReuseMessage": true
-      }
+      "command": "go build ./...",
+      "cwd": "${workspaceFolder}/core",
+      "group": "build",
+      "problemMatcher": ["$go"]
     },
     {
-      "label": "Frontend: Run (dev)",
+      "label": "Core: test",
       "type": "shell",
-      "command": "cd frontend && npm run dev",
-      "isBackground": true,
-      "problemMatcher": {
-        "pattern": {
-          "regexp": "^.*$",
-          "file": 1,
-          "location": 2,
-          "message": 3
-        },
-        "background": {
-          "activeOnStart": true,
-          "beginsPattern": "^.*VITE.*Local:.*",
-          "endsPattern": "^.*$"
-        }
-      },
-      "presentation": {
-        "echo": true,
-        "reveal": "always",
-        "focus": false,
-        "panel": "shared"
-      }
+      "command": "go test ./...",
+      "cwd": "${workspaceFolder}/core",
+      "group": "test",
+      "problemMatcher": ["$go"]
     },
     {
-      "label": "Database: Check",
+      "label": "Core: vet",
       "type": "shell",
-      "command": "psql -U odoo17 -h localhost -d fasterp -c 'SELECT version();'",
-      "presentation": {
-        "reveal": "always",
-        "panel": "shared"
-      },
+      "command": "go vet ./...",
+      "cwd": "${workspaceFolder}/core",
+      "problemMatcher": ["$go"]
+    },
+    {
+      "label": "Módulos: recompilar WASM",
+      "type": "shell",
+      "command": "for d in ../modules/*/; do if [ -f \"$d/main.go\" ]; then echo \"==> $(basename $d)\"; (cd \"$d\" && GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared -o module.wasm main.go) || echo \"    FALLO\"; fi; done",
+      "cwd": "${workspaceFolder}/core",
       "problemMatcher": []
     },
     {
-      "label": "Build: Module",
+      "label": "Módulos: actualizar submodule",
       "type": "shell",
-      "command": "make build-module MODULE=${input:modulePath}",
+      "command": "git submodule update --init --recursive",
       "cwd": "${workspaceFolder}",
-      "presentation": {
-        "reveal": "always",
-        "panel": "shared"
-      }
-    }
-  ],
-  "inputs": [
+      "problemMatcher": []
+    },
     {
-      "id": "modulePath",
-      "type": "promptString",
-      "description": "Enter module path (e.g., ./modules/examples/hello-world)",
-      "default": "./modules/examples/hello-world"
+      "label": "DB: comprobar conexión",
+      "type": "shell",
+      "command": "psql \"${FASTERP_DATABASE_URL:-postgres://fasterp:fasterp@localhost:5456/fasterp?sslmode=disable}\" -c 'SELECT version();'",
+      "problemMatcher": []
     }
   ]
 }

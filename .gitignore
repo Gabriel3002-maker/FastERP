@@ -2,14 +2,14 @@
 .env
 .env.*
 !.env.example
-backend/.env
-backend/.env.*
-!backend/.env.example
 .default-tenant-id
 
 # Binarios compilados
 bin/
 *.so
+core/backend
+core/test-build
+core/fasterp-core
 
 # Los .wasm compilados sí se versionan: docker-compose monta ./modules y el backend
 # los carga al arrancar, así que un clon limpio necesita tenerlos.
@@ -18,7 +18,6 @@ bin/
 
 # Datos en tiempo de ejecución
 uploads/
-backend/server.log
 *.log
 
 # Frontend
@@ -31,3 +30,6 @@ dist/
 # Editor / SO
 .DS_Store
 *.swp
+
+# Ajustes locales de Claude: nunca se versionan (contienen rutas y credenciales de la maquina)
+.claude/settings.local.json

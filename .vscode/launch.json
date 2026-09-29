@@ -2,48 +2,49 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Backend (Go)",
+      "name": "Core: API (Gin)",
       "type": "go",
       "request": "launch",
       "mode": "debug",
-      "program": "${workspaceFolder}/backend/cmd/server",
+      "program": "${workspaceFolder}/core/cmd/server",
       "env": {
-        "FASTERP_DATABASE_URL": "postgres://odoo17:odoo17@localhost:5432/fasterp?sslmode=disable",
+        "FASTERP_DATABASE_URL": "postgres://fasterp:fasterp@localhost:5456/fasterp?sslmode=disable",
         "FASTERP_PORT": "7071",
         "FASTERP_JWT_SECRET": "dev-secret-key-change-in-production",
         "FASTERP_JWT_REFRESH_SECRET": "dev-refresh-secret-change-in-production",
         "FASTERP_MODULES_DIR": "./modules",
         "FASTERP_UPLOAD_DIR": "./uploads",
-        "FASTERP_CORS_ORIGINS": "http://localhost:5173",
+        "FASTERP_CORS_ORIGINS": "http://localhost:7071",
         "FASTERP_RATE_LIMIT": "100",
         "FASTERP_DB_MAX_OPEN": "50",
         "FASTERP_DB_MAX_IDLE": "10"
       },
       "args": [],
       "showLog": true,
-      "cwd": "${workspaceFolder}/backend"
+      "cwd": "${workspaceFolder}/core"
     },
     {
-      "name": "Frontend (Vite)",
-      "type": "node",
+      "name": "Core: UI + API (legacy)",
+      "type": "go",
       "request": "launch",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": [
-        "run",
-        "dev"
-      ],
-      "cwd": "${workspaceFolder}/frontend",
-      "console": "integratedTerminal",
-      "internalConsoleOptions": "neverOpen"
-    }
-  ],
-  "compounds": [
+      "mode": "debug",
+      "program": "${workspaceFolder}/core/main.go",
+      "env": {
+        "FASTERP_MODULES_DIR": "./modules",
+        "FASTERP_UPLOAD_DIR": "./uploads"
+      },
+      "args": [],
+      "showLog": true,
+      "cwd": "${workspaceFolder}/core"
+    },
     {
-      "name": "Full Stack (Backend + Frontend)",
-      "configurations": [
-        "Backend (Go)",
-        "Frontend (Vite)"
-      ]
+      "name": "Core: Tests",
+      "type": "go",
+      "request": "launch",
+      "mode": "test",
+      "program": "${workspaceFolder}/core",
+      "args": ["-test.v"],
+      "cwd": "${workspaceFolder}/core"
     }
   ]
 }

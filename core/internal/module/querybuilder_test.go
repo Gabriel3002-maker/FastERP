@@ -22,14 +22,14 @@ func testModel() ModelRegistration {
 }
 
 func TestBuildSelectDefaultColumns(t *testing.T) {
-	q, args, err := NewQueryBuilder(testModel()).BuildSelect()
+	_, q, args, err := NewQueryBuilder(testModel()).BuildSelect()
 	if err != nil {
 		t.Fatalf("BuildSelect: %v", err)
 	}
 	if len(args) != 0 {
 		t.Errorf("args = %v, want none", args)
 	}
-	for _, col := range []string{`"id"`, `"name"`, `"amount"`, `"won"`, `"created_at"`, `"updated_at"`} {
+	for _, col := range []string{`base.id`, `base."name"`, `base."amount"`, `base."won"`, `base.created_at`, `base.updated_at`} {
 		if !strings.Contains(q, col) {
 			t.Errorf("query %q missing column %s", q, col)
 		}
@@ -43,7 +43,7 @@ func TestBuildSelectParameterizesWhereValues(t *testing.T) {
 	qb := NewQueryBuilder(testModel())
 	qb.Where("tenant_id", "=", "t-1").Where("name", "=", "'; DROP TABLE users; --")
 
-	q, args, err := qb.BuildSelect()
+	_, q, args, err := qb.BuildSelect()
 	if err != nil {
 		t.Fatalf("BuildSelect: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestBuildSelectRejectsUnknownIdentifiers(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			qb := NewQueryBuilder(testModel())
 			tc.mut(qb)
-			if _, _, err := qb.BuildSelect(); err == nil {
+			if _, _, _, err := qb.BuildSelect(); err == nil {
 				t.Fatal("expected an error, got nil")
 			}
 		})
@@ -86,8 +86,23 @@ func TestBuildSelectRejectsUnknownIdentifiers(t *testing.T) {
 func TestBuildSelectRejectsUnsafeTableName(t *testing.T) {
 	m := testModel()
 	m.TableName = `users"; DROP TABLE users; --`
-	if _, _, err := NewQueryBuilder(m).BuildSelect(); err == nil {
+	if _, _, _, err := NewQueryBuilder(m).BuildSelect(); err == nil {
 		t.Fatal("expected an error for an unsafe table name, got nil")
+	}
+}
+
+func TestBuildSelectMany2OneJoins(t *testing.T) {
+	m := testModel()
+	m.Manifest.Fields = append(m.Manifest.Fields, FieldDef{Name: "company_id", Type: "many2one", RelatedModel: "company", RelatedField: "name"})
+	_, q, _, err := NewQueryBuilder(m).BuildSelect()
+	if err != nil {
+		t.Fatalf("BuildSelect: %v", err)
+	}
+	if !strings.Contains(q, "LEFT JOIN \"mod_\"" ) && !strings.Contains(q, "LEFT JOIN") {
+		t.Fatalf("expected query with LEFT JOIN, got %q", q)
+	}
+	if !strings.Contains(q, "company_id_display") {
+		t.Fatalf("expected display alias in query, got %q", q)
 	}
 }
 

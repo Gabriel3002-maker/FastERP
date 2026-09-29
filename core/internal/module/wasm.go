@@ -15,7 +15,7 @@ import (
 )
 
 type WasmRuntime struct {
-	ctx    context.Context
+	ctx     context.Context
 	runtime wazero.Runtime
 }
 
@@ -230,7 +230,7 @@ func (wm *WasmModule) callLifecycle(name string) error {
 	return err
 }
 
-func (wm *WasmModule) OnLoad() error  { return wm.callLifecycle("fasterp_on_load") }
+func (wm *WasmModule) OnLoad() error   { return wm.callLifecycle("fasterp_on_load") }
 func (wm *WasmModule) OnUnload() error { return wm.callLifecycle("fasterp_on_unload") }
 
 // LoadWasmModule loads a .wasm file and returns a ModuleInstance + WasmModule.
@@ -299,22 +299,36 @@ func buildCreateTableSQL(tableName string, fields []FieldDef) string {
 	return fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (\n%s\n)", tableName, strings.Join(cols, ",\n"))
 }
 
+// fieldTypeToSQL traduce el vocabulario de tipos del SDK al DDL de Postgres.
+// Debe mantenerse en el mismo conjunto que sdk/types.go: si aquí un tipo cae en
+// el default, la columna se crea como VARCHAR(255) y el CRUD que luego valida
+// contra el manifest espera otro tipo. Ejemplo: "decimal" caía a VARCHAR(255).
 func fieldTypeToSQL(t string) string {
-	switch t {
+	switch strings.ToLower(strings.TrimSpace(t)) {
 	case "string":
 		return "VARCHAR(255)"
 	case "text":
 		return "TEXT"
 	case "int", "integer":
 		return "INTEGER"
-	case "float":
-		return "FLOAT"
+	case "bigint":
+		return "BIGINT"
+	case "float", "decimal", "money", "numeric":
+		return "NUMERIC(18,4)"
 	case "bool", "boolean":
 		return "BOOLEAN"
 	case "date":
 		return "DATE"
-	case "datetime":
+	case "datetime", "timestamp":
 		return "TIMESTAMP"
+	case "json", "jsonb":
+		return "JSONB"
+	case "enum", "selection":
+		return "VARCHAR(255)"
+	case "uuid", "many2one":
+		return "UUID"
+	case "uuid[]":
+		return "UUID[]"
 	default:
 		return "VARCHAR(255)"
 	}

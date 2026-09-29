@@ -1,9 +1,0 @@
-{
-  "name": "hello",
-  "version": "2.0.1",
-  "label": "Hello",
-  "description": "Hello World example module",
-  "author": "FastERP Team",
-  "icon": "globe",
-  "main": "module.wasm"
-}

@@ -38,11 +38,14 @@ type ModelDef struct {
 }
 
 type FieldDef struct {
-	Name     string `json:"name"`
-	Type     string `json:"type"`
-	Label    string `json:"label"`
-	Required bool   `json:"required"`
-	Default  string `json:"default,omitempty"`
+	Name         string `json:"name"`
+	Type         string `json:"type"`
+	Label        string `json:"label"`
+	Required     bool   `json:"required"`
+	Default      string `json:"default,omitempty"`
+	RelatedModule string `json:"related_module,omitempty"`
+	RelatedModel  string `json:"related_model,omitempty"`
+	RelatedField  string `json:"related_field,omitempty"`
 }
 
 type MenuDef struct {

@@ -35,16 +35,23 @@ type KanbanView struct {
 
 // FieldMeta describe un campo para quien tenga que dibujarlo.
 type FieldMeta struct {
-	Name       string   `json:"name"`
-	Type       string   `json:"type"`  // tipo del manifest
-	Input      string   `json:"input"` // control HTML sugerido
-	Label      string   `json:"label"` // encabezado de columna / etiqueta
-	Help       string   `json:"help,omitempty"`
-	Options    []string `json:"options,omitempty"`
-	Required   bool     `json:"required"`
-	Readonly   bool     `json:"readonly,omitempty"`
-	Searchable bool     `json:"searchable"` // admite búsqueda por columna
-	MaxLength  int      `json:"max_length,omitempty"`
+	Name          string   `json:"name"`
+	Type          string   `json:"type"`  // tipo del manifest
+	Input         string   `json:"input"` // control HTML sugerido
+	Label         string   `json:"label"` // encabezado de columna / etiqueta
+	Help          string   `json:"help,omitempty"`
+	Placeholder   string   `json:"placeholder,omitempty"`
+	VisibleIf     string   `json:"visibleIf,omitempty"`
+	RequiredIf    string   `json:"requiredIf,omitempty"`
+	Options       []string `json:"options,omitempty"`
+	Required      bool     `json:"required"`
+	Readonly      bool     `json:"readonly,omitempty"`
+	Computed      bool     `json:"computed,omitempty"`
+	Searchable    bool     `json:"searchable"` // admite búsqueda por columna
+	MaxLength     int      `json:"max_length,omitempty"`
+	RelationModule string   `json:"relation_module,omitempty"`
+	RelationModel  string   `json:"relation_model,omitempty"`
+	RelationField  string   `json:"relation_field,omitempty"`
 }
 
 // ModelMeta es todo lo que el motor de vistas necesita para renderizar un
@@ -95,16 +102,23 @@ func (s *ModuleSDK) Meta(modelName string) (*ModelMeta, error) {
 	for _, name := range order {
 		def := model.Fields[name]
 		fields = append(fields, FieldMeta{
-			Name:       name,
-			Type:       def.Type,
-			Input:      inputControl(def),
-			Label:      labelFor(name, def),
-			Help:       def.Help,
-			Options:    def.Options,
-			Required:   def.Required,
-			Readonly:   def.Readonly,
-			Searchable: def.IsSearchable(),
-			MaxLength:  def.Length,
+			Name:         name,
+			Type:         def.Type,
+			Input:        inputControl(def),
+			Label:        labelFor(name, def),
+			Help:         def.Help,
+			Placeholder:  def.Placeholder,
+			VisibleIf:    def.VisibleIf,
+			RequiredIf:   def.RequiredIf,
+			Options:      def.Options,
+			Required:     def.Required,
+			Readonly:     def.Readonly,
+			Computed:     def.Computed,
+			Searchable:   def.IsSearchable(),
+			MaxLength:    def.Length,
+			RelationModule: def.RelatedModule,
+			RelationModel:  def.RelatedModel,
+			RelationField:  def.RelatedField,
 		})
 	}
 
@@ -311,6 +325,10 @@ func inputControl(def *FieldDef) string {
 	switch strings.ToLower(def.Type) {
 	case "text", "json":
 		return "textarea"
+	case "many2one":
+		return "select"
+	case "one2many", "many2many":
+		return "multiselect"
 	case "integer", "int", "bigint", "decimal", "money", "float", "numeric":
 		return "number"
 	case "boolean", "bool":
