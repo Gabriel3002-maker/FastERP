@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/fasterp/backend/db"
+	"github.com/fasterp/backend/sdk"
 )
 
 type AuditHandler struct {
@@ -33,7 +34,7 @@ func (ah *AuditHandler) GetEntityAudit(w http.ResponseWriter, r *http.Request) {
 	limit := 100
 	if limitStr != "" {
 		if l, err := strconv.Atoi(limitStr); err == nil {
-			limit = l
+			limit = sdk.ClampExternalLimit(l, 100)
 		}
 	}
 
@@ -65,7 +66,7 @@ func (ah *AuditHandler) GetUserAudit(w http.ResponseWriter, r *http.Request) {
 	limit := 100
 	if limitStr != "" {
 		if l, err := strconv.Atoi(limitStr); err == nil {
-			limit = l
+			limit = sdk.ClampExternalLimit(l, 100)
 		}
 	}
 
@@ -113,6 +114,7 @@ func (ah *AuditHandler) ExportAudit(w http.ResponseWriter, r *http.Request) {
 	tenantID := r.Header.Get("X-Tenant-ID")
 	startStr := r.URL.Query().Get("start")
 	endStr := r.URL.Query().Get("end")
+	limitStr := r.URL.Query().Get("limit")
 
 	startDate := time.Now().AddDate(0, -1, 0)
 	endDate := time.Now()
@@ -129,7 +131,14 @@ func (ah *AuditHandler) ExportAudit(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	data, err := ah.auditLogger.ExportAudit(r.Context(), tenantID, startDate, endDate)
+	limit := db.MaxAuditExportRows
+	if limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil {
+			limit = sdk.ClampExternalLimit(l, db.MaxAuditExportRows)
+		}
+	}
+
+	data, err := ah.auditLogger.ExportAudit(r.Context(), tenantID, startDate, endDate, limit)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

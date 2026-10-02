@@ -51,6 +51,11 @@ type ModulePlugin interface {
 	Register(mgr interface{}) error
 }
 
+// maxModuleEntryBytes es el tope por entrada dentro de un .zip de módulo.
+// Los .wasm del SDK rondan los 3 MB; 64 MB deja margen de sobra sin abrir la
+// puerta a un zip bomb.
+const maxModuleEntryBytes = 64 << 20
+
 func (m *ModuleManager) ExtractModulePackage(zipPath string) (*ModulePackage, error) {
 	r, err := zip.OpenReader(zipPath)
 	if err != nil {
@@ -63,15 +68,28 @@ func (m *ModuleManager) ExtractModulePackage(zipPath string) (*ModulePackage, er
 	hasher := sha256.New()
 
 	for _, f := range r.File {
+		// Tope por entrada antes de abrir: io.ReadAll de una entrada de zip sin
+		// este chequeo materializa el tamaño descomprimido en RAM, y un .zip
+		// con ratio de compresión alto (zip bomb) tumba el proceso al cargar el
+		// paquete, no al descomprimir en disco.
+		if f.UncompressedSize64 > maxModuleEntryBytes {
+			return nil, fmt.Errorf("entry %s in module package is %d bytes, over the %d limit",
+				f.Name, f.UncompressedSize64, maxModuleEntryBytes)
+		}
+
 		rc, err := f.Open()
 		if err != nil {
 			return nil, err
 		}
 
-		data, err := io.ReadAll(rc)
+		data, err := io.ReadAll(io.LimitReader(rc, maxModuleEntryBytes+1))
 		rc.Close()
 		if err != nil {
 			return nil, err
+		}
+		if int64(len(data)) > maxModuleEntryBytes {
+			return nil, fmt.Errorf("entry %s in module package exceeds the %d limit once decompressed",
+				f.Name, maxModuleEntryBytes)
 		}
 
 		hasher.Write(data)

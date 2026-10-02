@@ -48,6 +48,10 @@ func NewAIHandler(sessionManager *SessionManager, provider, apiKey, model, baseU
 
 const aiRequestTimeout = 60 * time.Second
 
+// maxAIResponseBytes acota lo que se acepta del proveedor de IA. 4 MB cubre
+// de sobra una respuesta de chat con contexto largo.
+const maxAIResponseBytes = 4 << 20
+
 // aiSystemPrompt es fijo — no lo arma el usuario. Le pide al modelo un
 // único objeto JSON, sin cerco de markdown, y documenta el único contrato
 // con el que la página generada puede integrarse con el resto de FastERP:
@@ -283,9 +287,15 @@ func doAIRequest(req *http.Request) ([]byte, error) {
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	// Tope de lectura: la respuesta viene de un servicio externo y no hay
+	// garantía de tamaño. io.ReadAll sin tope deja que un Proveedor (o un
+	// intermediario) dicte el consumo de RAM de este proceso.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxAIResponseBytes))
 	if err != nil {
 		return nil, fmt.Errorf("no se pudo leer la respuesta de la IA: %w", err)
+	}
+	if int64(len(body)) == maxAIResponseBytes {
+		return nil, fmt.Errorf("la IA respondió más de %d bytes; se cortó la lectura", maxAIResponseBytes)
 	}
 	if resp.StatusCode >= 400 {
 		snippet := string(body)

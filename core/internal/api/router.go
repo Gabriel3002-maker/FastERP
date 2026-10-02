@@ -17,6 +17,13 @@ func SetupRouter(cfg *config.Config, modManager *module.ModuleManager) *gin.Engi
 	r := gin.New()
 	r.Use(gin.Recovery())
 
+	// Sin proxies de confianza declarados, ClientIP() se queda con RemoteAddr.
+	// Con el default de gin (confiar en X-Forwarded-For) el cliente elige la
+	// clave del map del rate limiter, así que un flood de IPs inventadas infla
+	// el map entre limpiezas. Si algún día hay reverse proxy, declararlo acá
+	// con SetTrustedProxies en vez de reabrir esto.
+	_ = r.SetTrustedProxies(nil)
+
 	h := NewHandler(modManager, cfg.JWTSecret, cfg.JWTRefreshSecret, r)
 
 	// Security middleware
@@ -145,6 +152,16 @@ func corsMiddleware(origins string) gin.HandlerFunc {
 type rateLimiter struct {
 	mu       sync.Mutex
 	visitors map[string]*visitor
+	stop     chan struct{}
+}
+
+// Close detiene el goroutine de barrido del limiter. Idempotente.
+func (r *rateLimiter) Close() {
+	select {
+	case <-r.stop:
+	default:
+		close(r.stop)
+	}
 }
 
 type visitor struct {
@@ -155,18 +172,30 @@ type visitor struct {
 func rateLimiterMiddleware(maxRequests int) gin.HandlerFunc {
 	limiter := &rateLimiter{
 		visitors: make(map[string]*visitor),
+		stop:     make(chan struct{}),
 	}
 
+	// Barrido con salida: el for{} sin condición de corte dejaba una goroutine
+	// eternal por cada rateLimiterMiddleware(), y como el middleware se
+	// construye dos veces (global + /api/auth) eso son dos hilos despertando
+	// cada minuto para siempre. Si el router se reconstruye (tests, recarga de
+	// módulos) las anteriores seguían acumulándose.
 	go func() {
+		ticker := time.NewTicker(1 * time.Minute)
+		defer ticker.Stop()
 		for {
-			time.Sleep(1 * time.Minute)
-			limiter.mu.Lock()
-			for ip, v := range limiter.visitors {
-				if time.Since(v.lastSeen) > 1*time.Minute {
-					delete(limiter.visitors, ip)
+			select {
+			case <-limiter.stop:
+				return
+			case <-ticker.C:
+				limiter.mu.Lock()
+				for ip, v := range limiter.visitors {
+					if time.Since(v.lastSeen) > 1*time.Minute {
+						delete(limiter.visitors, ip)
+					}
 				}
+				limiter.mu.Unlock()
 			}
-			limiter.mu.Unlock()
 		}
 	}()
 
