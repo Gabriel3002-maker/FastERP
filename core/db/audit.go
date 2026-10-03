@@ -250,16 +250,27 @@ func (al *AuditLogger) GetAuditStats(ctx context.Context, tenantID string, days 
 	return stats, nil
 }
 
-// ExportAudit exporta auditoría a JSON/CSV
-func (al *AuditLogger) ExportAudit(ctx context.Context, tenantID string, startDate, endDate time.Time) ([]byte, error) {
+// MaxAuditExportRows es el techo de filas que un export puede materializar.
+// El rango por defecto es un mes: sin este tope, tenant con histórico grande
+// carga el log entero en un []AuditEvent y además lo serializa a un []byte
+// completo, o sea ~2x el log en RAM dentro de un solo request.
+const MaxAuditExportRows = 10000
+
+// ExportAudit exporta auditoría a JSON
+func (al *AuditLogger) ExportAudit(ctx context.Context, tenantID string, startDate, endDate time.Time, limit int) ([]byte, error) {
+	if limit <= 0 || limit > MaxAuditExportRows {
+		limit = MaxAuditExportRows
+	}
+
 	query := `
 		SELECT id, tenant_id, user_id, action, entity, entity_id, before, after, status, error, ip_address, user_agent, created_at
 		FROM audit_log
 		WHERE tenant_id = $1 AND created_at BETWEEN $2 AND $3
 		ORDER BY created_at DESC
+		LIMIT $4
 	`
 
-	rows, err := al.db.Query(ctx, query, tenantID, startDate, endDate)
+	rows, err := al.db.Query(ctx, query, tenantID, startDate, endDate, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -270,7 +281,7 @@ func (al *AuditLogger) ExportAudit(ctx context.Context, tenantID string, startDa
 		var event AuditEvent
 		var beforeStr, afterStr sql.NullString
 
-		rows.Scan(
+		if err := rows.Scan(
 			&event.ID,
 			&event.TenantID,
 			&event.UserID,
@@ -284,7 +295,10 @@ func (al *AuditLogger) ExportAudit(ctx context.Context, tenantID string, startDa
 			&event.IPAddress,
 			&event.UserAgent,
 			&event.CreatedAt,
-		)
+		); err != nil {
+			log.Printf("[Audit] Error scanning row en export: %v", err)
+			continue
+		}
 
 		if beforeStr.Valid {
 			json.Unmarshal([]byte(beforeStr.String), &event.Before)

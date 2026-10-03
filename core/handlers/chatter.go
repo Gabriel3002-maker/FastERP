@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+
+	"github.com/fasterp/backend/sdk"
 )
 
 type ChatterHandler struct {
@@ -27,7 +29,8 @@ func (h *ChatterHandler) Users(w http.ResponseWriter, r *http.Request) {
 		`SELECT id, username, COALESCE(username, '') as name
 		 FROM users
 		 WHERE tenant_id = $1 AND active = true
-		 ORDER BY username ASC`, tenantID)
+		 ORDER BY username ASC
+		 LIMIT $2`, tenantID, sdk.MaxExternalLimit)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -75,7 +78,7 @@ func (h *ChatterHandler) Notifications(w http.ResponseWriter, r *http.Request) {
 	limit := 50
 	if limitStr != "" {
 		if l, err := strconv.Atoi(limitStr); err == nil {
-			limit = l
+			limit = sdk.ClampExternalLimit(l, 50)
 		}
 	}
 

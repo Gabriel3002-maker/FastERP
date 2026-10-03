@@ -58,7 +58,7 @@ const (
 //
 // La extracción va antes de aplicar el esquema a propósito: es la parte que
 // toca el disco y la que un paquete manipulado puede usar para escribir fuera,
-// así que es la que se defiende. Un módulo que no se puede descomcribir no
+// así que es la que se defiende. Un módulo que no se puede descomprimir no
 // llega a ejecutar una sentencia.
 func (m *ModuleManager) ExtractModulePackage(zipPath string) (*ModulePackage, error) {
 	r, err := zip.OpenReader(zipPath)
@@ -79,6 +79,9 @@ func (m *ModuleManager) ExtractModulePackage(zipPath string) (*ModulePackage, er
 	budget := int64(maxPackageBytes)
 
 	for _, f := range r.File {
+		// Tope por entrada antes de abrir. El tamaño declarado en el zip es un
+		// dato que puede mentir, así que se comprueba dos veces: aquí por lo que
+		// promete, y abajo por lo que sale de verdad.
 		if f.UncompressedSize64 > uint64(maxEntryBytes) {
 			return nil, fmt.Errorf("entrada %q descomprime a %d bytes, el máximo por entrada es %d",
 				f.Name, f.UncompressedSize64, maxEntryBytes)

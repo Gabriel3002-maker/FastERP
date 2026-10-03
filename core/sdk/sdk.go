@@ -1184,6 +1184,23 @@ func normalizeLimit(limit int) int {
 	return DefaultPageSize
 }
 
+// MaxExternalLimit es el techo para un limit que viene de fuera (query string,
+// headers) en endpoints que no son el List del SDK: sin tope, ?limit=999999999
+// materializa la tabla entera en memoria y el proceso muere por OOM.
+const MaxExternalLimit = 1000
+
+// ClampExternalLimit acota un limit externo a [1, MaxExternalLimit]. Un valor
+// no parseable, cero o negativo devuelve def.
+func ClampExternalLimit(limit int, def int) int {
+	if limit <= 0 {
+		return def
+	}
+	if limit > MaxExternalLimit {
+		return MaxExternalLimit
+	}
+	return limit
+}
+
 // selectColumns lista las columnas a devolver: nunca incluye tenant_id.
 func selectColumns(model *ModelDef) []string {
 	cols := []string{"id"}
