@@ -247,16 +247,30 @@ func IndexSQL(m *Manifest, md *ModelDef) []string {
 	return out
 }
 
+// tenantPolicyExpr es la condición de aislamiento por tenant.
+//
+// El GUC se lee con missing_ok=true y se envuelve en NULLIF a propósito: una
+// conexión que nunca fijó tenant (el pool compartido, usado para el DDL) no
+// debe reventar con "unrecognized configuration parameter", sino devolver NULL
+// y por tanto cero filas. Falla cerrado.
+const tenantPolicyExpr = `tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid`
+
 // RLS deja activa la seguridad por fila de una tabla de módulo.
 //
-// El tenant va siempre primero en los índices únicos y toda consulta pasa por
-// db.Executor(c), así que la política sobre tenant_id es lo que impide que un
-// WHERE olvidado devuelva filas de otro tenant.
+// FORCE no es opcional. El rol con el que conecta la aplicación es el dueño de
+// las tablas que crea (tiene CREATE ON SCHEMA public), y PostgreSQL no evalúa
+// las políticas para el dueño: sin FORCE, ENABLE ROW LEVEL SECURITY no hace
+// nada y el cruce de tenants depende al cien por cien de que cada consulta
+// lleve su WHERE tenant_id. Con FORCE, un WHERE olvidado deja de filtrar.
+//
+// La segunda capa no es un adorno: es la que cubre los handlers futuros, los
+// scripts de un módulo y el DDL que se ejecuta desde una ruta de escritura.
 func RLS(table string) []string {
 	return []string{
 		fmt.Sprintf("ALTER TABLE %s ENABLE ROW LEVEL SECURITY", table),
+		fmt.Sprintf("ALTER TABLE %s FORCE ROW LEVEL SECURITY", table),
 		fmt.Sprintf("DROP POLICY IF EXISTS tenant_isolation ON %s", table),
-		fmt.Sprintf("CREATE POLICY tenant_isolation ON %s USING (tenant_id = current_setting('app.tenant_id')::uuid) WITH CHECK (tenant_id = current_setting('app.tenant_id')::uuid)", table),
+		fmt.Sprintf("CREATE POLICY tenant_isolation ON %s FOR ALL USING (%s) WITH CHECK (%s)", table, tenantPolicyExpr, tenantPolicyExpr),
 	}
 }
 
@@ -285,7 +299,7 @@ func HistoryTable(moduleName, modelName string) string {
 // historial se escribiría en una tabla con otro nombre que la que se consulta.
 func HistoryDDL(moduleName, modelName string) []SchemaStatement {
 	table := HistoryTable(moduleName, modelName)
-	policy := fmt.Sprintf("USING (tenant_id = current_setting('app.tenant_id')::uuid) WITH CHECK (tenant_id = current_setting('app.tenant_id')::uuid)")
+	policy := fmt.Sprintf("USING (%s) WITH CHECK (%s)", tenantPolicyExpr, tenantPolicyExpr)
 	return []SchemaStatement{
 		{SQL: fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -301,6 +315,9 @@ func HistoryDDL(moduleName, modelName string) []SchemaStatement {
 		{SQL: fmt.Sprintf("CREATE INDEX IF NOT EXISTS idx_%s_%s_hist ON %s (record_id, changed_at DESC)", moduleName, modelName, table),
 			What: "crear índice del historial"},
 		{SQL: fmt.Sprintf("ALTER TABLE %s ENABLE ROW LEVEL SECURITY", table), What: "activar RLS en " + table},
+		// FORCE por lo mismo que en RLS(): la aplicación es la dueña de esta
+		// tabla y sin FORCE la política no se llega a evaluar.
+		{SQL: fmt.Sprintf("ALTER TABLE %s FORCE ROW LEVEL SECURITY", table), What: "forzar RLS en " + table},
 		{SQL: fmt.Sprintf("DROP POLICY IF EXISTS tenant_isolation ON %s", table), What: "rehacer política de " + table},
 		{SQL: fmt.Sprintf("CREATE POLICY tenant_isolation ON %s %s", table, policy), What: "crear política de " + table},
 	}

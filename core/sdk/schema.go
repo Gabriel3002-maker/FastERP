@@ -335,12 +335,22 @@ func (s *ModuleSDK) existingColumns(ctx context.Context, table string) (map[stri
 
 // ensureRLS activa row-level security y la política de aislamiento por tenant.
 //
-// Ojo: si el rol de conexión es superusuario (o tiene BYPASSRLS) PostgreSQL
-// ignora estas políticas. El aislamiento real lo sigue garantizando el
-// "WHERE tenant_id" que el SDK añade en toda consulta; RLS es la segunda capa.
+// FORCE no es opcional, y no por superusuario: el rol con el que conecta la
+// aplicación es el dueño de las tablas que crea, y PostgreSQL no evalúa las
+// políticas para el dueño. Sin FORCE, ENABLE ROW LEVEL SECURITY no hace nada y
+// el aislamiento depende al cien por cien del WHERE tenant_id que añade el SDK
+// en cada consulta. Con FORCE, un WHERE olvidado deja de filtrar.
+//
+// El superusuario (o un rol con BYPASSRLS) sí se salta todo, incluso con
+// FORCE; de eso avisa CheckRLSEnforcement al arrancar.
 func (s *ModuleSDK) ensureRLS(ctx context.Context, table string) error {
 	if _, err := s.DB.ExecContext(ctx,
 		fmt.Sprintf("ALTER TABLE %s ENABLE ROW LEVEL SECURITY", table)); err != nil {
+		return err
+	}
+
+	if _, err := s.DB.ExecContext(ctx,
+		fmt.Sprintf("ALTER TABLE %s FORCE ROW LEVEL SECURITY", table)); err != nil {
 		return err
 	}
 

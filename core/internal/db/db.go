@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -21,14 +22,31 @@ type QueryExecutor interface {
 }
 
 // Executor returns the per-request connection pinned by TenantMiddleware, which has
-// app.tenant_id configured so RLS policies apply. It falls back to the shared pool,
-// which carries no tenant context — that fallback is for startup and public paths
-// that resolve their own tenant, never for handlers behind TenantMiddleware.
+// app.tenant_id configured so RLS policies apply.
+//
+// There is no fallback to the shared pool, and that is deliberate. The shared
+// pool carries whatever app.tenant_id the last request left on it, so a handler
+// that reached it by mistake would not run "without a tenant context" — it would
+// run under someone else's. Silently returning DB made that mistake invisible,
+// and the query would succeed. Any handler behind TenantMiddleware gets its
+// connection from it, so a missing db_conn means the middleware did not run:
+// that is a routing bug, and it panics rather than reading the wrong tenant's
+// data. gin.Recovery turns it into a 500, which is the safe direction.
+//
+// Routes that legitimately have no tenant context (liveness, readiness, tenant
+// resolution, public pages) do not go through Executor: they use DB or
+// AcquireConn explicitly.
 func Executor(c *gin.Context) QueryExecutor {
-	if conn, ok := c.Get("db_conn"); ok {
-		return conn.(*sql.Conn)
+	v, ok := c.Get("db_conn")
+	if !ok {
+		panic("db.Executor called without TenantMiddleware: no connection pinned to a tenant. " +
+			"This handler is reachable outside a tenant-scoped route.")
 	}
-	return DB
+	conn, ok := v.(*TenantConn)
+	if !ok {
+		panic(fmt.Sprintf("db.Executor: unexpected db_conn type %T", v))
+	}
+	return conn
 }
 
 type ConnConfig struct {
@@ -66,10 +84,14 @@ func Close() {
 // AcquireConn gets a dedicated connection and sets the RLS tenant context.
 // The caller MUST close the returned connection after use.
 //
-// app.tenant_id is set with is_local=false so it survives for the whole session
-// rather than only the current transaction — the connection is scoped to one
-// request and returned to the pool on Close, which resets it.
-func AcquireConn(ctx context.Context, tenantID string) (*sql.Conn, error) {
+// app.tenant_id se fija con is_local=false —de sesión, no de transacción—
+// porque el código no abre una transacción por petición. Eso hace obligatorio
+// limpiarlo al devolver la conexión: sql.Conn.Close() devuelve la conexión
+// física al pool, database/sql solo invoca driver.SessionResetter, y lib/pq no
+// toca ninguna GUC. Sin el RESET, la conexión vuelve al pool con el tenant del
+// request anterior pegado, y la siguiente consulta que use el pool compartido
+// se ejecuta bajo el contexto de otro usuario. Por eso Close() va sobreescrito.
+func AcquireConn(ctx context.Context, tenantID string) (*TenantConn, error) {
 	conn, err := DB.Conn(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to acquire connection: %w", err)
@@ -79,7 +101,40 @@ func AcquireConn(ctx context.Context, tenantID string) (*sql.Conn, error) {
 		conn.Close()
 		return nil, fmt.Errorf("failed to set tenant context: %w", err)
 	}
-	return conn, nil
+	return &TenantConn{Conn: conn}, nil
+}
+
+// TenantConn es una conexión fijada a un tenant. Embebe *sql.Conn, así que
+// satisface QueryExecutor sin cambiar los handlers, y sobreescribe Close para
+// limpiar app.tenant_id antes de devolverla al pool.
+//
+// El reset va con un contexto nuevo y sin cancelación: si el contexto de la
+// petición ya está cancelado, el RESET no llegaría a ejecutarse y la conexión
+// volvería al pool sucia. Por eso no se reutiliza el ctx del request.
+type TenantConn struct {
+	*sql.Conn
+	closeOnce sync.Once
+	err       error
+}
+
+// Close limpia el contexto de tenant y devuelve la conexión al pool. Es
+// idempotente: un segundo Close no hace nada y no devuelve error, porque
+// database/sql no admite cerrar dos veces la misma Conn.
+func (t *TenantConn) Close() error {
+	t.closeOnce.Do(func() {
+		// El RESET va con un contexto nuevo: si el de la petición ya está
+		// cancelado, no llegaría a ejecutarse y la conexión volvería al pool con
+		// el tenant del request anterior pegado.
+		if _, err := t.Conn.ExecContext(context.Background(), "RESET app.tenant_id"); err != nil {
+			// Se anota el fallo pero se cierra igual: soltar la conexión es
+			// obligatorio o el pool se agota.
+			t.err = fmt.Errorf("failed to reset tenant context: %w", err)
+		}
+		if err := t.Conn.Close(); err != nil && t.err == nil {
+			t.err = err
+		}
+	})
+	return t.err
 }
 
 // ApplyTenantRLS enables and enforces row-level security on a tenant-scoped table.

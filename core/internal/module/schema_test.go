@@ -347,7 +347,11 @@ models:
 		upper := strings.ToUpper(s.SQL)
 		idem := strings.Contains(upper, "IF NOT EXISTS") ||
 			strings.Contains(upper, "IF EXISTS") ||
+			// ENABLE y FORCE no admiten IF NOT EXISTS: ambas marcan una bandera
+			// en la relación, así que repetirlas no hace nada. Comprobado contra
+			// postgres:16, no es una suposición.
 			strings.Contains(upper, "ENABLE ROW LEVEL SECURITY") ||
+			strings.Contains(upper, "FORCE ROW LEVEL SECURITY") ||
 			// CREATE POLICY no es idempotente por sí solo; su idempotencia
 			// viene del DROP de la sentencia anterior, que se comprueba
 			// justo debajo.

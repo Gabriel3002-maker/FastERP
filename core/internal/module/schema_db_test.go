@@ -144,7 +144,8 @@ models:
 
 	// Se inserta sin dar valores: los defaults tienen que salir solos.
 	var tenant = "00000000-0000-0000-0000-000000000001"
-	_, err := db.ExecContext(ctx,
+	conn := conTenant(t, db, tenant)
+	_, err := conn.ExecContext(ctx,
 		"INSERT INTO mod_t_cosa (tenant_id, nombre) VALUES ($1, $2) RETURNING estado, intentos, activo, apodo",
 		tenant, "x")
 	if err != nil {
@@ -157,7 +158,7 @@ models:
 		activo   bool
 		apodo    string
 	)
-	err = db.QueryRowContext(ctx,
+	err = conn.QueryRowContext(ctx,
 		"SELECT estado, intentos, activo, apodo FROM mod_t_cosa WHERE tenant_id = $1 AND nombre = 'x'",
 		tenant).Scan(&estado, &intentos, &activo, &apodo)
 	if err != nil {
@@ -315,4 +316,29 @@ func indexOf(h, n string) int {
 		}
 	}
 	return -1
+}
+
+// conTenant fija el contexto de tenant en una conexión dedicada y la devuelve.
+//
+// Hace falta desde que las tablas de módulo llevan FORCE ROW LEVEL SECURITY:
+// con la política activa, escribir una fila de un tenant sin tener ese tenant
+// fijado en la conexión es un INSERT rechazado. No es un estorbo del test — es
+// exactamente lo que hay que impedir, y por eso el test tiene que escribir
+// como lo hace el middleware.
+//
+// Se usa una conexión dedicada y no el pool a propósito: app.tenant_id es un
+// GUC de sesión, y el pool puede devolver otra conexión física entre el
+// set_config y el INSERT, con lo que el test mediría el contexto equivocado.
+func conTenant(t *testing.T, db *sql.DB, tenant string) *sql.Conn {
+	t.Helper()
+	ctx := context.Background()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("db.Conn: %v", err)
+	}
+	t.Cleanup(func() { conn.Close() })
+	if _, err := conn.ExecContext(ctx, "SELECT set_config('app.tenant_id', $1, false)", tenant); err != nil {
+		t.Fatalf("set_config: %v", err)
+	}
+	return conn
 }
