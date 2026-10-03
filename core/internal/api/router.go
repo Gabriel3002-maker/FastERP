@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"strings"
@@ -8,14 +9,29 @@ import (
 	"time"
 
 	"github.com/fasterp/backend/internal/config"
+	"github.com/fasterp/backend/internal/db"
 	"github.com/fasterp/backend/internal/module"
 	"github.com/gin-gonic/gin"
 )
+
+// maxRequestBody acota el cuerpo de las peticiones que no son de subida. La
+// Biggest ruta de subida real es multipart con imágenes, y va en su propio
+// grupo; el resto de la API recibe JSON de un módulo, y 8 MiB de sobra.
+const maxRequestBody = 8 << 20
 
 func SetupRouter(cfg *config.Config, modManager *module.ModuleManager) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Recovery())
+
+	// gin trusts X-Forwarded-For from ANY address unless told otherwise, and the
+	// rate limiter keys on that value. Left at the default, an attacker rotates
+	// the header and gets an unlimited supply of attempts against /api/auth/login.
+	// When a reverse proxy is actually in front, set FASTERP_TRUSTED_PROXIES to
+	// its CIDRs; with none set, only the peer address counts.
+	if err := r.SetTrustedProxies(cfg.TrustedProxies); err != nil {
+		log.Fatalf("[FATAL] FASTERP_TRUSTED_PROXIES is invalid: %v", err)
+	}
 
 	h := NewHandler(modManager, cfg.JWTSecret, cfg.JWTRefreshSecret, r)
 
@@ -39,11 +55,6 @@ func SetupRouter(cfg *config.Config, modManager *module.ModuleManager) *gin.Engi
 	api := r.Group("/api", h.TenantMiddleware(), h.AuthMiddleware())
 	{
 		api.GET("/modules", h.ListModules)
-		api.POST("/modules/install", h.InstallModule)
-		api.POST("/modules/:name/uninstall", h.UninstallModule)
-		api.POST("/modules/:name/toggle", h.ToggleModule)
-		api.GET("/modules/:name/routes", h.ModuleRoutes)
-
 		api.GET("/me", h.GetCurrentUser)
 		api.GET("/menus", h.GetMenus)
 		api.POST("/me/change-password", h.ChangePassword)
@@ -54,6 +65,15 @@ func SetupRouter(cfg *config.Config, modManager *module.ModuleManager) *gin.Engi
 		{
 			admin.GET("/tenants", h.ListTenants)
 			admin.GET("/tenants/:id", h.GetTenant)
+
+			// Installing a module writes its schema into the database and
+			// executes code inside this process. That is an administrative
+			// action: any authenticated user must not reach it, or a normal
+			// account can escalate to admin with a single upload.
+			admin.POST("/modules/install", h.InstallModule)
+			admin.POST("/modules/:name/uninstall", h.UninstallModule)
+			admin.POST("/modules/:name/toggle", h.ToggleModule)
+			admin.GET("/modules/:name/routes", h.ModuleRoutes)
 		}
 
 		// Auto-generated module CRUD: /api/{module}/{model}[/{id}].
@@ -62,31 +82,41 @@ func SetupRouter(cfg *config.Config, modManager *module.ModuleManager) *gin.Engi
 		h.RegisterModuleDataRoutes(api)
 	}
 
-	// Health check
+	// Liveness: el proceso responde. No toca la base a propósito — si Postgres
+	// cae, reiniciar el backend no arregla nada y solo genera un bucle de reinicios.
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok", "timestamp": time.Now().Unix()})
 	})
 
-	// Custom routes declared in module manifests. These use module-chosen paths, so
-	// unlike model CRUD they cannot go through a single dispatcher. They are bound
-	// once here, at startup, and never after the engine begins serving — a module
-	// installed at runtime needs a restart before its custom routes resolve.
-	for _, inst := range module.Global.All() {
-		if h.trackedRoutes[inst.Manifest.Name] == nil {
-			h.trackedRoutes[inst.Manifest.Name] = make(map[string]bool)
-		}
-		for _, route := range inst.Routes {
-			key := route.Method + ":" + route.Path
-			if h.trackedRoutes[inst.Manifest.Name][key] {
-				continue
-			}
-			h.trackedRoutes[inst.Manifest.Name][key] = true
+	// Readiness: el proceso sirve tráfico de verdad. Aquí sí se consulta la base,
+	// porque a diferencia del anterior un "sí" sin base significa.acceptar
+	// peticiones que van a fallar una por una.
+	r.GET("/readyz", func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
+		defer cancel()
 
-			handler := route.Handler
-			if handler == nil {
-				handler = h.wasmModuleHandler(inst.Manifest.Name, route.Path)
-			}
-			r.Handle(route.Method, route.Path, handler)
+		if err := db.DB.PingContext(ctx); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "degraded", "database": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "ready"})
+	})
+
+	// Rutas propias de un módulo.
+	//
+	// Ninguna se puede servir: un módulo ya no es un binario, así que no hay
+	// código que responder a una ruta que el módulo declare. Se avisa en vez de
+	// ignorarlas en silencio, porque un módulo con "routes" está pidiendo algo
+	// que el core ya no hace y conviene que se note al arrancar.
+	//
+	// Lo que un módulo necesite más allá del CRUD va en Go nativo en
+	// internal/api, no en el manifest. Por eso RegisterStoreRoutes y
+	// RegisterWebRoutes, más abajo: los endpoints de sitio_web y tienda_web son
+	// código del core, y el manifest solo los documenta.
+	for _, inst := range module.Global.All() {
+		for _, route := range inst.Routes {
+			log.Printf("[API] el módulo %s declara la ruta %s %s, pero un módulo ya no puede registrar rutas: muévela a internal/api",
+				inst.Manifest.Name, route.Method, route.Path)
 		}
 	}
 
@@ -101,40 +131,79 @@ func SetupRouter(cfg *config.Config, modManager *module.ModuleManager) *gin.Engi
 
 func securityHeadersMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Header("X-Content-Type-Options", "nosniff")
-		c.Header("X-Frame-Options", "DENY")
-		c.Header("X-XSS-Protection", "1; mode=block")
-		c.Header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
-		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
-		c.Header("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+		h := c.Writer.Header()
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("X-XSS-Protection", "1; mode=block")
+		h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		h.Set("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+
+		// El admin es una SPA que carga su propio bundle y sirve ficheros subidos
+		// por el usuario. Un XSS aquí se lleva la sesión, y con ella el token
+		// guardado, así que la CSP es la única contención real. 'unsafe-inline' en
+		// stylesheet es deliberado: el cliente actual inyecta estilos de los módulos
+		// que carga. En script no se cede nada.
+		h.Set("Content-Security-Policy", strings.Join([]string{
+			"default-src 'self'",
+			"script-src 'self'",
+			"style-src 'self' 'unsafe-inline'",
+			"img-src 'self' data: blob:",
+			"font-src 'self' data:",
+			"connect-src 'self'",
+			"frame-ancestors 'none'",
+			"base-uri 'self'",
+			"form-action 'self'",
+			"object-src 'none'",
+		}, "; "))
+
+		// Sin esto, ShouldBindJSON lee el cuerpo entero en memoria: un POST con
+		// Content-Length enorme contra cualquier ruta JSON es un OOM.
+		if c.Request.Body != nil && c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead {
+			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxRequestBody)
+		}
 		c.Next()
 	}
 }
 
+// corsMiddleware solo devuelve cabeceras CORS cuando el Origin está en la lista.
+//
+// Con "*" en la configuración se devolvía el Origin que trae la petición, lo que
+// convierte cualquier sitio en un origen de confianza: permite credenciales y,
+// si además hay cookies, lectura de la respuesta. Un comodín no es "permite
+// todo", es "permite a cualquiera". Se avisa y no se concede nada.
 func corsMiddleware(origins string) gin.HandlerFunc {
-	allowedOrigins := strings.Split(origins, ",")
-	for i := range allowedOrigins {
-		allowedOrigins[i] = strings.TrimSpace(allowedOrigins[i])
+	allowedOrigins := make(map[string]bool, 8)
+	wildcard := false
+	for _, o := range strings.Split(origins, ",") {
+		o = strings.TrimSpace(o)
+		switch {
+		case o == "":
+		case o == "*":
+			wildcard = true
+		default:
+			allowedOrigins[o] = true
+		}
+	}
+	if wildcard {
+		log.Printf("[WARN] FASTERP_CORS_ORIGINS contiene '*': no se envió ninguna cabecera CORS. Lista los orígenes reales.")
 	}
 
 	return func(c *gin.Context) {
 		origin := c.GetHeader("Origin")
-		allowed := false
-		for _, o := range allowedOrigins {
-			if o == "*" || o == origin {
-				allowed = true
-				break
-			}
-		}
-		if allowed {
-			c.Header("Access-Control-Allow-Origin", origin)
-			c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			c.Header("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Tenant-ID")
-			c.Header("Access-Control-Expose-Headers", "Content-Disposition")
-			c.Header("Access-Control-Max-Age", "86400")
+		if origin != "" && allowedOrigins[origin] {
+			h := c.Writer.Header()
+			h.Set("Access-Control-Allow-Origin", origin)
+			h.Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			h.Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Tenant-ID")
+			h.Set("Access-Control-Expose-Headers", "Content-Disposition")
+			h.Set("Access-Control-Max-Age", "86400")
+			// Sin esto, una respuesta cacheada para un origen se puede servir a
+			// otro desde la caché compartida.
+			h.Set("Vary", "Origin")
 		}
 
-		if c.Request.Method == "OPTIONS" {
+		if c.Request.Method == http.MethodOptions {
 			c.AbortWithStatus(http.StatusNoContent)
 			return
 		}
@@ -142,6 +211,11 @@ func corsMiddleware(origins string) gin.HandlerFunc {
 	}
 }
 
+// rateLimiter cuenta peticiones por IP en una ventana fija de un minuto.
+//
+// Vive en memoria del proceso: con una sola instancia es correcto, y con varias
+// el límite efectivo se multiplica por el número de réplicas. Es una decisión
+// consciente, no un olvido — para un límite compartido haría falta Redis.
 type rateLimiter struct {
 	mu       sync.Mutex
 	visitors map[string]*visitor
@@ -152,23 +226,54 @@ type visitor struct {
 	lastSeen time.Time
 }
 
+const rateLimitWindow = time.Minute
+
+// maxTrackedVisitors acota el mapa. Sin tope, cada IP distinta vive hasta un
+// minuto y un barrido de IPs de Botnet lo infla sin límite.
+const maxTrackedVisitors = 50000
+
+// sweeperOnce arranca un único barrido para todos los limiters del proceso.
+// Antes cada llamada a SetupRouter lanzaba su propia goroutine en bucle sin fin,
+// así que montar el router N veces —en los tests, en un reload— dejaba N
+// barridos vivos para siempre.
+var (
+	sweeperOnce sync.Once
+	sweeperMu   sync.Mutex
+	sweepers    []*rateLimiter
+)
+
+func registerSweeper(l *rateLimiter) {
+	sweeperMu.Lock()
+	sweepers = append(sweepers, l)
+	sweeperMu.Unlock()
+
+	sweeperOnce.Do(func() {
+		go func() {
+			t := time.NewTicker(rateLimitWindow)
+			defer t.Stop()
+			for range t.C {
+				sweeperMu.Lock()
+				list := append([]*rateLimiter(nil), sweepers...)
+				sweeperMu.Unlock()
+				for _, l := range list {
+					l.mu.Lock()
+					for ip, v := range l.visitors {
+						if time.Since(v.lastSeen) > rateLimitWindow {
+							delete(l.visitors, ip)
+						}
+					}
+					l.mu.Unlock()
+				}
+			}
+		}()
+	})
+}
+
 func rateLimiterMiddleware(maxRequests int) gin.HandlerFunc {
 	limiter := &rateLimiter{
 		visitors: make(map[string]*visitor),
 	}
-
-	go func() {
-		for {
-			time.Sleep(1 * time.Minute)
-			limiter.mu.Lock()
-			for ip, v := range limiter.visitors {
-				if time.Since(v.lastSeen) > 1*time.Minute {
-					delete(limiter.visitors, ip)
-				}
-			}
-			limiter.mu.Unlock()
-		}
-	}()
+	registerSweeper(limiter)
 
 	return func(c *gin.Context) {
 		if strings.HasPrefix(c.Request.URL.Path, "/health") {
@@ -176,37 +281,49 @@ func rateLimiterMiddleware(maxRequests int) gin.HandlerFunc {
 			return
 		}
 
+		// ClientIP() respeta SetTrustedProxies: con la lista vacía devuelve la
+		// dirección del peer, no un X-Forwarded-For que el cliente controle.
 		ip := c.ClientIP()
 		if ip == "" {
 			ip = c.Request.RemoteAddr
 		}
 
+		now := time.Now()
+
 		limiter.mu.Lock()
 		v, exists := limiter.visitors[ip]
-		if !exists {
-			limiter.visitors[ip] = &visitor{count: 1, lastSeen: time.Now()}
+		switch {
+		case !exists:
+			if len(limiter.visitors) >= maxTrackedVisitors {
+				// En vez de seguir creciendo, se caduca lo que lleva más rato
+				// parado: lo que se acaba de meter no puede seguir creciendo.
+				for k, ev := range limiter.visitors {
+					if now.Sub(ev.lastSeen) > rateLimitWindow {
+						delete(limiter.visitors, k)
+					}
+				}
+			}
+			limiter.visitors[ip] = &visitor{count: 1, lastSeen: now}
 			limiter.mu.Unlock()
 			c.Next()
-			return
-		}
 
-		if time.Since(v.lastSeen) > 1*time.Minute {
+		case now.Sub(v.lastSeen) > rateLimitWindow:
 			v.count = 1
-			v.lastSeen = time.Now()
+			v.lastSeen = now
 			limiter.mu.Unlock()
 			c.Next()
-			return
-		}
 
-		v.count++
-		v.lastSeen = time.Now()
-		if v.count > maxRequests {
+		default:
+			v.count++
+			v.lastSeen = now
+			exceeded := v.count > maxRequests
 			limiter.mu.Unlock()
-			log.Printf("[RateLimit] IP %s exceeded limit (%d/min)", ip, maxRequests)
-			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "rate limit exceeded. try again later"})
-			return
+			if exceeded {
+				log.Printf("[RateLimit] IP %s excedió el límite (%d/min)", ip, maxRequests)
+				c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "demasiadas peticiones; inténtalo en un minuto"})
+				return
+			}
+			c.Next()
 		}
-		limiter.mu.Unlock()
-		c.Next()
 	}
 }

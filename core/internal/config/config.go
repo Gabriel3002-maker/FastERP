@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -20,6 +21,9 @@ type Config struct {
 	AuthRateLimit    int
 	MaxOpenConns     int
 	MaxIdleConns     int
+	Seed             bool
+	Dev              bool
+	TrustedProxies   []string
 }
 
 func Load() *Config {
@@ -38,7 +42,22 @@ func Load() *Config {
 		AuthRateLimit:    getEnvInt("FASTERP_AUTH_RATE_LIMIT", 10),
 		MaxOpenConns:     getEnvInt("FASTERP_DB_MAX_OPEN", 50),
 		MaxIdleConns:     getEnvInt("FASTERP_DB_MAX_IDLE", 10),
+		Seed:             getEnvBool("FASTERP_SEED", true),
+		Dev:              getEnvBool("FASTERP_DEV", false),
+		TrustedProxies:   getEnvList("FASTERP_TRUSTED_PROXIES"),
 	}
+}
+
+// ValidateSecretWeak reports whether a secret is unusable in production. It is
+// deliberately not an error in dev: the defaults exist so that `go run` works
+// out of the box, and the same defaults that make that convenient also let
+// anyone who has read the README mint admin tokens.
+func ValidateSecretWeak(secret string) bool {
+	switch secret {
+	case "", "change-me-in-production", "change-me-refresh-secret", "dev-secret", "dev-secret-refresh", "secret":
+		return true
+	}
+	return len(secret) < 16
 }
 
 func getEnv(key, fallback string) string {
@@ -55,4 +74,32 @@ func getEnvInt(key string, fallback int) int {
 		}
 	}
 	return fallback
+}
+
+func getEnvBool(key string, fallback bool) bool {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		log.Printf("[Config] %s=%q is not a boolean, using %v", key, v, fallback)
+		return fallback
+	}
+	return b
+}
+
+func getEnvList(key string) []string {
+	v := os.Getenv(key)
+	if strings.TrimSpace(v) == "" {
+		return nil
+	}
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

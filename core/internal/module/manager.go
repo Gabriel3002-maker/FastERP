@@ -2,363 +2,408 @@ package module
 
 import (
 	"archive/zip"
+	"context"
 	"crypto/sha256"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"plugin"
 	"strings"
 	"sync"
 
 	"github.com/fasterp/backend/internal/db"
 )
 
+// ModuleManager carga, instala y descarga módulos desde el disco.
+//
+// Un módulo es un manifest (module.yaml o manifest.json) más, si quiere, un
+// frontend/ y assets/. No hay binario: el esquema vive en el manifest y el core
+// genera el SQL, así que editar el manifest y recargar es todo el ciclo.
 type ModuleManager struct {
-	mu          sync.RWMutex
-	ModulesDir  string
-	UploadDir   string
-	wasmModules map[string]*WasmModule
+	mu         sync.RWMutex
+	ModulesDir string
+	UploadDir  string
 }
 
 func NewManager(modulesDir, uploadDir string) *ModuleManager {
 	os.MkdirAll(modulesDir, 0755)
 	os.MkdirAll(uploadDir, 0755)
-	return &ModuleManager{
-		ModulesDir:  modulesDir,
-		UploadDir:   uploadDir,
-		wasmModules: make(map[string]*WasmModule),
-	}
-}
-
-func (m *ModuleManager) GetWasmModule(name string) *WasmModule {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.wasmModules[name]
+	return &ModuleManager{ModulesDir: modulesDir, UploadDir: uploadDir}
 }
 
 type ModulePackage struct {
-	Manifest   Manifest
-	PluginPath string
-	Frontend   []byte
-	Checksum   string
+	Manifest *Manifest
+	// ManifestRaw son los bytes tal cual venían en el paquete. Se escriben en
+	// el disco en vez de reserializar el Manifest porque un YAML se escribe
+	// para que una persona lo lea: sus comentarios y su formato son parte del
+	// módulo, y quien acaba de subirlo va a seguir editándolo.
+	ManifestRaw []byte
+	Frontend    []byte
+	Checksum    string
+	Extracted   []string
 }
 
-type ModulePlugin interface {
-	Register(mgr interface{}) error
-}
+// Límites de un paquete de módulo. El tamaño comprimido solo lo acota quien
+// sube el archivo; una entrada de 64 KiB puede descomprimir a gigabytes, y
+// ReadAll sin tope se lleva el proceso por delante.
+const (
+	maxPackageEntries = 256
+	maxPackageBytes   = 128 << 20 // 128 MiB descomprimidos, en total
+	maxEntryBytes     = 32 << 20  // por entrada
+)
 
+// ExtractModulePackage descomprime un paquete de módulo en el directorio de
+// módulos.
+//
+// La extracción va antes de aplicar el esquema a propósito: es la parte que
+// toca el disco y la que un paquete manipulado puede usar para escribir fuera,
+// así que es la que se defiende. Un módulo que no se puede descomcribir no
+// llega a ejecutar una sentencia.
 func (m *ModuleManager) ExtractModulePackage(zipPath string) (*ModulePackage, error) {
 	r, err := zip.OpenReader(zipPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open zip: %w", err)
+		return nil, fmt.Errorf("no se pudo abrir el zip: %w", err)
 	}
 	defer r.Close()
 
-	pkg := &ModulePackage{}
+	if len(r.File) > maxPackageEntries {
+		return nil, fmt.Errorf("el paquete tiene %d entradas, el máximo es %d", len(r.File), maxPackageEntries)
+	}
 
+	pkg := &ModulePackage{}
 	hasher := sha256.New()
 
+	// Budget global de descompresión. Se descuenta de lo que realmente se lee,
+	// no de lo que el zip promete: es el valor comprimido el que miente.
+	budget := int64(maxPackageBytes)
+
 	for _, f := range r.File {
+		if f.UncompressedSize64 > uint64(maxEntryBytes) {
+			return nil, fmt.Errorf("entrada %q descomprime a %d bytes, el máximo por entrada es %d",
+				f.Name, f.UncompressedSize64, maxEntryBytes)
+		}
+
 		rc, err := f.Open()
 		if err != nil {
 			return nil, err
 		}
-
-		data, err := io.ReadAll(rc)
+		// io.LimitReader con un byte de más: si la entrada supera el presupuesto
+		// se detecta por tener n+1 bytes, en lugar de fiarse del tamaño declarado.
+		data, err := io.ReadAll(io.LimitReader(rc, budget+1))
 		rc.Close()
 		if err != nil {
 			return nil, err
 		}
+		if int64(len(data)) > budget {
+			return nil, fmt.Errorf("el paquete descomprime a más de %d bytes en total", int64(maxPackageBytes))
+		}
+		budget -= int64(len(data))
 
 		hasher.Write(data)
 
+		name := filepath.Clean(f.Name)
 		switch {
-		case f.Name == "manifest.json":
-			if err := json.Unmarshal(data, &pkg.Manifest); err != nil {
-				return nil, fmt.Errorf("invalid manifest: %w", err)
+		case isManifestName(name):
+			// El manifest se valida aquí, antes de escribir nada: un paquete con
+			// un manifest inválido no debe dejar archivos en el disco.
+			parsed, err := ParseManifest(data, name)
+			if err != nil {
+				return nil, fmt.Errorf("manifest inválido: %w", err)
 			}
+			pkg.Manifest = parsed
+			pkg.ManifestRaw = data
 
-		case strings.HasSuffix(f.Name, ".so"), strings.HasSuffix(f.Name, ".wasm"):
-			dest := filepath.Join(m.ModulesDir, filepath.Base(f.Name))
-			if err := os.WriteFile(dest, data, 0755); err != nil {
-				return nil, err
-			}
-			pkg.PluginPath = dest
+		case strings.HasSuffix(name, ".so"), strings.HasSuffix(name, ".wasm"),
+			strings.HasSuffix(name, ".dll"), strings.HasSuffix(name, ".dylib"):
+			// Un módulo ya no es un binario. Un .so sería plugin.Open(), que
+			// ejecuta código Go arbitrario en este proceso con los permisos del
+			// servidor; un .wasm es el runtime viejo, que se va. Ninguno tiene un
+			// caso legítimo, y ambos se rechazan antes de tocar el disco.
+			return nil, fmt.Errorf("el paquete incluye un binario ejecutable (%s): un módulo es un manifest, no un binario", filepath.Base(name))
 
-		case f.Name == "frontend.zip" || (strings.HasPrefix(f.Name, "frontend/") && strings.HasSuffix(f.Name, ".js")):
+		case strings.HasPrefix(name, "frontend/"):
 			if pkg.Frontend == nil {
 				pkg.Frontend = data
 			}
+			if err := m.writeExtracted(name, data); err != nil {
+				return nil, err
+			}
+
+		case strings.HasPrefix(name, "assets/"):
+			if err := m.writeExtracted(name, data); err != nil {
+				return nil, err
+			}
 		}
+	}
+
+	if pkg.Manifest == nil {
+		return nil, fmt.Errorf("el paquete no incluye module.yaml ni manifest.json")
+	}
+
+	// El manifest se escribe al final, ya validado.
+	if err := m.writeExtracted("module.yaml", pkg.ManifestRaw); err != nil {
+		return nil, err
 	}
 
 	pkg.Checksum = fmt.Sprintf("%x", hasher.Sum(nil))
 	return pkg, nil
 }
 
-func (m *ModuleManager) LoadPlugin(moduleName string) error {
-	// Try subdirectory structure first (new): modules/moduleName/module.wasm
-	wasmPath := filepath.Join(m.ModulesDir, moduleName, "module.wasm")
-	if _, err := os.Stat(wasmPath); err == nil {
-		return m.loadWasmPlugin(wasmPath, moduleName)
+func isManifestName(name string) bool {
+	base := filepath.Base(name)
+	switch base {
+	case "module.yaml", "module.yml", "manifest.yaml", "manifest.json":
+		return filepath.Dir(name) == "."
+	default:
+		return false
 	}
-
-	// Fallback to flat structure: modules/moduleName.wasm
-	wasmPath = filepath.Join(m.ModulesDir, moduleName+".wasm")
-	if _, err := os.Stat(wasmPath); err == nil {
-		return m.loadWasmPlugin(wasmPath, moduleName)
-	}
-
-	// Try .so plugin (legacy): modules/moduleName.so
-	soPath := filepath.Join(m.ModulesDir, moduleName+".so")
-	if _, err := os.Stat(soPath); err == nil {
-		return m.loadSoPlugin(soPath, moduleName)
-	}
-
-	return fmt.Errorf("plugin not found: tried %s/module.wasm, %s.wasm, %s.so",
-		moduleName, moduleName, moduleName)
 }
 
-func (m *ModuleManager) loadSoPlugin(path, moduleName string) error {
-	p, err := plugin.Open(path)
-	if err != nil {
-		return fmt.Errorf("failed to open plugin %s: %w", moduleName, err)
-	}
+// nameInPackage es el nombre con el que se guarda el manifest ya validado.
+func (m *Manifest) nameInPackage() string { return "module.yaml" }
 
-	sym, err := p.Lookup("Register")
-	if err != nil {
-		return fmt.Errorf("plugin %s has no Register function: %w", moduleName, err)
-	}
-
-	registerFn, ok := sym.(func(interface{}) error)
-	if !ok {
-		registerFn2, ok2 := sym.(func())
-		if !ok2 {
-			return fmt.Errorf("plugin %s Register has unexpected signature", moduleName)
-		}
-		registerFn2()
-	} else if err := registerFn(Global); err != nil {
-		return fmt.Errorf("plugin %s registration failed: %w", moduleName, err)
-	}
-
-	return m.createModuleTables(moduleName)
-}
-
-func (m *ModuleManager) loadWasmPlugin(path, moduleName string) error {
-	inst, wasmMod, err := LoadWasmModule(path)
-	if err != nil {
-		return fmt.Errorf("failed to load wasm module %s: %w", moduleName, err)
-	}
-
-	Global.Register(inst)
-	m.mu.Lock()
-	m.wasmModules[moduleName] = wasmMod
-	m.mu.Unlock()
-
-	return m.createModuleTables(moduleName)
-}
-
-func (m *ModuleManager) createModuleTables(moduleName string) error {
-	inst := Global.Get(moduleName)
-	if inst == nil {
-		return nil
-	}
-	for _, model := range inst.Models {
-		if !safeIdent(model.TableName) {
-			return fmt.Errorf("unsafe table name: %q", model.TableName)
-		}
-
-		if _, err := db.DB.Exec(model.SQL); err != nil {
-			return fmt.Errorf("failed to create table %s: %w", model.TableName, err)
-		}
-		log.Printf("[Modules] Created table: %s", model.TableName)
-		db.DB.Exec(fmt.Sprintf("CREATE INDEX IF NOT EXISTS idx_%s_tenant ON %s(tenant_id)", model.TableName, model.TableName))
-
-		// Enable RLS with tenant isolation policy
-		db.ApplyTenantRLS(model.TableName)
-	}
-	log.Printf("[Modules] Loaded plugin: %s", moduleName)
-	return nil
-}
-
-func (m *ModuleManager) UnloadPlugin(moduleName string) error {
-	inst := Global.Get(moduleName)
-	if inst == nil {
-		return nil
-	}
-
-	// Drop model tables
-	for _, model := range inst.Models {
-		dropSQL := fmt.Sprintf("DROP TABLE IF EXISTS %s CASCADE", model.TableName)
-		if _, err := db.DB.Exec(dropSQL); err != nil {
-			log.Printf("[Modules] Failed to drop table %s: %v", model.TableName, err)
-		} else {
-			log.Printf("[Modules] Dropped table: %s", model.TableName)
-		}
-	}
-
-	if inst.OnUnload != nil {
-		if err := inst.OnUnload(); err != nil {
-			return err
-		}
-	}
-
-	// Clean up wasm module if applicable
-	m.mu.Lock()
-	if wm, ok := m.wasmModules[moduleName]; ok {
-		wm.CloseAll()
-		delete(m.wasmModules, moduleName)
-	}
-	m.mu.Unlock()
-
-	Global.Unregister(moduleName)
-	log.Printf("[Modules] Unloaded plugin: %s", moduleName)
-	return nil
-}
-
-func (m *ModuleManager) BuildModule(sourceDir, outputFile string, extra ...string) error {
-	var backendRoot string
-	if len(extra) > 0 {
-		backendRoot = extra[0]
-	}
-	absDir, err := filepath.Abs(sourceDir)
-	if err != nil {
-		return fmt.Errorf("failed to resolve source dir: %w", err)
-	}
-	manifestPath := filepath.Join(absDir, "manifest.json")
-	if _, err := os.Stat(manifestPath); os.IsNotExist(err) {
-		return fmt.Errorf("manifest.json not found in %s", sourceDir)
-	}
-
-	outFile := outputFile
-	if outFile == "" {
-		outFile = filepath.Base(sourceDir) + ".zip"
-	}
-
-	zipFile, err := os.Create(outFile)
+// writeExtracted escribe un archivo del paquete dentro del directorio de
+// módulos, rechazando los nombres que escribirían fuera.
+func (m *ModuleManager) writeExtracted(name string, data []byte) error {
+	dest, err := m.safePath(name)
 	if err != nil {
 		return err
 	}
-	defer zipFile.Close()
-
-	zw := zip.NewWriter(zipFile)
-	defer zw.Close()
-
-	// Add manifest
-	manifestData, err := os.ReadFile(manifestPath)
-	if err != nil {
+	if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
 		return err
 	}
-	var manifest Manifest
-	if err := json.Unmarshal(manifestData, &manifest); err != nil {
-		return fmt.Errorf("invalid manifest: %w", err)
-	}
-	mf, err := zw.Create("manifest.json")
+	return os.WriteFile(dest, data, 0644)
+}
+
+// safePath resuelve un nombre de entrada del zip contra el directorio de módulos.
+//
+// filepath.Join limpia los "..", así que join("/dir", "../etc/passwd") da
+// "/etc/passwd" sin más aviso. Por eso el resultado se comprueba contra la raíz
+// en vez de confiar en el Join.
+func (m *ModuleManager) safePath(name string) (string, error) {
+	root, err := filepath.Abs(m.ModulesDir)
 	if err != nil {
-		return err
+		return "", err
 	}
-	mf.Write(manifestData)
+	dest, err := filepath.Abs(filepath.Join(root, name))
+	if err != nil {
+		return "", err
+	}
+	if dest != root && !strings.HasPrefix(dest, root+string(os.PathSeparator)) {
+		return "", fmt.Errorf("el paquete intenta escribir fuera del directorio de módulos: %q", name)
+	}
+	return dest, nil
+}
 
-	// Build Go plugin or Wasm - compile from backend root to use same module context
-	mainGo := filepath.Join(absDir, "main.go")
-	if _, err := os.Stat(mainGo); err == nil {
-		// Prefer .wasm build (cross-platform), fall back to .so (legacy)
-		wasmFile := filepath.Join(os.TempDir(), manifest.Name+".wasm")
-		soFile := filepath.Join(os.TempDir(), manifest.Name+".so")
-
-		// Wasm build: use -buildmode=c-shared with Go >=1.25 toolchain
-		wasmOK := false
-		tmpDir, tmpErr := os.MkdirTemp("", "fasterp-wasm-*")
-		if tmpErr == nil {
-			defer os.RemoveAll(tmpDir)
-			// Copy all .go files from source to temp dir
-			entries, _ := os.ReadDir(absDir)
-			for _, e := range entries {
-				if !e.IsDir() && strings.HasSuffix(e.Name(), ".go") {
-					data, _ := os.ReadFile(filepath.Join(absDir, e.Name()))
-					os.WriteFile(filepath.Join(tmpDir, e.Name()), data, 0644)
-				}
-			}
-			// Write go.mod with required toolchain (use safe module path)
-			modName := strings.TrimLeft(strings.ReplaceAll(manifest.Name, "/", "_"), ".-_")
-			if modName == "" {
-				modName = "module"
-			} else {
-				modName = "fasterp/" + modName
-			}
-			gm := fmt.Sprintf("module %s\n\ngo 1.25.0\n\ntoolchain go1.25.11\n", modName)
-			if backendRoot != "" {
-				absBackend, _ := filepath.Abs(backendRoot)
-				gm += fmt.Sprintf("require github.com/fasterp/backend/sdk/wasm v0.0.0\n")
-				gm += fmt.Sprintf("replace github.com/fasterp/backend/sdk/wasm => %s/sdk/wasm\n", absBackend)
-			}
-			os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(gm), 0644)
-
-			cmd := exec.Command("go", "build",
-				"-buildmode=c-shared",
-				"-o", wasmFile,
-				".",
-			)
-			cmd.Env = append(os.Environ(), "GOOS=wasip1", "GOARCH=wasm", "GOTOOLCHAIN=go1.25.11")
-			cmd.Dir = tmpDir
-			if out, err := cmd.CombinedOutput(); err == nil {
-				wasmData, _ := os.ReadFile(wasmFile)
-				sf, _ := zw.Create(manifest.Name + ".wasm")
-				sf.Write(wasmData)
-				wasmOK = true
-			} else {
-				log.Printf("[Modules] Wasm build failed (c-shared): %s\n  %v", string(out), err)
-			}
-		} else {
-			log.Printf("[Modules] Cannot create temp dir for wasm build: %v", tmpErr)
-		}
-
-		if !wasmOK {
-			// Fall back to plugin build
-			buildDir := absDir
-			if backendRoot != "" {
-				buildDir = backendRoot
-			}
-			cmd2 := exec.Command("go", "build",
-				"-buildmode=plugin",
-				"-o", soFile,
-				mainGo,
-			)
-			cmd2.Dir = buildDir
-			if out2, err := cmd2.CombinedOutput(); err != nil {
-				return fmt.Errorf("build failed (plugin fallback): %s: %w", string(out2), err)
-			}
-			soData, _ := os.ReadFile(soFile)
-			sf, _ := zw.Create(manifest.Name + ".so")
-			sf.Write(soData)
-		}
+// LoadModule carga un módulo del disco y lo registra, sin tocar la base.
+//
+// Separar la carga del esquema es lo que hace posible el watcher: un manifest
+// que cambia solo necesita volver a cargarse, y las columnas se añaden cuando
+// toca reconciliar.
+func (m *ModuleManager) LoadModule(name string) (*ModuleInstance, error) {
+	path := FindManifest(m.ModulesDir, name)
+	if path == "" {
+		return nil, fmt.Errorf("no se encontró el manifest de %q en %s (se busca module.yaml o manifest.json)", name, m.ModulesDir)
 	}
 
-	// Add frontend
-	frontendDir := filepath.Join(absDir, "frontend")
-	if stat, err := os.Stat(frontendDir); err == nil && stat.IsDir() {
-		filepath.Walk(frontendDir, func(path string, info os.FileInfo, err error) error {
-			if err != nil || info.IsDir() {
-				return nil
-			}
-			relPath, _ := filepath.Rel(absDir, path)
-			f, err := zw.Create(relPath)
-			if err != nil {
-				return err
-			}
-			data, err := os.ReadFile(path)
-			if err != nil {
-				return err
-			}
-			f.Write(data)
-			return nil
+	manifest, err := LoadManifest(path)
+	if err != nil {
+		return nil, err
+	}
+	if manifest.Name != name {
+		return nil, fmt.Errorf("el manifest de %q declara name: %q", name, manifest.Name)
+	}
+
+	return m.BuildInstance(manifest, path), nil
+}
+
+// BuildInstance convierte un manifest en una instancia registrada. No toca disco
+// ni base de datos.
+func (m *ModuleManager) BuildInstance(manifest *Manifest, path string) *ModuleInstance {
+	inst := &ModuleInstance{Manifest: manifest, SourcePath: path}
+
+	for _, modelName := range manifest.FieldOrderModel() {
+		def := manifest.Models[modelName]
+		if def == nil {
+			continue
+		}
+		inst.Models = append(inst.Models, ModelRegistration{
+			Manifest:  def,
+			TableName: manifest.TableName(modelName),
+			Columns:   manifest.FieldOrder(modelName),
 		})
 	}
 
-	log.Printf("[Modules] Built module package: %s", outFile)
+	for _, r := range manifest.Routes {
+		inst.Routes = append(inst.Routes, Route{Method: r.Method, Path: r.Path})
+	}
+
+	Global.Register(inst)
+	return inst
+}
+
+// ReconcileModule lleva la base de datos a lo que dice el manifest.
+//
+// Es idempotente: se puede llamar en cada arranque y después de cada cambio, y
+// solo hace trabajo cuando el manifest y la tabla discrepan. Eso es lo que
+// permite que añadir un campo a module.yaml no requiera una migración escrita a
+// mano.
+func (m *ModuleManager) ReconcileModule(ctx context.Context, name string) error {
+	inst, err := m.LoadModule(name)
+	if err != nil {
+		return err
+	}
+	return m.Apply(ctx, inst)
+}
+
+// Apply ejecuta el plan de esquema de un módulo ya cargado.
+func (m *ModuleManager) Apply(ctx context.Context, inst *ModuleInstance) error {
+	if err := ApplySchema(ctx, inst.Manifest, db.DB); err != nil {
+		return err
+	}
+	log.Printf("[Modules] %s: %d modelo(s) listos (%s)", inst.Manifest.Name, len(inst.Models), inst.Manifest.Version)
+	return nil
+}
+
+// Reload recarga un módulo desde el disco y reconcilia el esquema.
+//
+// Es la operación que llama el watcher. Si el manifest nuevo es inválido, el
+// módulo que ya estaba cargado se queda como estaba: un error de sintaxis al
+// guardar un YAML no puede dejar el servidor sin el módulo.
+func (m *ModuleManager) Reload(ctx context.Context, name string) error {
+	path := FindManifest(m.ModulesDir, name)
+	if path == "" {
+		return m.Unload(name)
+	}
+
+	manifest, err := LoadManifest(path)
+	if err != nil {
+		// Se avisa y se sigue con el módulo anterior en memoria.
+		log.Printf("[Modules] %s: manifest inválido, se conserva la versión anterior: %v", name, err)
+		return err
+	}
+	if manifest.Name != name {
+		log.Printf("[Modules] %s: el manifest declara name %q, no se recarga", name, manifest.Name)
+		return fmt.Errorf("el manifest de %q declara name: %q", name, manifest.Name)
+	}
+
+	inst := m.BuildInstance(manifest, path)
+	if err := m.Apply(ctx, inst); err != nil {
+		return err
+	}
+	log.Printf("[Modules] %s recargado", name)
+	return nil
+}
+
+// LoadAll carga y aplica todos los módulos del directorio, en orden de
+// dependencias.
+//
+// Un módulo cuyas dependencias no están instaladas no se carga, y se dice
+// cuáles faltan: es un error de instalación, no un fallo de arranque, y se
+// entiende mucho mejor nombrándolo.
+func (m *ModuleManager) LoadAll(ctx context.Context) error {
+	entries, err := os.ReadDir(m.ModulesDir)
+	if err != nil {
+		return err
+	}
+
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		names = append(names, e.Name())
+	}
+
+	loaded := make(map[string]bool, len(names))
+	var errs []string
+
+	for pass := 0; pass < len(names); pass++ {
+		progress := false
+		for _, name := range names {
+			if loaded[name] {
+				continue
+			}
+			path := FindManifest(m.ModulesDir, name)
+			if path == "" {
+				continue
+			}
+			// Se lee el manifest solo para mirar las dependencias.
+			manifest, err := LoadManifest(path)
+			if err != nil {
+				errs = append(errs, fmt.Sprintf("%s: %v", name, err))
+				loaded[name] = true
+				continue
+			}
+			if !m.depsReady(manifest, loaded, name) {
+				continue
+			}
+			inst := m.BuildInstance(manifest, path)
+			if err := m.Apply(ctx, inst); err != nil {
+				errs = append(errs, fmt.Sprintf("%s: %v", name, err))
+			}
+			loaded[name] = true
+			progress = true
+		}
+		if !progress {
+			break
+		}
+	}
+
+	// Los que no llegaron a cargar por dependencias circulares o ausentes.
+	for _, name := range names {
+		if loaded[name] {
+			continue
+		}
+		path := FindManifest(m.ModulesDir, name)
+		if path == "" {
+			continue
+		}
+		if manifest, err := LoadManifest(path); err == nil {
+			errs = append(errs, fmt.Sprintf("%s: faltan dependencias (%s)", name, strings.Join(manifest.Depends, ", ")))
+		}
+	}
+
+	for _, e := range errs {
+		log.Printf("[Modules] %s", e)
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("%d módulo(s) no se pudieron cargar", len(errs))
+	}
+	return nil
+}
+
+func (m *ModuleManager) depsReady(manifest *Manifest, loaded map[string]bool, self string) bool {
+	for _, dep := range manifest.Depends {
+		if dep == self || !loaded[dep] {
+			return false
+		}
+	}
+	return true
+}
+
+// Unload descarga un módulo y borra sus tablas.
+func (m *ModuleManager) Unload(name string) error {
+	inst := Global.Get(name)
+	if inst == nil {
+		return nil
+	}
+
+	for _, model := range inst.Models {
+		if !safeIdent(model.TableName) {
+			return fmt.Errorf("nombre de tabla no seguro: %q", model.TableName)
+		}
+		// CASCADE se queda con los índices y políticas de la tabla; sin él, un
+		// módulo desinstalado deja objetos que impiden volver a instalarlo.
+		if _, err := db.DB.Exec(fmt.Sprintf("DROP TABLE IF EXISTS %s CASCADE", model.TableName)); err != nil {
+			log.Printf("[Modules] no se pudo borrar la tabla %s: %v", model.TableName, err)
+			continue
+		}
+		log.Printf("[Modules] tabla borrada: %s", model.TableName)
+	}
+
+	Global.Unregister(name)
+	log.Printf("[Modules] módulo descargado: %s", name)
 	return nil
 }

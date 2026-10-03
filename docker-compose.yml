@@ -2,13 +2,17 @@
 services:
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_DB: fasterp
       POSTGRES_USER: fasterp
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?define POSTGRES_PASSWORD en .env}"
       FASTERP_APP_PASSWORD: "${FASTERP_APP_PASSWORD:?define FASTERP_APP_PASSWORD en .env}"
     ports:
-      - "5456:5432"
+      # Solo en loopback. Postgres no necesita estar en la red: el backend entra
+      # por la red interna de compose. Publicarlo es una superficie de ataque
+      # gratuita.
+      - "127.0.0.1:${FASTERP_PG_PORT:-5456}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       # Crea el rol sin privilegios con el que se conecta la app (solo en el primer
@@ -25,7 +29,8 @@ services:
       context: ./core
       dockerfile: Dockerfile
     ports:
-      - "7071:7071"
+      - "127.0.0.1:${FASTERP_BIND_PORT:-7071}:7071"
+    restart: unless-stopped
     environment:
       FASTERP_PORT: "7071"
       # Se conecta con el rol restringido, no con el superusuario de la base.
@@ -41,12 +46,30 @@ services:
       FASTERP_AUTH_RATE_LIMIT: "${FASTERP_AUTH_RATE_LIMIT:-10}"
       FASTERP_DB_MAX_OPEN: "${FASTERP_DB_MAX_OPEN:-50}"
       FASTERP_DB_MAX_IDLE: "${FASTERP_DB_MAX_IDLE:-10}"
+      # El admin inicial lo crea el asistente de /setup. Si se pone true, hace
+      # falta FASTERP_ADMIN_PASSWORD y el servidor no arranca sin ella.
+      FASTERP_SEED: "${FASTERP_SEED:-false}"
+      FASTERP_ADMIN_PASSWORD: "${FASTERP_ADMIN_PASSWORD:-}"
+      # Sin proxy delante, vacío: se cuenta la IP del peer y no un X-Forwarded-For
+      # que el cliente pueda falsear para esquivar el rate limit del login.
+      FASTERP_TRUSTED_PROXIES: "${FASTERP_TRUSTED_PROXIES:-}"
     volumes:
-      - ./modules:/app/modules
+      - ./modules:/app/modules:ro
       - uploads:/app/uploads
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/server", "-healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   pgdata:

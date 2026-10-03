@@ -10,7 +10,7 @@ var (
 	safeIdentRe = regexp.MustCompile(`^[a-z][a-z0-9_]{0,62}$`)
 	allowedOps  = map[string]bool{
 		"=": true, "!=": true, ">": true, "<": true, ">=": true, "<=": true,
-		"ILIKE": true, "IN": true, "NOT IN": true,
+		"LIKE": true, "ILIKE": true, "NOT ILIKE": true, "IN": true, "NOT IN": true,
 		"IS NULL": true, "IS NOT NULL": true,
 	}
 	allowedDirs = map[string]bool{"ASC": true, "DESC": true, "": true}
@@ -20,6 +20,15 @@ type whereClause struct {
 	col string
 	op  string
 	arg interface{}
+
+	// raw es la alternativa a col+op+arg: una condición que el builder no sabe
+	// montar sola, como un grupo con paréntesis o un ILIKE con ESCAPE. El texto
+	// lo escribe el core, nunca el cliente, y sus valores van como parámetros.
+	raw  string
+	args []interface{}
+	// join es cómo se engancha la cláusula a la anterior. La primera de un
+	// grupo empieza sola.
+	join string
 }
 
 // QueryBuilder builds safe SQL with identifier whitelisting.
@@ -27,13 +36,13 @@ type whereClause struct {
 type QueryBuilder struct {
 	model ModelRegistration
 
-	fields  []string
-	wheres  []whereClause
-	orderBy string
+	fields   []string
+	wheres   []whereClause
+	orderBy  string
 	orderDir string
-	limit   int
-	offset  int
-	err     error
+	limit    int
+	offset   int
+	err      error
 }
 
 // NewQueryBuilder creates a builder for a registered model.
@@ -46,15 +55,7 @@ func safeIdent(s string) bool {
 }
 
 func (qb *QueryBuilder) hasField(name string) bool {
-	if name == "id" || name == "tenant_id" || name == "created_at" || name == "updated_at" {
-		return true
-	}
-	for _, f := range qb.model.Manifest.Fields {
-		if f.Name == name {
-			return true
-		}
-	}
-	return false
+	return qb.model.HasField(name)
 }
 
 func (qb *QueryBuilder) fieldDef(name string) *FieldDef {
@@ -152,7 +153,7 @@ func (qb *QueryBuilder) Where(col, op string, val interface{}) *QueryBuilder {
 		qb.err = fmt.Errorf("query: invalid operator %q", op)
 		return qb
 	}
-	qb.wheres = append(qb.wheres, whereClause{col, op, val})
+	qb.wheres = append(qb.wheres, whereClause{col: col, op: op, arg: val, join: "AND"})
 	return qb
 }
 
@@ -180,6 +181,37 @@ func (qb *QueryBuilder) Offset(n int) *QueryBuilder {
 	qb.offset = n
 	return qb
 }
+
+// HasField dice si un nombre es una columna consultable de este modelo.
+func (qb *QueryBuilder) HasField(name string) bool { return qb.hasField(name) }
+
+// WhereRaw añade una condición escrita por el core.
+//
+// La condición entra como texto y sus valores como parámetros. Eso es lo que
+// permite componer un ILIKE con ESCAPE o un grupo con paréntesis sin que el
+// cliente pueda inyectar nada: el texto lo escribe el servidor, nunca la
+// petición.
+func (qb *QueryBuilder) WhereRaw(clause string, args ...interface{}) *QueryBuilder {
+	qb.wheres = append(qb.wheres, whereClause{raw: clause, args: args, join: "AND"})
+	return qb
+}
+
+// OrWhereRaw es WhereRaw unido a la anterior con OR.
+//
+// El AND del filtro por tenant tiene que separarse del grupo con paréntesis, o
+// "tenant = X OR nombre ILIKE %a%" dejaría leer los registros de otro tenant.
+// Quien llama mete los paréntesis; el builder no los añade por su cuenta porque
+// no sabe dónde empieza el grupo.
+func (qb *QueryBuilder) OrWhereRaw(clause string, args ...interface{}) *QueryBuilder {
+	qb.wheres = append(qb.wheres, whereClause{raw: clause, args: args, join: "OR"})
+	return qb
+}
+
+// IsAllowedOp indica si un operador de filtro está en la lista blanca.
+//
+// EXISTS no está, y no por descuido: permite tocar cosas que no son columnas del
+// modelo.
+func IsAllowedOp(op string) bool { return allowedOps[strings.ToUpper(op)] }
 
 func quoteIdent(name string) string {
 	// PostgreSQL double-quote identifier, with escaping
@@ -252,20 +284,27 @@ func (qb *QueryBuilder) BuildSelect() ([]string, string, []interface{}, error) {
 		buf.WriteString(join)
 	}
 
+	// WHERE. La primera cláusula no lleva conector; las siguientes, el suyo.
+	// Un OR sin paréntesis después de un AND ampliaría el filtro en vez de
+	// añadirlo, así que quien usa OrWhereRaw mete sus propios paréntesis.
 	var args []interface{}
-	argIdx := 1
+	if len(qb.wheres) > 0 {
+		buf.WriteString(" WHERE ")
+	}
 	for i, w := range qb.wheres {
-		sep := " WHERE "
 		if i > 0 {
-			sep = " AND "
+			buf.WriteString(" " + w.join + " ")
+		}
+		if w.raw != "" {
+			buf.WriteString(qb.expandRaw(w.raw, w.args, &args))
+			continue
 		}
 		if w.op == "IS NULL" || w.op == "IS NOT NULL" {
-			fmt.Fprintf(&buf, "%s%s %s", sep, quoteIdent(w.col), w.op)
-		} else {
-			fmt.Fprintf(&buf, "%s%s %s $%d", sep, quoteIdent(w.col), w.op, argIdx)
-			args = append(args, w.arg)
-			argIdx++
+			fmt.Fprintf(&buf, "%s %s", quoteIdent(w.col), w.op)
+			continue
 		}
+		fmt.Fprintf(&buf, "%s %s $%d", quoteIdent(w.col), w.op, len(args)+1)
+		args = append(args, w.arg)
 	}
 
 	if qb.orderBy != "" {
@@ -278,7 +317,114 @@ func (qb *QueryBuilder) BuildSelect() ([]string, string, []interface{}, error) {
 		fmt.Fprintf(&buf, " OFFSET %d", qb.offset)
 	}
 
+	// expandRaw puede fallar al contar los parámetros, y eso pasa durante el
+	// ensamblado: el error se guarda aquí y se lee ahora. Sin esta comprobación
+	// la consulta mal formada se devolvería como si fuera buena.
+	if qb.err != nil {
+		return nil, "", nil, qb.err
+	}
+
 	return cols, buf.String(), args, nil
+}
+
+// expandRaw sustituye los "?" de una cláusula por los marcadores de Postgres y
+// va añadiendo sus valores a args.
+//
+// Los "?" están fuera de las comillas, que es lo único que los hace marcadores.
+// Un "?" dentro de un literal de texto es un carácter y no se toca: sin esto, un
+// valor que lo contenga rompería la numeración de los parámetros y la consulta
+// leería el valor equivocado en la columna equivocada.
+func (qb *QueryBuilder) expandRaw(clause string, vals []interface{}, args *[]interface{}) string {
+	var out strings.Builder
+	inSingle, inDouble := false, false
+
+	for i := 0; i < len(clause); i++ {
+		c := clause[i]
+		switch {
+		case inSingle:
+			if c == '\'' {
+				// '' es un apostrophe escapado dentro del literal.
+				if i+1 < len(clause) && clause[i+1] == '\'' {
+					out.WriteString("''")
+					i++
+					continue
+				}
+				inSingle = false
+			}
+		case inDouble:
+			if c == '\\' {
+				out.WriteByte(c)
+				if i+1 < len(clause) {
+					i++
+					out.WriteByte(clause[i])
+				}
+				continue
+			} else if c == '"' {
+				inDouble = false
+			}
+		case c == '\'':
+			inSingle = true
+		case c == '"':
+			inDouble = true
+		case c == '?':
+			*args = append(*args, vals[0])
+			vals = vals[1:]
+			fmt.Fprintf(&out, "$%d", len(*args))
+			continue
+		}
+		out.WriteByte(c)
+	}
+
+	if len(vals) > 0 {
+		// Más valores que marcadores: la cláusula se escribió mal y es mejor
+		// fallar aquí que mandar una consulta que no es la que se cree.
+		qb.err = fmt.Errorf("query: la condición tiene %d parámetros de más", len(vals))
+	}
+	return out.String()
+}
+
+// BuildCount genera el COUNT con los mismos filtros, para el paginador.
+//
+// Comparte el WHERE con BuildSelect a propósito: si el conteo usara otros
+// filtros, el paginador prometería páginas que no existen.
+func (qb *QueryBuilder) BuildCount() (string, []interface{}, error) {
+	if qb.err != nil {
+		return "", nil, qb.err
+	}
+
+	tn := qb.model.TableName
+	if !safeIdent(tn) {
+		return "", nil, fmt.Errorf("count: unsafe table name %q", tn)
+	}
+
+	var buf strings.Builder
+	buf.WriteString("SELECT COUNT(*) FROM " + quoteIdent(tn))
+
+	var args []interface{}
+	if len(qb.wheres) > 0 {
+		buf.WriteString(" WHERE ")
+	}
+	for i, w := range qb.wheres {
+		if i > 0 {
+			buf.WriteString(" " + w.join + " ")
+		}
+		if w.raw != "" {
+			buf.WriteString(qb.expandRaw(w.raw, w.args, &args))
+			continue
+		}
+		if w.op == "IS NULL" || w.op == "IS NOT NULL" {
+			fmt.Fprintf(&buf, "%s %s", quoteIdent(w.col), w.op)
+			continue
+		}
+		fmt.Fprintf(&buf, "%s %s $%d", quoteIdent(w.col), w.op, len(args)+1)
+		args = append(args, w.arg)
+	}
+
+	// Mismo motivo que en BuildSelect: expandRaw puede fallar al contar.
+	if qb.err != nil {
+		return "", nil, qb.err
+	}
+	return buf.String(), args, nil
 }
 
 // BuildInsert generates INSERT ... RETURNING. values is a map of field→value.

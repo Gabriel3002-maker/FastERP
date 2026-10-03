@@ -133,8 +133,8 @@ func (h *ChatterHandler) Notifications(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"data":        notifications,
-		"total":       len(notifications),
+		"data":         notifications,
+		"total":        len(notifications),
 		"unread_count": unreadCount,
 	})
 }

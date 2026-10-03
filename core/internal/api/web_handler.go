@@ -24,8 +24,15 @@ func (h *Handler) mediaDir() string {
 	return filepath.Join(h.modManager.UploadDir, "media")
 }
 
+// allowedMediaExt es la lista blanca de formatos que el CMS acepta.
+//
+// No incluye .svg a propósito. Un SVG no es una imagen pasiva: admite <script>,
+// y al servirse desde /uploads/media —el mismo origen que el admin— se ejecuta
+// con acceso al token de sesión. Subirlo es un XSS almacenado. Si hace falta
+// vector en el sitio público, que se convierta a PNG en el pipeline de publicación,
+// no que se acepte el original.
 var allowedMediaExt = map[string]bool{
-	".jpg": true, ".jpeg": true, ".png": true, ".webp": true, ".gif": true, ".svg": true,
+	".jpg": true, ".jpeg": true, ".png": true, ".webp": true, ".gif": true,
 }
 
 func mimeFromExt(ext string) string {
@@ -38,8 +45,6 @@ func mimeFromExt(ext string) string {
 		return "image/webp"
 	case ".gif":
 		return "image/gif"
-	case ".svg":
-		return "image/svg+xml"
 	default:
 		return "application/octet-stream"
 	}

@@ -5,6 +5,13 @@ import (
 	"strings"
 )
 
+// HandleAPIRoute despacha /api/{module}/{model}[/{id}[/transition|/history]].
+//
+// Exige sesión. Antes no la exigía: main.go enrutaba TODO /api/ aquí, así que
+// CRUD completo, instalación de módulos y auditoría quedaban al alcance de
+// cualquiera que mandara una cabecera X-Tenant-ID — que además se publica en
+// endpoints sin auth. Las rutas que sí son públicas (catálogo, tienda, sitio)
+// tienen su propio registro en el mux y no llegan aquí.
 func HandleAPIRoute(w http.ResponseWriter, r *http.Request, crudHandler *GenericCRUDHandler) {
 	// La ruta base es /api/, deje el resto en path.
 	path := strings.TrimPrefix(r.URL.Path, "/api/")
@@ -12,6 +19,11 @@ func HandleAPIRoute(w http.ResponseWriter, r *http.Request, crudHandler *Generic
 
 	if len(segments) == 0 || segments[0] == "" {
 		http.NotFound(w, r)
+		return
+	}
+
+	if !crudHandler.authorized(r) {
+		writeErr(w, http.StatusUnauthorized, "sesión requerida")
 		return
 	}
 

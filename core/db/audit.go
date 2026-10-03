@@ -14,12 +14,12 @@ type AuditEvent struct {
 	ID        string                 `json:"id"`
 	TenantID  string                 `json:"tenant_id"`
 	UserID    string                 `json:"user_id"`
-	Action    string                 `json:"action"`     // CREATE, READ, UPDATE, DELETE, LOGIN, etc
-	Entity    string                 `json:"entity"`     // Tabla/Entidad
+	Action    string                 `json:"action"` // CREATE, READ, UPDATE, DELETE, LOGIN, etc
+	Entity    string                 `json:"entity"` // Tabla/Entidad
 	EntityID  string                 `json:"entity_id"`
 	Before    map[string]interface{} `json:"before,omitempty"`
 	After     map[string]interface{} `json:"after,omitempty"`
-	Status    string                 `json:"status"`     // success, error
+	Status    string                 `json:"status"` // success, error
 	Error     string                 `json:"error,omitempty"`
 	IPAddress string                 `json:"ip_address,omitempty"`
 	UserAgent string                 `json:"user_agent,omitempty"`
@@ -214,13 +214,13 @@ func (al *AuditLogger) GetAuditStats(ctx context.Context, tenantID string, days 
 	row := al.db.QueryRow(ctx, query, tenantID, days)
 
 	var (
-		totalEvents     int64
-		uniqueUsers     int64
-		uniqueEntities  int64
-		errorCount      int64
-		deleteCount     int64
-		updateCount     int64
-		createCount     int64
+		totalEvents    int64
+		uniqueUsers    int64
+		uniqueEntities int64
+		errorCount     int64
+		deleteCount    int64
+		updateCount    int64
+		createCount    int64
 	)
 
 	err := row.Scan(

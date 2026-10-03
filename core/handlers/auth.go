@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/fasterp/backend/config"
 	"github.com/fasterp/backend/db"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -31,9 +32,13 @@ type LoginResponse struct {
 }
 
 func NewAuthHandler(database *db.DB) *AuthHandler {
+	// Los secretos vienen de la configuración, que los lee del entorno. Estaba
+	// fijado a "dev-secret" aquí: con el repositorio a la vista, eso permite
+	// firmar un access token de admin para cualquier tenant.
+	sec := config.Load().Security
 	return &AuthHandler{
 		db:             database,
-		sessionManager: NewSessionManager("dev-secret", "dev-secret-refresh"),
+		sessionManager: NewSessionManager(sec.JWTSecret, sec.JWTRefreshSecret),
 	}
 }
 

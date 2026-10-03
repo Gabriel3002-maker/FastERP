@@ -328,15 +328,15 @@ func (h *Handler) ListModules(c *gin.Context) {
 
 		// Enrich with frontend metadata from the loaded module manifest
 		modData := gin.H{
-			"id":          m.ID,
-			"tenant_id":   m.TenantID,
-			"name":        m.Name,
-			"version":     m.Version,
-			"label":       m.Label,
-			"description": m.Description,
-			"author":      m.Author,
-			"icon":        m.Icon,
-			"active":      m.Active,
+			"id":           m.ID,
+			"tenant_id":    m.TenantID,
+			"name":         m.Name,
+			"version":      m.Version,
+			"label":        m.Label,
+			"description":  m.Description,
+			"author":       m.Author,
+			"icon":         m.Icon,
+			"active":       m.Active,
 			"installed_at": m.InstalledAt,
 			"updated_at":   m.UpdatedAt,
 		}
@@ -450,17 +450,15 @@ func (h *Handler) ToggleModule(c *gin.Context) {
 		return
 	}
 
-	// Enabling loads the WASM plugin into the shared registry if it is not already
-	// there. Disabling does NOT unload it: the registry is process-wide, so unloading
-	// would break every other tenant that still has the module enabled. Access is
-	// gated per tenant at request time by the active flag written below.
-	if !active {
-		if module.Global.Get(name) == nil {
-			if err := h.modManager.LoadPlugin(name); err != nil {
-				log.Printf("[API] Failed to load module %s: %v", name, err)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load module"})
-				return
-			}
+	// Activar carga el módulo en el registro compartido si no estaba. Desactivar
+	// NO lo descarga: el registro es del proceso, y descargarlo rompería a
+	// cualquier otro tenant que lo tenga activo. El acceso se filtra por tenant
+	// en cada petición, con el active de abajo.
+	if !active && module.Global.Get(name) == nil {
+		if _, err := h.modManager.LoadModule(name); err != nil {
+			log.Printf("[API] no se pudo cargar el módulo %s: %v", name, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load module"})
+			return
 		}
 	}
 
@@ -502,32 +500,6 @@ func (h *Handler) ModuleRoutes(c *gin.Context) {
 
 func (h *Handler) GetMenus(c *gin.Context) {
 	c.JSON(http.StatusOK, module.Global.Menus())
-}
-
-// wasmModuleHandler calls the Wasm module's fasterp_handle_request export.
-func (h *Handler) wasmModuleHandler(moduleName, path string) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		wasmMod := h.modManager.GetWasmModule(moduleName)
-		if wasmMod == nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "wasm module not loaded"})
-			return
-		}
-
-		body, _ := c.GetRawData()
-		headers := make(map[string]string)
-		for k, v := range c.Request.Header {
-			if len(v) > 0 {
-				headers[k] = v[0]
-			}
-		}
-
-		status, respBody, err := wasmMod.HandleRequest(c.Request.Method, c.Request.URL.String(), headers, string(body))
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		c.String(status, respBody)
-	}
 }
 
 func (h *Handler) GetCurrentUser(c *gin.Context) {

@@ -19,6 +19,17 @@ fi
 : "${FASTERP_JWT_REFRESH_SECRET:?falta FASTERP_JWT_REFRESH_SECRET en .env}"
 : "${FASTERP_APP_PASSWORD:?falta FASTERP_APP_PASSWORD en .env}"
 
+# Desarrollo: los secretos por defecto están permitidos, pero se avisa. Sin esto
+# el servidor ni arranca y el mensaje de error no dice por qué.
+export FASTERP_DEV="${FASTERP_DEV:-true}"
+# En dev se crea la cuenta admin para no tener que pasar por /setup cada vez. La
+# contraseña sale del entorno; ya no hay admin/admin123 fijo en el binario.
+export FASTERP_SEED="${FASTERP_SEED:-true}"
+if [ "$FASTERP_SEED" = "true" ] && [ -z "${FASTERP_ADMIN_PASSWORD:-}" ]; then
+  export FASTERP_ADMIN_PASSWORD="admin123"
+  echo "      (dev) usando FASTERP_ADMIN_PASSWORD=admin123 — no hagas esto en producción"
+fi
+
 PG_PORT="${FASTERP_PG_PORT:-5456}"
 APP_USER="${FASTERP_DB_USER:-fasterp_app}"
 DB_URL="${FASTERP_DATABASE_URL:-postgres://${APP_USER}:${FASTERP_APP_PASSWORD}@localhost:${PG_PORT}/fasterp?sslmode=disable}"
@@ -55,7 +66,9 @@ TENANT_ID="$(cat core/.default-tenant-id 2>/dev/null || echo "ver /tmp/fasterp-s
 
 echo ""
 echo "  URL:        http://localhost:7071"
-echo "  Login:      admin / admin123"
+if [ "$FASTERP_SEED" = "true" ]; then
+  echo "  Login:      admin / ${FASTERP_ADMIN_PASSWORD}"
+fi
 echo "  Tenant ID:  ${TENANT_ID}"
 echo "  Logs:       /tmp/fasterp-server.log"
 echo ""

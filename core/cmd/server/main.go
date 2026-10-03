@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -22,13 +24,25 @@ import (
 )
 
 func main() {
+	// El healthcheck de docker-compose ejecuta el mismo binario con -healthcheck:
+	// así el chequeo usa el servidor real en vez de una sonda aparte que puede
+	// desincronizarse de lo que el proceso hace de verdad.
+	if len(os.Args) > 1 && os.Args[1] == "-healthcheck" {
+		if err := healthcheck(); err != nil {
+			fmt.Fprintln(os.Stderr, "unhealthy:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	cfg := config.Load()
 
-	if cfg.JWTSecret == "change-me-in-production" || len(cfg.JWTSecret) < 16 {
-		log.Println("[WARN] JWT_SECRET is weak or default. Set a strong FASTERP_JWT_SECRET in production.")
-	}
-	if cfg.JWTRefreshSecret == cfg.JWTSecret {
-		log.Println("[WARN] FASTERP_JWT_REFRESH_SECRET matches FASTERP_JWT_SECRET. Use distinct secrets.")
+	// Un secreto débil no es un problema de calidad, es una puerta abierta:
+	// quien tenga el valor puede firmar un access token de admin para cualquier
+	// tenant. En dev se avisa y se sigue (los defaults existen para que `go run`
+	// funcione); fuera de dev el servidor no arranca.
+	if err := checkSecrets(cfg); err != nil {
+		log.Fatalf("[FATAL] %v", err)
 	}
 
 	ctx := context.Background()
@@ -48,7 +62,9 @@ func main() {
 	db.CheckRLSEnforcement()
 
 	seedDefaultTenant()
-	seedDefaultUsers(ctx)
+	if cfg.Seed {
+		seedDefaultUsers(ctx)
+	}
 	seedDefaultModules(ctx, cfg.ModulesDir)
 
 	modManager := module.NewManager(cfg.ModulesDir, cfg.UploadDir)
@@ -100,8 +116,61 @@ func seedDefaultTenant() {
 	}
 	log.Printf("[Seed] Default tenant created: %s (slug: default)", tenantID)
 
-	// Write tenant ID to file for easy reference
-	os.WriteFile(".default-tenant-id", []byte(tenantID), 0644)
+	// Write tenant ID to file for easy reference. Best-effort: in a container the
+	// working directory is not writable by the unprivileged user, and failing to
+	// write a convenience file must not take the server down.
+	if err := os.WriteFile(".default-tenant-id", []byte(tenantID), 0644); err != nil {
+		log.Printf("[WARN] Could not write .default-tenant-id (%v); use the tenants table instead", err)
+	}
+}
+
+// healthcheck consulta /health al servidor local. Distingue "responde" de
+// "está sano": si el proceso acepta conexiones pero la base no, un chequeo que
+// solo mira el socket lo daría por bueno.
+func healthcheck() error {
+	port := os.Getenv("FASTERP_PORT")
+	if port == "" {
+		port = "7071"
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get("http://127.0.0.1:" + port + "/readyz")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("/readyz devolvió %d", resp.StatusCode)
+	}
+	return nil
+}
+
+// checkSecrets refuses to start with a guessable signing key. The HMAC secret is
+// what stands between "read the README" and "administer any tenant on this
+// instance", so a default is treated as a misconfiguration, not a warning.
+func checkSecrets(cfg *config.Config) error {
+	var weak []string
+	if config.ValidateSecretWeak(cfg.JWTSecret) {
+		weak = append(weak, "FASTERP_JWT_SECRET")
+	}
+	if config.ValidateSecretWeak(cfg.JWTRefreshSecret) {
+		weak = append(weak, "FASTERP_JWT_REFRESH_SECRET")
+	}
+	if cfg.JWTSecret == cfg.JWTRefreshSecret {
+		weak = append(weak, "FASTERP_JWT_REFRESH_SECRET (= FASTERP_JWT_SECRET)")
+	}
+
+	if len(weak) == 0 {
+		return nil
+	}
+
+	msg := fmt.Sprintf("secretos de firma.mk debil o por defecto: %s", strings.Join(weak, ", "))
+	if cfg.Dev {
+		log.Printf("[WARN] %s; arranca solo porque FASTERP_DEV=true", msg)
+		return nil
+	}
+	return fmt.Errorf("%s (genera uno con: openssl rand -hex 32. Para desarrollo, FASTERP_DEV=true)", msg)
 }
 
 func seedDefaultUsers(ctx context.Context) {
@@ -119,7 +188,19 @@ func seedDefaultUsers(ctx context.Context) {
 			return nil
 		}
 
-		hash, err := bcrypt.GenerateFromPassword([]byte("admin123"), bcrypt.DefaultCost)
+		// Password read from the environment on purpose. The previous build wrote a
+		// literal "admin123" that any scanner finds within seconds of exposing the
+		// port. With FASTERP_SEED off, the operator creates the first account through
+		// the setup wizard instead and no password is ever baked into the binary.
+		initialPassword := os.Getenv("FASTERP_ADMIN_PASSWORD")
+		if initialPassword == "" {
+			return errors.New("no users exist and FASTERP_ADMIN_PASSWORD is unset: set it, or run with FASTERP_SEED=false and create the first account from /setup")
+		}
+		if len(initialPassword) < 12 {
+			return fmt.Errorf("FASTERP_ADMIN_PASSWORD is too short (%d chars, need 12)", len(initialPassword))
+		}
+
+		hash, err := bcrypt.GenerateFromPassword([]byte(initialPassword), bcrypt.DefaultCost)
 		if err != nil {
 			return fmt.Errorf("failed to hash password: %w", err)
 		}
@@ -132,12 +213,12 @@ func seedDefaultUsers(ctx context.Context) {
 		if err != nil {
 			return err
 		}
-		log.Println("[Seed] Default user created: admin / admin123")
+		log.Println("[Seed] Default user created: admin / <FASTERP_ADMIN_PASSWORD>")
 		log.Printf("[Seed] Tenant ID: %s (use as X-Tenant-ID header)", defaultTenantID)
 		return nil
 	})
 	if err != nil {
-		log.Printf("[WARN] Failed to seed default user: %v", err)
+		log.Fatalf("[FATAL] Failed to seed default user: %v", err)
 	}
 }
 
@@ -213,58 +294,14 @@ func getDefaultTenantID() string {
 	return id
 }
 
-// loadInstalledModules loads every module that is active for at least one tenant.
-// The WASM registry is keyed by module name and shared across tenants, so this walks
-// the tenant list rather than reading installed_modules across tenants — which RLS
-// (correctly) no longer allows on a tenant-scoped connection.
+// loadInstalledModules carga los módulos del directorio y aplica su esquema.
+//
+// El registro es del proceso, no del tenant: el esquema de un módulo son tablas
+// con RLS por tenant_id, no datos. Así que no hace falta recorrer los tenants
+// para instalarlos — instalar es crear las tablas una vez, y lo decide qué tenant
+// tiene el módulo activo, no qué tablas existen.
 func loadInstalledModules(ctx context.Context, mgr *module.ModuleManager) {
-	tenantRows, err := db.DB.QueryContext(ctx, "SELECT id FROM tenants WHERE active = true")
-	if err != nil {
-		log.Printf("[WARN] Failed to query tenants: %v", err)
-		return
-	}
-	defer tenantRows.Close()
-
-	var tenantIDs []string
-	for tenantRows.Next() {
-		var id string
-		if err := tenantRows.Scan(&id); err != nil {
-			log.Printf("[WARN] Failed to scan tenant: %v", err)
-			continue
-		}
-		tenantIDs = append(tenantIDs, id)
-	}
-	if err := tenantRows.Err(); err != nil {
-		log.Printf("[WARN] Failed to read tenants: %v", err)
-		return
-	}
-
-	loaded := make(map[string]bool)
-	for _, tenantID := range tenantIDs {
-		err := db.WithTenant(ctx, tenantID, func(x db.QueryExecutor) error {
-			rows, err := x.QueryContext(ctx, "SELECT name FROM installed_modules WHERE active = true")
-			if err != nil {
-				return err
-			}
-			defer rows.Close()
-
-			for rows.Next() {
-				var name string
-				if err := rows.Scan(&name); err != nil {
-					return err
-				}
-				if loaded[name] {
-					continue
-				}
-				loaded[name] = true
-				if err := mgr.LoadPlugin(name); err != nil {
-					log.Printf("[WARN] Failed to load module %s: %v", name, err)
-				}
-			}
-			return rows.Err()
-		})
-		if err != nil {
-			log.Printf("[WARN] Failed to load modules for tenant %s: %v", tenantID, err)
-		}
+	if err := mgr.LoadAll(ctx); err != nil {
+		log.Printf("[WARN] %v", err)
 	}
 }

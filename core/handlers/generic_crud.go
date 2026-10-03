@@ -45,10 +45,28 @@ func NewGenericCRUDHandler(dbConn *db.DB, modulesDir string, sessionManager *Ses
 	}
 }
 
+// authorized exige una sesión válida.
+//
+// El dispatcher de /api/ sirve el CRUD de todos los módulos, y el identificador
+// de tenant llega del cliente. Sin este control, cabecera X-Tenant-ID en mano
+// cualquiera lee, escribe y borra los datos de cualquier tenant: el UUID se
+// publica en endpoints sin autenticar. Es autenticación, no autorización — el
+// control por rol sigue pendiente.
+func (h *GenericCRUDHandler) authorized(r *http.Request) bool {
+	if h.sessionManager == nil {
+		return false
+	}
+	token := h.sessionManager.GetTokenFromRequest(r)
+	if token == "" {
+		return false
+	}
+	_, err := h.sessionManager.ValidateToken(token)
+	return err == nil
+}
+
 // userIDFrom identifica a quien hace la petición, si trae un token válido.
 //
-// Es identificación "a lo mejor", no autorización: estas rutas no exigen
-// login (X-Tenant-ID alcanza para operar), pero el historial de un flujo
+// Es identificación "a lo mejor", no autorización: el historial de un flujo
 // necesita saber QUIÉN hizo cada transición para que sea auditoría real y no
 // una lista de movimientos anónimos. Sin token o con uno inválido, se sigue
 // atendiendo la petición — sólo que el historial queda sin ese dato.

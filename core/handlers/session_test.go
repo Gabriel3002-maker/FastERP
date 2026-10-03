@@ -72,18 +72,18 @@ func TestGetTokenFromRequestPrefersAuthorizationHeader(t *testing.T) {
 	}
 }
 
-// TestAuthHandlerSigningSecretIsHardcoded is a security regression test, not a
-// feature test: NewAuthHandler wires its SessionManager with the literal
-// "dev-secret" (core/handlers/auth.go), not a value from config/env. That
-// secret is checked into this repo, so anyone who has read it can mint a
-// token with IsAdmin: true for any tenant and pass StudioHandler.requireAdmin
-// (studio.go), which writes new module files to disk.
+// TestAuthHandlerRejectsTokensSignedWithARepoSecret fija la corrección del
+// secreto de firma. NewAuthHandler lo toma de la configuración, que lo lee del
+// entorno; antes usaba el literal "dev-secret", commiteado en este repo.
 //
-// This test signs a token independently — the way an attacker who only knows
-// the source would — and confirms the handler's own SessionManager accepts
-// it. It exists to fail loudly the day auth.go stops using a literal secret,
-// so whoever fixes it notices this test and can delete it.
-func TestAuthHandlerSigningSecretIsHardcoded(t *testing.T) {
+// Con el valor de aquella época en mano, cualquiera podía firmar un token con
+// IsAdmin:true para cualquier tenant y pasar el requireAdmin de StudioHandler,
+// que escribe ficheros de módulo en disco. Este test falla el día que el secreto
+// vuelva a estar fijado en el código, que es justo lo que hay que evitar.
+func TestAuthHandlerRejectsTokensSignedWithARepoSecret(t *testing.T) {
+	t.Setenv("FASTERP_JWT_SECRET", "un-secreto-propio-de-este-entorno-de-prueba")
+	t.Setenv("FASTERP_JWT_REFRESH_SECRET", "otro-secreto-propio-de-prueba-distinto")
+
 	ah := NewAuthHandler(nil)
 
 	forged := jwt.NewWithClaims(jwt.SigningMethodHS256, Claims{
@@ -100,10 +100,8 @@ func TestAuthHandlerSigningSecretIsHardcoded(t *testing.T) {
 	}
 
 	claims, err := ah.SessionManager().ValidateToken(forgedStr)
-	if err != nil {
-		t.Fatalf("hardcoded-secret token unexpectedly rejected (auth.go may have been fixed — delete this test): %v", err)
-	}
-	if !claims.IsAdmin {
-		t.Fatal("forged admin claim was not honored")
+	if err == nil {
+		t.Fatalf("un token firmado con 'dev-secret' sigue siendo válido (claims: %+v): "+
+			"el secreto de firma volvió a estar en el código", claims)
 	}
 }
