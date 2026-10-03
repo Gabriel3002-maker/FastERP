@@ -78,7 +78,7 @@ func (h *ChatterHandler) Notifications(w http.ResponseWriter, r *http.Request) {
 	limit := 50
 	if limitStr != "" {
 		if l, err := strconv.Atoi(limitStr); err == nil {
-			limit = sdk.ClampExternalLimit(l, 50)
+			limit = sdk.ClampExternalLimit(l, 50, sdk.MaxExternalLimit)
 		}
 	}
 

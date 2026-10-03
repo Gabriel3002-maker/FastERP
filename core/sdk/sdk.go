@@ -1184,19 +1184,49 @@ func normalizeLimit(limit int) int {
 	return DefaultPageSize
 }
 
-// MaxExternalLimit es el techo para un limit que viene de fuera (query string,
-// headers) en endpoints que no son el List del SDK: sin tope, ?limit=999999999
-// materializa la tabla entera en memoria y el proceso muere por OOM.
+// MaxExternalLimit es el techo por defecto para un limit que viene de fuera
+// (query string, headers) en endpoints que no son el List del SDK: sin tope,
+// ?limit=999999999 materializa la tabla entera en memoria y el proceso muere
+// por OOM.
 const MaxExternalLimit = 1000
 
-// ClampExternalLimit acota un limit externo a [1, MaxExternalLimit]. Un valor
-// no parseable, cero o negativo devuelve def.
-func ClampExternalLimit(limit int, def int) int {
+// ClampExternalLimit acota un limit externo al rango [1, max], y devuelve def
+// cuando el limit no es utilizable (cero, negativo, o no se pudo parsear en el
+// llamante).
+//
+// max es explícito y lo declara cada endpoint, y no un techo global, porque no
+// todos los listados cuestan lo mismo. Un listado de notificaciones en memoria
+// es barato; un export de auditoría serializa además el rango entero a un
+// []byte, o sea el doble. Fijar un único número obligaría a elegir entre
+// dejar el export inútil o dejar el listado expuesto.
+//
+// def también pasa por max. Antes no lo hacía, y de ahí el fallo: el export
+// pedía default 10000 con techo global 1000, así que sin ?limit salían 10000
+// filas pero con ?limit=20000 salían 1000. Pedir más devolvía menos que pedir
+// nada, y el "techo" no era un techo sino solo el default.
+//
+// El resultado siempre cae en [1, max], incluido def: un LIMIT 0 o negativo es
+// un error de sintaxis en Postgres, no un resultado vacío. Hoy los callers
+// pasan constantes positivas, pero eso es una casualidad de quien los escribió,
+// no una garantía de la función.
+//
+// Si max <= 0 se cae a MaxExternalLimit, para que un endpoint nuevo no se
+// quede sin techo por pasar un 0 olvidado.
+func ClampExternalLimit(limit int, def int, max int) int {
+	if max <= 0 {
+		max = MaxExternalLimit
+	}
+	if def < 1 {
+		def = 1
+	}
+	if def > max {
+		def = max
+	}
 	if limit <= 0 {
 		return def
 	}
-	if limit > MaxExternalLimit {
-		return MaxExternalLimit
+	if limit > max {
+		return max
 	}
 	return limit
 }

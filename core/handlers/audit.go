@@ -34,7 +34,7 @@ func (ah *AuditHandler) GetEntityAudit(w http.ResponseWriter, r *http.Request) {
 	limit := 100
 	if limitStr != "" {
 		if l, err := strconv.Atoi(limitStr); err == nil {
-			limit = sdk.ClampExternalLimit(l, 100)
+			limit = sdk.ClampExternalLimit(l, 100, sdk.MaxExternalLimit)
 		}
 	}
 
@@ -66,7 +66,7 @@ func (ah *AuditHandler) GetUserAudit(w http.ResponseWriter, r *http.Request) {
 	limit := 100
 	if limitStr != "" {
 		if l, err := strconv.Atoi(limitStr); err == nil {
-			limit = sdk.ClampExternalLimit(l, 100)
+			limit = sdk.ClampExternalLimit(l, 100, sdk.MaxExternalLimit)
 		}
 	}
 
@@ -131,10 +131,13 @@ func (ah *AuditHandler) ExportAudit(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// El export declara su propio techo: serializa el rango entero a un []byte
+	// además de materializarlo, así que es el endpoint más caro de todos y el
+	// que menos puede permitirse un limit sin acotar.
 	limit := db.MaxAuditExportRows
 	if limitStr != "" {
 		if l, err := strconv.Atoi(limitStr); err == nil {
-			limit = sdk.ClampExternalLimit(l, db.MaxAuditExportRows)
+			limit = sdk.ClampExternalLimit(l, db.MaxAuditExportRows, db.MaxAuditExportRows)
 		}
 	}
 
