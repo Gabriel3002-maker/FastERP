@@ -40,28 +40,45 @@ class ThemeManager {
 
   applyTheme(theme) {
     const html = document.documentElement;
+    let isDark = false;
 
     if (theme === this.AUTO) {
-      html.style.colorScheme = 'light dark';
-      // Let browser handle via prefers-color-scheme
+      isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      html.style.colorScheme = isDark ? 'dark' : 'light';
     } else if (theme === this.DARK) {
+      isDark = true;
       html.style.colorScheme = 'dark';
-      html.style.setProperty('--primary', '#579DFF');
-      html.style.setProperty('--primary-hover', '#85B8FF');
-      html.style.setProperty('--bg-primary', '#161A1D');
-      html.style.setProperty('--bg-secondary', '#22272B');
-      html.style.setProperty('--text-primary', '#B6C2CF');
-      html.style.setProperty('--text-secondary', '#8590A2');
-      html.style.setProperty('--border', '#38414B');
     } else {
+      isDark = false;
       html.style.colorScheme = 'light';
-      html.style.setProperty('--primary', '#0052CC');
-      html.style.setProperty('--primary-hover', '#003DA8');
-      html.style.setProperty('--bg-primary', '#F7F8FA');
-      html.style.setProperty('--bg-secondary', '#FFFFFF');
-      html.style.setProperty('--text-primary', '#172B4D');
-      html.style.setProperty('--text-secondary', '#626F86');
-      html.style.setProperty('--border', '#DCDFE4');
+    }
+
+    html.setAttribute('data-theme', isDark ? 'dark' : 'light');
+
+    if (isDark) {
+      // PrimeNG Dark Theme (Aura Dark)
+      html.style.setProperty('--primary', '#818cf8');
+      html.style.setProperty('--primary-hover', '#a5b4fc');
+      html.style.setProperty('--bg-primary', '#0f172a');
+      html.style.setProperty('--bg-secondary', '#1e293b');
+      html.style.setProperty('--text-primary', '#f8fafc');
+      html.style.setProperty('--text-secondary', '#94a3b8');
+      html.style.setProperty('--border', '#334155');
+      html.style.setProperty('--surface', '#1e293b');
+      html.style.setProperty('--accent', '#818cf8');
+      html.style.setProperty('--hover', 'rgba(129, 140, 248, 0.12)');
+    } else {
+      // PrimeNG Light Theme (Aura Light)
+      html.style.setProperty('--primary', '#4f46e5');
+      html.style.setProperty('--primary-hover', '#4338ca');
+      html.style.setProperty('--bg-primary', '#f8fafc');
+      html.style.setProperty('--bg-secondary', '#ffffff');
+      html.style.setProperty('--text-primary', '#0f172a');
+      html.style.setProperty('--text-secondary', '#64748b');
+      html.style.setProperty('--border', '#e2e8f0');
+      html.style.setProperty('--surface', '#ffffff');
+      html.style.setProperty('--accent', '#6366f1');
+      html.style.setProperty('--hover', 'rgba(99, 102, 241, 0.06)');
     }
   }
 

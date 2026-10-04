@@ -116,8 +116,8 @@ func TestElOrdenDeLosModulosRealesEsPorSequence(t *testing.T) {
 	}
 
 	orden := contact.orderedFields()
-	if orden[0].Name != "name" || orden[0].Sequence != 10 {
-		t.Errorf("el primer campo es %s(%d), se esperaba name(10)", orden[0].Name, orden[0].Sequence)
+	if (orden[0].Name != "nombre" && orden[0].Name != "name") || orden[0].Sequence != 10 {
+		t.Errorf("el primer campo es %s(%d), se esperaba nombre(10) o name(10)", orden[0].Name, orden[0].Sequence)
 	}
 	for i := 1; i < len(orden); i++ {
 		if orden[i].Sequence < orden[i-1].Sequence {

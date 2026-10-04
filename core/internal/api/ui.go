@@ -161,49 +161,35 @@ func (ui *UI) loginData(c *gin.Context) *LoginData {
 // autoalojada la alternativa —exigir el slug siempre— convierte cada login en un
 // ticket a soporte sin añadir nada.
 func onlyTenantSlug(c *gin.Context) string {
-	rows, err := db.DB.QueryContext(c.Request.Context(),
-		"SELECT slug FROM tenants WHERE active ORDER BY created_at LIMIT 2")
+	var slug string
+	err := db.DB.QueryRowContext(c.Request.Context(), `
+		SELECT slug
+		FROM tenants
+		WHERE active AND (slug = 'default' OR slug IS NOT NULL)
+		ORDER BY CASE WHEN slug = 'default' THEN 0 ELSE 1 END, created_at ASC
+		LIMIT 1
+	`).Scan(&slug)
 	if err != nil {
 		log.Printf("[UI] no se pudo leer el tenant por defecto: %v", err)
 		return ""
 	}
-	defer rows.Close()
-
-	var slugs []string
-	for rows.Next() {
-		var s string
-		if err := rows.Scan(&s); err != nil {
-			continue
-		}
-		slugs = append(slugs, s)
-	}
-	if len(slugs) == 1 {
-		return slugs[0]
-	}
-	return ""
+	return slug
 }
 
 func singleTenantID(c *gin.Context) string {
-	rows, err := db.DB.QueryContext(c.Request.Context(),
-		"SELECT id FROM tenants WHERE active ORDER BY created_at LIMIT 2")
+	var id string
+	err := db.DB.QueryRowContext(c.Request.Context(), `
+		SELECT id
+		FROM tenants
+		WHERE active
+		ORDER BY CASE WHEN slug = 'default' THEN 0 ELSE 1 END, created_at ASC
+		LIMIT 1
+	`).Scan(&id)
 	if err != nil {
 		log.Printf("[UI] no se pudo leer el tenant activo: %v", err)
 		return ""
 	}
-	defer rows.Close()
-
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			continue
-		}
-		ids = append(ids, id)
-	}
-	if len(ids) == 1 {
-		return ids[0]
-	}
-	return ""
+	return id
 }
 
 // Setup sirve el asistente de instalación.

@@ -142,7 +142,7 @@ func listHandler(c *gin.Context, inst *module.ModuleInstance, reg *module.ModelR
 	// DESC, y un "desc; DROP TABLE" tiene que acabar en un 400, no en una
 	// consulta.
 	orderBy, orderDir := c.DefaultQuery("order", "created_at"), c.DefaultQuery("dir", "desc")
-	if !reg.HasField(orderBy) {
+	if orderBy != "created_at" && orderBy != "updated_at" && orderBy != "id" && !reg.HasField(orderBy) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "unknown order field: " + orderBy})
 		return
 	}

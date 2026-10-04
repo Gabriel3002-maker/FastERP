@@ -319,12 +319,16 @@ func (h *Handler) ListModules(c *gin.Context) {
 	defer rows.Close()
 
 	mods := make([]gin.H, 0)
+	installedMap := make(map[string]bool)
+
 	for rows.Next() {
 		var m models.InstalledModule
 		if err := rows.Scan(&m.ID, &m.TenantID, &m.Name, &m.Version, &m.Label, &m.Description, &m.Author, &m.Icon, &m.Active, &m.InstalledAt, &m.UpdatedAt); err != nil {
 			log.Printf("scan error: %v", err)
 			continue
 		}
+
+		installedMap[m.Name] = true
 
 		// Enrich with frontend metadata from the loaded module manifest
 		modData := gin.H{
@@ -337,11 +341,41 @@ func (h *Handler) ListModules(c *gin.Context) {
 			"author":       m.Author,
 			"icon":         m.Icon,
 			"active":       m.Active,
+			"installed":    true,
 			"installed_at": m.InstalledAt,
 			"updated_at":   m.UpdatedAt,
 		}
 
 		if inst := module.Global.Get(m.Name); inst != nil && inst.Manifest != nil && inst.Manifest.Frontend != nil {
+			modData["frontend"] = inst.Manifest.Frontend
+		}
+
+		mods = append(mods, modData)
+	}
+
+	// Append disk modules that are available in module.Global but not yet installed in DB
+	for _, inst := range module.Global.All() {
+		if inst == nil || inst.Manifest == nil {
+			continue
+		}
+		name := inst.Manifest.Name
+		if installedMap[name] {
+			continue
+		}
+
+		modData := gin.H{
+			"id":          "",
+			"tenant_id":   tenantID,
+			"name":        name,
+			"version":     inst.Manifest.Version,
+			"label":       inst.Manifest.Label,
+			"description": inst.Manifest.Description,
+			"author":      inst.Manifest.Author,
+			"icon":        inst.Manifest.Icon,
+			"active":      false,
+			"installed":   false,
+		}
+		if inst.Manifest.Frontend != nil {
 			modData["frontend"] = inst.Manifest.Frontend
 		}
 
@@ -445,8 +479,36 @@ func (h *Handler) ToggleModule(c *gin.Context) {
 		"SELECT active FROM installed_modules WHERE name = $1 AND tenant_id = $2",
 		name, tenantID,
 	).Scan(&active)
+
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "module not found for this tenant"})
+		// Module not yet in installed_modules DB table: check if it exists on disk/registry
+		inst := module.Global.Get(name)
+		if inst == nil {
+			var loadErr error
+			inst, loadErr = h.modManager.LoadModule(name)
+			if loadErr != nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": "module not found for this tenant"})
+				return
+			}
+		}
+
+		if err := h.modManager.Apply(ctx, inst); err != nil {
+			log.Printf("[API] no se pudo aplicar el esquema del módulo %s: %v", name, err)
+		}
+
+		m := inst.Manifest
+		modID := uuid.New().String()
+		_, err = x.ExecContext(ctx,
+			`INSERT INTO installed_modules (id, tenant_id, name, version, label, description, author, icon, active)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true)`,
+			modID, tenantID, m.Name, m.Version, m.Label, m.Description, m.Author, m.Icon,
+		)
+		if err != nil {
+			internalError(c, "install and toggle module", err)
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"message": "module installed and activated", "active": true})
 		return
 	}
 
@@ -455,10 +517,12 @@ func (h *Handler) ToggleModule(c *gin.Context) {
 	// cualquier otro tenant que lo tenga activo. El acceso se filtra por tenant
 	// en cada petición, con el active de abajo.
 	if !active && module.Global.Get(name) == nil {
-		if _, err := h.modManager.LoadModule(name); err != nil {
+		if inst, err := h.modManager.LoadModule(name); err != nil {
 			log.Printf("[API] no se pudo cargar el módulo %s: %v", name, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load module"})
 			return
+		} else {
+			h.modManager.Apply(ctx, inst)
 		}
 	}
 

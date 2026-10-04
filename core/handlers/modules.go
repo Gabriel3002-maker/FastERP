@@ -4,15 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net/http"
-	"path/filepath"
+	"os"
 
 	"github.com/fasterp/backend/db"
+	modpkg "github.com/fasterp/backend/internal/module"
 )
 
 type ModuleHandler struct {
-	dbConn *db.DB
+	dbConn     *db.DB
+	modulesDir string
 }
 
 type ModuleInfo struct {
@@ -28,86 +29,72 @@ type ModuleInfo struct {
 	Depends     []string `json:"depends,omitempty"`
 }
 
-func NewModuleHandler(dbConn *db.DB) *ModuleHandler {
+func NewModuleHandler(dbConn *db.DB, modulesDir string) *ModuleHandler {
+	if modulesDir == "" {
+		modulesDir = "../modules"
+	}
 	return &ModuleHandler{
-		dbConn: dbConn,
+		dbConn:     dbConn,
+		modulesDir: modulesDir,
 	}
 }
 
-// loadModulesFromFilesystem lee los manifiestos de módulos del filesystem
+// loadModulesFromFilesystem lee los manifiestos de módulos del filesystem.
+// Acepta tanto module.yaml como manifest.json para mantener compatibilidad
+// durante la migración, y usa la ruta configurada en fast.conf en vez de un
+// valor fijo que solo funciona desde un directorio concreto.
 func (mh *ModuleHandler) loadModulesFromFilesystem() []ModuleInfo {
 	var modules []ModuleInfo
-	modulesDir := "../modules"
+	modulesDir := mh.modulesDir
+	if modulesDir == "" {
+		modulesDir = "../modules"
+	}
 
-	// Leer directorio de módulos
-	entries, err := ioutil.ReadDir(modulesDir)
+	entries, err := os.ReadDir(modulesDir)
 	if err != nil {
 		fmt.Printf("[DEBUG] Error reading modules directory: %v\n", err)
 		return modules
 	}
 
-	// Para cada directorio, buscar manifest.json
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
 
-		manifestPath := filepath.Join(modulesDir, entry.Name(), "manifest.json")
-		data, err := ioutil.ReadFile(manifestPath)
-		if err != nil {
-			fmt.Printf("[DEBUG] No manifest found for %s: %v\n", entry.Name(), err)
+		manifestPath := modpkg.FindManifest(modulesDir, entry.Name())
+		if manifestPath == "" {
 			continue
 		}
 
-		// Parsear manifest.json
-		var manifest map[string]interface{}
-		if err := json.Unmarshal(data, &manifest); err != nil {
+		manifest, err := modpkg.LoadManifest(manifestPath)
+		if err != nil {
 			fmt.Printf("[DEBUG] Error parsing manifest for %s: %v\n", entry.Name(), err)
 			continue
 		}
 
-		// Construir ModuleInfo desde el manifest
 		module := ModuleInfo{
-			ID:   entry.Name(),
-			Name: entry.Name(),
+			ID:          entry.Name(),
+			Name:        manifest.Name,
+			Label:       manifest.Label,
+			Version:     manifest.Version,
+			Author:      manifest.Author,
+			Description: manifest.Description,
+			Icon:        manifest.Icon,
+			Depends:     append([]string(nil), manifest.Depends...),
 		}
-
-		// Extraer campos del manifest
-		if label, ok := manifest["label"].(string); ok {
-			module.Label = label
-		} else {
+		if module.Name == "" {
+			module.Name = entry.Name()
+		}
+		if module.Label == "" {
 			module.Label = entry.Name()
 		}
-
-		if version, ok := manifest["version"].(string); ok {
-			module.Version = version
-		} else {
+		if module.Version == "" {
 			module.Version = "1.0.0"
 		}
-
-		if author, ok := manifest["author"].(string); ok {
-			module.Author = author
-		}
-
-		if description, ok := manifest["description"].(string); ok {
-			module.Description = description
-		}
-
-		if icon, ok := manifest["icon"].(string); ok {
-			module.Icon = icon
-		} else {
+		if module.Icon == "" {
 			module.Icon = "📦"
 		}
-
-		// Extraer dependencias si existen
-		if depends, ok := manifest["depends"].([]interface{}); ok {
-			for _, dep := range depends {
-				if depStr, ok := dep.(string); ok {
-					module.Depends = append(module.Depends, depStr)
-				}
-			}
-		}
-
+		module.ID = module.Name
 		modules = append(modules, module)
 	}
 

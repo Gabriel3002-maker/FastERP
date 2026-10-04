@@ -47,6 +47,11 @@
     <button class="filter-btn active" data-filter="all">Todos</button>
     <button class="filter-btn" data-filter="active">Activos</button>
     <button class="filter-btn" data-filter="inactive">Inactivos</button>
+    <div class="view-toggle" aria-label="Vista de módulos">
+        <button class="view-btn active" data-view="cards">Tarjetas</button>
+        <button class="view-btn" data-view="list">Lista</button>
+        <button class="view-btn" data-view="table">Tabla</button>
+    </div>
     <label class="filter-btn" for="module-upload" style="cursor:pointer;">
         📤 Instalar desde .zip
     </label>
@@ -111,9 +116,11 @@
     display: flex;
     gap: 15px;
     flex-wrap: wrap;
+    align-items: center;
 }
 
-.filter-btn {
+.filter-btn,
+.view-btn {
     padding: 8px 16px;
     border: 1px solid var(--border);
     background: var(--bg-secondary);
@@ -124,21 +131,43 @@
     color: var(--text-secondary);
 }
 
-.filter-btn.active {
+.filter-btn.active,
+.view-btn.active {
     background: var(--primary);
     color: white;
     border-color: var(--primary);
 }
 
-.filter-btn:hover {
+.filter-btn:hover,
+.view-btn:hover {
     border-color: var(--primary);
     color: var(--primary);
+}
+
+.view-toggle {
+    display: inline-flex;
+    gap: 8px;
+    padding: 4px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    margin-left: auto;
 }
 
 .modules-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
     gap: 20px;
+}
+
+.modules-grid[data-view="list"] {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.modules-grid[data-view="table"] {
+    display: block;
 }
 
 .module-card {
@@ -405,6 +434,7 @@
 // Todo el auth pasa por FastClient: token, tenant y refresco incluidos.
 let allModules = [];
 let currentFilter = 'all';
+let currentView = 'cards';
 
 function esc(value) {
     return String(value ?? '').replace(/[&<>"']/g, c => ({
@@ -443,6 +473,15 @@ document.querySelectorAll('.filter-btn[data-filter]').forEach(btn => {
     });
 });
 
+document.querySelectorAll('.view-btn[data-view]').forEach(btn => {
+    btn.addEventListener('click', () => {
+        currentView = btn.dataset.view;
+        document.querySelectorAll('.view-btn[data-view]').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        renderModules();
+    });
+});
+
 function renderModules() {
     let filtered = allModules;
     if (currentFilter === 'active') filtered = allModules.filter(m => m.active);
@@ -457,35 +496,98 @@ function renderModules() {
         return;
     }
 
-    grid.innerHTML = filtered.map(m => `
-        <div class="module-card">
-            <div class="module-icon">${esc(m.icon || '📦')}</div>
-            <div class="module-name">${esc(m.label || m.name)}</div>
-            <div class="module-label">${esc(m.name)}</div>
-            <div class="module-description">${esc(m.description || '')}</div>
-
-            <div class="module-meta">
-                <span class="module-version">v${esc(m.version)}</span>
-                <span class="module-author">${esc(m.author || '')}</span>
-            </div>
-
-            <div style="margin-bottom: 10px;">
-                <span class="badge badge-installed">✓ Instalado</span>
-                ${m.active ? '<span class="badge badge-active">✓ Activo</span>' : ''}
-            </div>
-
-            <div class="module-actions">
-                <button class="btn-install" data-action="toggle" data-name="${esc(m.name)}" data-next="${m.active ? '0' : '1'}">
-                    ${m.active ? 'Desactivar' : 'Activar'}
-                </button>
-                <button class="btn-uninstall" data-action="uninstall" data-name="${esc(m.name)}">
-                    Desinstalar
-                </button>
-            </div>
+    const statusMarkup = (m) => `
+        <div style="margin-bottom: 10px;">
+            <span class="badge badge-installed">✓ Instalado</span>
+            ${m.active ? '<span class="badge badge-active">✓ Activo</span>' : ''}
         </div>
-    `).join('');
+    `;
 
-    grid.style.display = 'grid';
+    if (currentView === 'list') {
+        grid.innerHTML = filtered.map(m => `
+            <div class="module-card" style="display:flex; align-items:center; gap:16px; padding:16px 20px;">
+                <div class="module-icon" style="margin:0; font-size:28px;">${esc(m.icon || '📦')}</div>
+                <div style="flex:1; min-width:0;">
+                    <div class="module-name" style="margin-bottom:2px;">${esc(m.label || m.name)}</div>
+                    <div class="module-label" style="margin-bottom:6px;">${esc(m.name)}</div>
+                    <div class="module-description" style="min-height:0; margin:0;">${esc(m.description || '')}</div>
+                </div>
+                <div style="display:flex; flex-direction:column; gap:8px; align-items:flex-end; min-width:170px;">
+                    <div class="module-meta" style="margin:0; border:none; padding:0; gap:8px;">
+                        <span class="module-version">v${esc(m.version)}</span>
+                        <span class="module-author">${esc(m.author || '')}</span>
+                    </div>
+                    ${statusMarkup(m)}
+                    <div class="module-actions" style="width:100%; justify-content:flex-end;">
+                        <button class="btn-install" data-action="toggle" data-name="${esc(m.name)}" data-next="${m.active ? '0' : '1'}">${m.active ? 'Desactivar' : 'Activar'}</button>
+                        <button class="btn-uninstall" data-action="uninstall" data-name="${esc(m.name)}">Desinstalar</button>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+    } else if (currentView === 'table') {
+        grid.innerHTML = `
+            <table class="module-table" style="width:100%; border-collapse:collapse; background:var(--bg-secondary); border:1px solid var(--border); border-radius:12px; overflow:hidden;">
+                <thead>
+                    <tr style="background:var(--bg-primary); color:var(--text-secondary); text-align:left;">
+                        <th style="padding:12px 16px;">Módulo</th>
+                        <th style="padding:12px 16px;">Versión</th>
+                        <th style="padding:12px 16px;">Estado</th>
+                        <th style="padding:12px 16px; text-align:right;">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${filtered.map(m => `
+                        <tr style="border-top:1px solid var(--border);">
+                            <td style="padding:12px 16px;">
+                                <div style="font-weight:600;">${esc(m.label || m.name)}</div>
+                                <div style="color:var(--text-secondary); font-size:12px;">${esc(m.name)}</div>
+                            </td>
+                            <td style="padding:12px 16px;">v${esc(m.version)}</td>
+                            <td style="padding:12px 16px;">
+                                <span class="badge badge-installed">Instalado</span>
+                                ${m.active ? '<span class="badge badge-active">Activo</span>' : ''}
+                            </td>
+                            <td style="padding:12px 16px; text-align:right;">
+                                <div class="module-actions" style="justify-content:flex-end;">
+                                    <button class="btn-install" data-action="toggle" data-name="${esc(m.name)}" data-next="${m.active ? '0' : '1'}">${m.active ? 'Desactivar' : 'Activar'}</button>
+                                    <button class="btn-uninstall" data-action="uninstall" data-name="${esc(m.name)}">Desinstalar</button>
+                                </div>
+                            </td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+    } else {
+        grid.innerHTML = filtered.map(m => `
+            <div class="module-card">
+                <div class="module-icon">${esc(m.icon || '📦')}</div>
+                <div class="module-name">${esc(m.label || m.name)}</div>
+                <div class="module-label">${esc(m.name)}</div>
+                <div class="module-description">${esc(m.description || '')}</div>
+
+                <div class="module-meta">
+                    <span class="module-version">v${esc(m.version)}</span>
+                    <span class="module-author">${esc(m.author || '')}</span>
+                </div>
+
+                ${statusMarkup(m)}
+
+                <div class="module-actions">
+                    <button class="btn-install" data-action="toggle" data-name="${esc(m.name)}" data-next="${m.active ? '0' : '1'}">
+                        ${m.active ? 'Desactivar' : 'Activar'}
+                    </button>
+                    <button class="btn-uninstall" data-action="uninstall" data-name="${esc(m.name)}">
+                        Desinstalar
+                    </button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    grid.dataset.view = currentView;
+    grid.style.display = currentView === 'table' ? 'block' : 'grid';
     emptyState.style.display = 'none';
 }
 

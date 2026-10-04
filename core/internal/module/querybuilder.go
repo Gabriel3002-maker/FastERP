@@ -159,16 +159,17 @@ func (qb *QueryBuilder) Where(col, op string, val interface{}) *QueryBuilder {
 
 // OrderBy sets ORDER BY. col must be valid; dir must be ASC or DESC.
 func (qb *QueryBuilder) OrderBy(col, dir string) *QueryBuilder {
+	dirUpper := strings.ToUpper(strings.TrimSpace(dir))
 	if col != "" && !qb.hasField(col) {
 		qb.err = fmt.Errorf("query: unknown field %q in ORDER BY", col)
 		return qb
 	}
-	if !allowedDirs[dir] {
+	if !allowedDirs[dirUpper] {
 		qb.err = fmt.Errorf("query: invalid ORDER BY direction %q", dir)
 		return qb
 	}
 	qb.orderBy = col
-	qb.orderDir = dir
+	qb.orderDir = dirUpper
 	return qb
 }
 

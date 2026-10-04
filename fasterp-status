@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if command -v lsof >/dev/null 2>&1 && lsof -t -i:7071 >/dev/null 2>&1; then
+  echo "FastERP: activo en http://localhost:7071"
+  exit 0
+fi
+
+if command -v pgrep >/dev/null 2>&1 && pgrep -af '/tmp/fasterp-server|fasterp-server|cmd/server' >/dev/null 2>&1; then
+  echo "FastERP: proceso de core activo pero el puerto no respondió todavía."
+  exit 0
+fi
+
+echo "FastERP: detenido."
+exit 1

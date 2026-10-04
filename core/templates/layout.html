@@ -26,24 +26,38 @@
         const html = document.documentElement;
 
         function applyTheme(t) {
-          if (t === DARK) {
-            html.style.colorScheme = 'dark';
-            html.style.setProperty('--primary', '#579DFF');
-            html.style.setProperty('--primary-hover', '#85B8FF');
-            html.style.setProperty('--bg-primary', '#161A1D');
-            html.style.setProperty('--bg-secondary', '#22272B');
-            html.style.setProperty('--text-primary', '#B6C2CF');
-            html.style.setProperty('--text-secondary', '#8590A2');
-            html.style.setProperty('--border', '#38414B');
-          } else if (t === LIGHT) {
-            html.style.colorScheme = 'light';
-            html.style.setProperty('--primary', '#0052CC');
-            html.style.setProperty('--primary-hover', '#003DA8');
-            html.style.setProperty('--bg-primary', '#F7F8FA');
-            html.style.setProperty('--bg-secondary', '#FFFFFF');
-            html.style.setProperty('--text-primary', '#172B4D');
-            html.style.setProperty('--text-secondary', '#626F86');
-            html.style.setProperty('--border', '#DCDFE4');
+          let isDark = false;
+          if (t === AUTO) {
+            isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+          } else {
+            isDark = (t === DARK);
+          }
+
+          html.setAttribute('data-theme', isDark ? 'dark' : 'light');
+          html.style.colorScheme = isDark ? 'dark' : 'light';
+
+          if (isDark) {
+            html.style.setProperty('--primary', '#818cf8');
+            html.style.setProperty('--primary-hover', '#a5b4fc');
+            html.style.setProperty('--bg-primary', '#0f172a');
+            html.style.setProperty('--bg-secondary', '#1e293b');
+            html.style.setProperty('--text-primary', '#f8fafc');
+            html.style.setProperty('--text-secondary', '#94a3b8');
+            html.style.setProperty('--border', '#334155');
+            html.style.setProperty('--surface', '#1e293b');
+            html.style.setProperty('--accent', '#818cf8');
+            html.style.setProperty('--hover', 'rgba(129, 140, 248, 0.12)');
+          } else {
+            html.style.setProperty('--primary', '#4f46e5');
+            html.style.setProperty('--primary-hover', '#4338ca');
+            html.style.setProperty('--bg-primary', '#f8fafc');
+            html.style.setProperty('--bg-secondary', '#ffffff');
+            html.style.setProperty('--text-primary', '#0f172a');
+            html.style.setProperty('--text-secondary', '#64748b');
+            html.style.setProperty('--border', '#e2e8f0');
+            html.style.setProperty('--surface', '#ffffff');
+            html.style.setProperty('--accent', '#6366f1');
+            html.style.setProperty('--hover', 'rgba(99, 102, 241, 0.06)');
           }
         }
 
@@ -52,6 +66,8 @@
     </script>
 
     <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/fast-views.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/primeicons@7.0.0/primeicons.css">
     <style>
         * {
             margin: 0;
@@ -462,25 +478,47 @@
         setInterval(() => { if (!document.hidden) loadNotifications(); }, 30000);
     </script>
 
+    <script nonce="{{.Nonce}}">
+        function formatSidebarIcons() {
+            const iconMap = {
+                'users': 'pi pi-users',
+                'map-pin': 'pi pi-map-marker',
+                'globe': 'pi pi-globe',
+                'store': 'pi pi-shop',
+                'box': 'pi pi-box',
+                'shopping-bag': 'pi pi-shopping-bag',
+                'shopping-cart': 'pi pi-shopping-cart',
+                'file': 'pi pi-file',
+                'tag': 'pi pi-tag',
+                'cog': 'pi pi-cog',
+                'settings': 'pi pi-cog',
+                'chart': 'pi pi-chart-bar'
+            };
+
+            document.querySelectorAll('.nav-icon[data-icon]').forEach(el => {
+                const raw = (el.dataset.icon || '').trim();
+                if (!raw) return;
+                if (iconMap[raw]) {
+                    el.innerHTML = `<i class="${iconMap[raw]}"></i>`;
+                } else if (raw.startsWith('pi-') || raw.startsWith('pi ')) {
+                    const cls = raw.startsWith('pi ') ? raw : `pi ${raw}`;
+                    el.innerHTML = `<i class="${cls}"></i>`;
+                } else if (/^[a-zA-Z0-9_-]+$/.test(raw)) {
+                    el.innerHTML = `<i class="pi pi-${raw}"></i>`;
+                }
+            });
+        }
+        formatSidebarIcons();
+    </script>
     <script src="/static/js/theme.js"></script>
     {{.ExtraScripts}}
 </body>
 </html>
 
-{{/* Árbol del menú lateral.
-
-     Recursivo a propósito: MenuDef tiene un campo Parent, así que los menús
-     anidados son posibles desde el manifiesto y no hay un número fijo de niveles
-     que abrir en la plantilla. La llamada al propio nombre desde dentro es lo que
-     resuelve la recursión en html/template.
-
-     Se espera un []module.MenuNode. Cada nodo trae Route ya normalizada a una ruta
-     bajo /admin y Icon con valor por defecto puesto en Go, así que aquí no hay que
-     decidir nada: solo pintar y escapar. */}}
 {{define "menuTree"}}
     {{range .}}
         <a href="{{.Route}}" class="nav-item{{if .Model}} nav-item-model{{end}}" data-route="{{.Route}}" title="{{.Label}}">
-            <span class="nav-icon">{{if .Icon}}{{.Icon}}{{else}}📦{{end}}</span>
+            <span class="nav-icon" data-icon="{{.Icon}}">{{if .Icon}}{{.Icon}}{{else}}📦{{end}}</span>
             <span>{{.Label}}</span>
         </a>
         {{with .Children}}{{template "menuTree" .}}{{end}}

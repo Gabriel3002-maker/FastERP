@@ -58,13 +58,32 @@
     return raw;
   }
 
-  /** Formatea un valor según el tipo que declaró el manifest. */
+  /** Formatea un valor según el tipo que declaró el manifest, con badges estilo PrimeNG para estados. */
   function formatValue(value, field) {
     if (value === null || value === undefined || value === '') return '—';
 
+    // PrimeNG Status Badges para estados y enums
+    const isStatusField = ['estado', 'status', 'state', 'tipo_persona', 'tipo', 'active', 'installed'].includes(field.name) || field.options?.length;
+    if (isStatusField && typeof value === 'string') {
+      const valLower = value.toLowerCase();
+      let badgeClass = 'p-badge-info';
+      if (['activo', 'installed', 'true', 'done', 'completado', 'confirmado', 'pagado', 'aprobado', 'jurídica', 'juridica'].includes(valLower)) {
+        badgeClass = 'p-badge-success';
+      } else if (['prospecto', 'pendiente', 'borrador', 'draft', 'en_proceso', 'natural'].includes(valLower)) {
+        badgeClass = 'p-badge-warn';
+      } else if (['inactivo', 'cancelado', 'rechazado', 'error', 'false'].includes(valLower)) {
+        badgeClass = 'p-badge-danger';
+      } else if (['sistema', 'nota', 'info'].includes(valLower)) {
+        badgeClass = 'p-badge-secondary';
+      }
+      return `<span class="p-badge ${badgeClass}">${esc(value)}</span>`;
+    }
+
     switch (field.input) {
       case 'checkbox':
-        return value ? 'Sí' : 'No';
+        return value
+          ? '<span class="p-badge p-badge-success">Sí</span>'
+          : '<span class="p-badge p-badge-secondary">No</span>';
       case 'number':
         return typeof value === 'number' ? value.toLocaleString('es-EC') : value;
       case 'date':
@@ -475,7 +494,7 @@
       }
     }
 
-    /** Traduce el estado a los parámetros que entiende el SDK. */
+    /** Traduce el estado a los parámetros que entiende la API en Go. */
     query() {
       const params = new URLSearchParams({
         page: this.state.page,
@@ -483,16 +502,12 @@
       });
       if (this.state.search) params.set('search', this.state.search);
       if (this.state.orderBy) {
-        params.set('order_by', this.state.orderBy);
-        params.set('order_dir', this.state.orderDir);
+        params.set('order', this.state.orderBy);
+        params.set('dir', this.state.orderDir);
       }
 
-      const byName = new Map(this.meta.fields.map((f) => [f.name, f]));
       for (const [field, value] of Object.entries(this.state.filters)) {
-        const meta = byName.get(field);
-        // Un campo con opciones se filtra exacto; el texto libre, por "contiene".
-        const key = meta?.options?.length ? field : `${field}__contains`;
-        params.set(key, value);
+        params.append('filter', `${field}:ILIKE:${value}`);
       }
       return params;
     }
@@ -500,7 +515,7 @@
     async load() {
       try {
         this.page = await this.api.get(`${this.base}?${this.query()}`);
-        this.state.page = this.page.page;
+        this.state.page = this.page.pagination?.page || this.page.page || 1;
         this.renderRows();
         this.renderFooter();
         this.el.dispatchEvent(new CustomEvent('fast:change', {
@@ -513,7 +528,7 @@
 
     renderRows() {
       const columns = this.columns();
-      const rows = this.page.data || [];
+      const rows = this.page.items || this.page.data || [];
 
       if (!rows.length) {
         const filtering = this.state.search || Object.keys(this.state.filters).length;
@@ -525,11 +540,11 @@
 
       this.body.innerHTML = rows.map((record) => `
         <tr data-id="${esc(record.id)}">
-          ${columns.map((f) => `<td>${esc(formatValue(record[f.name], f))}</td>`).join('')}
+          ${columns.map((f) => `<td>${formatValue(record[f.name], f)}</td>`).join('')}
           <td class="fv-actions">
             ${this.transitionButtons(record)}
-            <button type="button" data-action="edit">Editar</button>
-            <button type="button" data-action="delete">Eliminar</button>
+            <button type="button" data-action="edit" title="Editar registro">✏️ Editar</button>
+            <button type="button" data-action="delete" title="Eliminar registro">🗑️</button>
           </td>
         </tr>`).join('');
 
@@ -551,7 +566,12 @@
     }
 
     renderFooter() {
-      const { total, page, limit, total_pages: pages } = this.page;
+      const p = this.page.pagination || this.page;
+      const total = p.total ?? 0;
+      const page = p.page ?? 1;
+      const limit = p.limit ?? 25;
+      const pages = p.pages ?? p.total_pages ?? 1;
+
       const from = total === 0 ? 0 : (page - 1) * limit + 1;
       const to = Math.min(page * limit, total);
 

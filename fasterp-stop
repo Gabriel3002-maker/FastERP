@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+pids=()
+
+if command -v lsof >/dev/null 2>&1; then
+  while IFS= read -r pid; do
+    [ -n "${pid:-}" ] && pids+=("$pid")
+  done < <(lsof -t -i:7071 2>/dev/null || true)
+fi
+
+if command -v pgrep >/dev/null 2>&1; then
+  while IFS= read -r pid; do
+    [ -n "${pid:-}" ] && pids+=("$pid")
+  done < <(pgrep -af '/tmp/fasterp-server|fasterp-server|cmd/server' 2>/dev/null | awk '{print $1}' || true)
+fi
+
+if [ "${#pids[@]}" -eq 0 ]; then
+  echo "FastERP: nada que detener."
+  exit 0
+fi
+
+for pid in $(printf '%s\n' "${pids[@]}" | sort -u); do
+  kill "$pid" 2>/dev/null || true
+done
+
+sleep 1
+
+echo "FastERP detenido."

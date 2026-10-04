@@ -380,7 +380,11 @@ func deducedPageSeq(route string) int {
 func (r *Registry) MenusForTenant(tenantID string) []MenuItem {
 	items := r.Menus()
 	if tenantID == "" {
-		return items
+		var err error
+		tenantID, err = firstActiveTenantID()
+		if err != nil || tenantID == "" {
+			return nil
+		}
 	}
 
 	active := tenantActiveModules(tenantID)
@@ -388,6 +392,21 @@ func (r *Registry) MenusForTenant(tenantID string) []MenuItem {
 		return nil
 	}
 	return filterMenuItemsByNames(items, active)
+}
+
+func firstActiveTenantID() (string, error) {
+	var id string
+	err := db.DB.QueryRowContext(context.Background(), `
+		SELECT id
+		FROM tenants
+		WHERE active
+		ORDER BY CASE WHEN slug = 'default' THEN 0 ELSE 1 END, created_at ASC
+		LIMIT 1
+	`).Scan(&id)
+	if err != nil {
+		return "", err
+	}
+	return id, nil
 }
 
 func (r *Registry) MenuTree() []MenuNode {
@@ -419,7 +438,14 @@ func tenantActiveModules(tenantID string) map[string]bool {
 		return active
 	}
 
-	rows, err := db.DB.QueryContext(context.Background(),
+	conn, err := db.AcquireConn(context.Background(), tenantID)
+	if err != nil {
+		log.Printf("[Modules] no se pudo obtener conexión RLS para tenant %s: %v", tenantID, err)
+		return active
+	}
+	defer conn.Close()
+
+	rows, err := conn.QueryContext(context.Background(),
 		"SELECT name FROM installed_modules WHERE tenant_id = $1 AND active = true",
 		tenantID,
 	)

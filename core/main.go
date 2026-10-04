@@ -42,7 +42,7 @@ func main() {
 	authHandler := handlers.NewAuthHandler(dbConn)
 	auditHandler := handlers.NewAuditHandler(auditLogger)
 	setupHandler := handlers.NewSetupHandler(dbConn)
-	moduleHandler := handlers.NewModuleHandler(dbConn)
+	moduleHandler := handlers.NewModuleHandler(dbConn, cfg.Modules.Path)
 	crudHandler := handlers.NewGenericCRUDHandler(dbConn, cfg.Modules.Path, authHandler.SessionManager())
 	docsHandler := handlers.NewDocsHandler(cfg.Modules.Path)
 	studioHandler := handlers.NewStudioHandler(cfg.Modules.Path, authHandler.SessionManager(), crudHandler)

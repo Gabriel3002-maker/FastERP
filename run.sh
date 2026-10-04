@@ -39,6 +39,29 @@ export FASTERP_UPLOAD_DIR="${FASTERP_UPLOAD_DIR:-$DIR/core/uploads}"
 
 echo "=== FastERP ==="
 
+fasterp_stop() {
+  local pids=()
+  if command -v lsof >/dev/null 2>&1; then
+    while IFS= read -r pid; do
+      [ -n "${pid:-}" ] && pids+=("$pid")
+    done < <(lsof -t -i:7071 2>/dev/null || true)
+  fi
+
+  if command -v pgrep >/dev/null 2>&1; then
+    while IFS= read -r pid; do
+      [ -n "${pid:-}" ] && pids+=("$pid")
+    done < <(pgrep -af '/tmp/fasterp-server|fasterp-server|cmd/server' 2>/dev/null | awk '{print $1}' || true)
+  fi
+
+  if [ "${#pids[@]}" -gt 0 ]; then
+    echo "      deteniendo procesos anteriores..."
+    for pid in $(printf '%s\n' "${pids[@]}" | sort -u); do
+      kill "$pid" 2>/dev/null || true
+    done
+    sleep 1
+  fi
+}
+
 # 1. PostgreSQL (Docker, solo la base de datos)
 if ! pg_isready -h localhost -p "$PG_PORT" -q 2>/dev/null; then
   echo "[1/3] Levantando PostgreSQL en :${PG_PORT}..."
@@ -54,16 +77,19 @@ echo "[2/3] Compilando el core..."
 
 # 3. Arrancar
 echo "[3/3] Iniciando el core en http://localhost:7071"
-if lsof -t -i:7071 >/dev/null 2>&1; then
-  echo "      puerto 7071 ocupado, deteniendo el proceso anterior..."
-  kill "$(lsof -t -i:7071)" 2>/dev/null || true
-  sleep 1
-fi
+fasterp_stop
 cd "$DIR/core"
 setsid /tmp/fasterp-server > /tmp/fasterp-server.log 2>&1 &
 sleep 3
 
-TENANT_ID="$(cat core/.default-tenant-id 2>/dev/null || echo "ver /tmp/fasterp-server.log")"
+TENANT_ID="$(psql "${FASTERP_DATABASE_URL}" -At -c "SELECT id FROM tenants WHERE slug = 'default' ORDER BY created_at LIMIT 1;" 2>/dev/null | tr -d '\r' | head -n 1)"
+if [ -z "${TENANT_ID:-}" ]; then
+  TENANT_ID="$(cat .default-tenant-id 2>/dev/null || echo "sin tenant default")"
+fi
+
+if [ -z "${TENANT_ID:-}" ] || [ "${TENANT_ID}" = "sin tenant default" ]; then
+  TENANT_ID="revisar /tmp/fasterp-server.log"
+fi
 
 echo ""
 echo "  URL:        http://localhost:7071"

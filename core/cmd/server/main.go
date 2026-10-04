@@ -235,24 +235,9 @@ func seedDefaultModules(ctx context.Context, modulesDir string) {
 	}
 	defer conn.Close()
 
-	var count int
-	if err := conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM installed_modules").Scan(&count); err != nil {
-		log.Printf("[WARN] Failed to seed modules: %v", err)
+	presets := moduleSeedPresets(modulesDir)
+	if len(presets) == 0 {
 		return
-	}
-	if count > 0 {
-		return
-	}
-
-	presets := []struct {
-		name, version, label, description, author string
-	}{
-		{"hello", "1.0.0", "Hello", "Hello World example module", "FastERP Team"},
-		{"contacts", "1.0.0", "Contacts", "Simple contact management", "FastERP Team"},
-		{"products", "1.0.0", "Solar Products", "Gestión de catálogo de productos solares", "FastERP Solar Team"},
-		{"sites", "1.0.0", "Solar Sites", "Gestión de sitios de proyecto", "FastERP Solar Team"},
-		{"tienda_web", "2.0.1", "Tienda Web", "Tienda web: ficha de producto, precio y galería de imágenes", "Ecuabyte"},
-		{"sitio_web", "1.0.0", "Sitio Web", "CMS para construir y publicar el sitio público", "Ecuabyte"},
 	}
 
 	for _, p := range presets {
@@ -264,9 +249,16 @@ func seedDefaultModules(ctx context.Context, modulesDir string) {
 
 		_, err := conn.ExecContext(ctx,
 			`INSERT INTO installed_modules (id, tenant_id, name, version, label, description, author, active)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, true)`,
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			 ON CONFLICT (tenant_id, name) DO UPDATE SET
+			 version = EXCLUDED.version,
+			 label = EXCLUDED.label,
+			 description = EXCLUDED.description,
+			 author = EXCLUDED.author,
+			 active = EXCLUDED.active,
+			 updated_at = CURRENT_TIMESTAMP`,
 			uuid.New().String(), defaultTenantID,
-			p.name, p.version, p.label, p.description, p.author,
+			p.name, p.version, p.label, p.description, p.author, p.active,
 		)
 		if err != nil {
 			log.Printf("[Seed] Failed to seed module %s: %v", p.name, err)
@@ -274,6 +266,34 @@ func seedDefaultModules(ctx context.Context, modulesDir string) {
 			log.Printf("[Seed] Module seeded: %s (active) [%s]", p.name, filepath.Base(modPath))
 		}
 	}
+}
+
+func moduleSeedPresets(modulesDir string) []struct {
+	name, version, label, description, author string
+	active bool
+} {
+	presets := []struct {
+		name, version, label, description, author string
+		active bool
+	}{
+		{"hello", "1.0.0", "Hello", "Hello World example module", "FastERP Team", true},
+		{"contacts", "1.0.0", "Contacts", "Simple contact management", "FastERP Team", true},
+		{"products", "1.0.0", "Solar Products", "Gestión de catálogo de productos solares", "FastERP Solar Team", false},
+		{"sites", "1.0.0", "Solar Sites", "Gestión de sitios de proyecto", "FastERP Solar Team", false},
+		{"tienda_web", "2.0.1", "Tienda Web", "Tienda web: ficha de producto, precio y galería de imágenes", "Ecuabyte", false},
+		{"sitio_web", "1.0.0", "Sitio Web", "CMS para construir y publicar el sitio público", "Ecuabyte", false},
+	}
+
+	out := make([]struct {
+		name, version, label, description, author string
+		active bool
+	}, 0, len(presets))
+	for _, p := range presets {
+		if moduleSeedAssetPath(modulesDir, p.name) != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func moduleSeedAssetPath(modulesDir, name string) string {

@@ -88,6 +88,12 @@
         document.body.appendChild(script);
     });
 
+    if (!document.querySelector('link[href*="fast-views.css"]')) {
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = '/static/css/fast-views.css';
+        document.head.appendChild(link);
+    }
     if (typeof FastClient === 'undefined') {
         await addScript('/static/js/fast-client.js');
     }
