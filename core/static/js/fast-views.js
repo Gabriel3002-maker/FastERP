@@ -30,16 +30,6 @@
 
   const SEARCH_DEBOUNCE_MS = 300;
 
-  function tenantID() {
-    const token = localStorage.getItem('access_token');
-    if (!token) return null;
-    try {
-      return JSON.parse(atob(token.split('.')[1])).tenant_id;
-    } catch {
-      return null;
-    }
-  }
-
   function esc(value) {
     return String(value ?? '').replace(/[&<>"']/g, (c) => ({
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -105,8 +95,21 @@
       };
     }
 
-    get headers() {
-      return { 'X-Tenant-ID': tenantID(), 'Content-Type': 'application/json' };
+    /**
+     * Cliente HTTP de las peticiones de datos.
+     *
+     * Antes este objeto montaba sus propias cabeceras y solo con X-Tenant-ID,
+     * sin Authorization. Funcionaba contra la capa legacy, que identificaba al
+     * usuario por cookie de sesión, pero contra Gin —que solo acepta Bearer— cada
+     * listado devolvía 401. Delegar en FastClient además trae el refresco del
+     * token, que aquí no existía: al cabo de 15 minutos el CRUD se paraba hasta
+     * recargar la página.
+     */
+    get api() {
+      if (typeof FastClient === 'undefined') {
+        throw new Error('fast-client.js no está cargado: el CRUD necesita el cliente de auth.');
+      }
+      return FastClient;
     }
 
     async init() {
@@ -115,9 +118,7 @@
       }
 
       try {
-        const response = await fetch(`${this.base}/_meta`, { headers: this.headers });
-        if (!response.ok) throw new Error(await this.errorText(response));
-        this.meta = await response.json();
+        this.meta = await this.api.get(`${this.base}/_meta`);
       } catch (error) {
         return this.fail(`No se pudo leer el modelo: ${error.message}`);
       }
@@ -423,9 +424,7 @@
       if (complete) return this.openForm(record);
 
       try {
-        const response = await fetch(`${this.base}/${id}`, { headers: this.headers });
-        if (!response.ok) throw new Error(await this.errorText(response));
-        this.openForm(await response.json());
+        this.openForm(await this.api.get(`${this.base}/${id}`));
       } catch (error) {
         alert('Error: ' + error.message);
       }
@@ -453,14 +452,10 @@
       save.disabled = true;
 
       try {
-        const response = await fetch(url, {
-          method: this.editing ? 'PUT' : 'POST',
-          headers: this.headers,
-          body: JSON.stringify(payload),
-        });
-        if (!response.ok) throw new Error(await this.errorText(response));
+        const body = this.editing
+          ? await this.api.put(url, payload)
+          : await this.api.post(url, payload);
 
-        const body = await response.json();
         this.dialog.close();
         // Tras crear, volver a la primera página: ahí aparece el registro nuevo.
         if (!this.editing) this.state.page = 1;
@@ -504,10 +499,7 @@
 
     async load() {
       try {
-        const response = await fetch(`${this.base}?${this.query()}`, { headers: this.headers });
-        if (!response.ok) throw new Error(await this.errorText(response));
-
-        this.page = await response.json();
+        this.page = await this.api.get(`${this.base}?${this.query()}`);
         this.state.page = this.page.page;
         this.renderRows();
         this.renderFooter();
@@ -590,13 +582,7 @@
     /** Ejecuta una transición del flujo: POST .../{id}/transition. */
     async transition(id, action) {
       try {
-        const response = await fetch(`${this.base}/${id}/transition`, {
-          method: 'POST', headers: this.headers,
-          body: JSON.stringify({ action }),
-        });
-        if (!response.ok) throw new Error(await this.errorText(response));
-
-        const result = await response.json();
+        const result = await this.api.post(`${this.base}/${id}/transition`, { action });
         this.load();
         this.el.dispatchEvent(new CustomEvent('fast:transitioned', {
           bubbles: true, detail: result,
@@ -609,10 +595,7 @@
     async remove(id) {
       if (!confirm('¿Eliminar este registro?')) return;
       try {
-        const response = await fetch(`${this.base}/${id}`, {
-          method: 'DELETE', headers: this.headers,
-        });
-        if (!response.ok) throw new Error(await this.errorText(response));
+        await this.api.del(`${this.base}/${id}`);
 
         // Si era el último de la página, retroceder para no quedar en vacío.
         if (this.page.data.length === 1 && this.state.page > 1) this.state.page--;
@@ -620,15 +603,6 @@
       } catch (error) {
         alert('Error: ' + error.message);
       }
-    }
-
-    /** El SDK responde {"error": "..."} con el motivo real. */
-    async errorText(response) {
-      try {
-        const body = await response.json();
-        if (body.error) return body.error;
-      } catch { /* respuesta sin JSON */ }
-      return `Error ${response.status}`;
     }
 
     fail(message) {

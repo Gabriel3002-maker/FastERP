@@ -16,6 +16,8 @@ type Config struct {
 	JWTRefreshSecret string
 	ModulesDir       string
 	UploadDir        string
+	StaticDir        string
+	TemplatesDir     string
 	CORSOrigins      string
 	RateLimit        int
 	AuthRateLimit    int
@@ -37,6 +39,8 @@ func Load() *Config {
 		JWTRefreshSecret: getEnv("FASTERP_JWT_REFRESH_SECRET", "change-me-refresh-secret"),
 		ModulesDir:       getEnv("FASTERP_MODULES_DIR", "./modules"),
 		UploadDir:        getEnv("FASTERP_UPLOAD_DIR", "./uploads"),
+		StaticDir:        getEnv("FASTERP_STATIC_DIR", "./static"),
+		TemplatesDir:     getEnv("FASTERP_TEMPLATES_DIR", "./templates"),
 		CORSOrigins:      getEnv("FASTERP_CORS_ORIGINS", "http://localhost:5051"),
 		RateLimit:        getEnvInt("FASTERP_RATE_LIMIT", 100),
 		AuthRateLimit:    getEnvInt("FASTERP_AUTH_RATE_LIMIT", 10),

@@ -51,7 +51,7 @@ func moduleMetaHandler(c *gin.Context, inst *module.ModuleInstance, _ *module.Mo
 		"icon":    inst.Manifest.Icon,
 		"version": inst.Manifest.Version,
 		"models":  models,
-		"menus":   module.Global.Menus(),
+		"menus":   module.Global.MenusForTenant(c.GetString("tenant_id")),
 	})
 }
 

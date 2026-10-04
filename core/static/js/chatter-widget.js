@@ -20,35 +20,18 @@
 
   /* ── Helpers ─────────────────────────────────────────── */
 
-  function tenantID() {
-    const token = localStorage.getItem('access_token');
-    if (!token) return null;
-    try { return JSON.parse(atob(token.split('.')[1])).tenant_id; }
-    catch { return null; }
-  }
-
+  // Tenant, id de usuario y nombre salen de FastClient, que ya sabe decodificar
+  // el token. Este fichero tenía su propia copia y pedía el claim "user_id",
+  // que el servidor no emite: el campo es "sub". Por eso el chatter siempre
+  //Detectaba como "Usuario" y pedía las notificaciones sin usuario.
   function userID() {
-    const token = localStorage.getItem('access_token');
-    if (!token) return null;
-    try { return JSON.parse(atob(token.split('.')[1])).user_id || null; }
-    catch { return null; }
+    return FastClient.claim('sub');
   }
 
   function userName() {
-    const token = localStorage.getItem('access_token');
-    if (!token) return 'Usuario';
-    try {
-      const p = JSON.parse(atob(token.split('.')[1]));
-      return p.name || p.username || p.email || 'Usuario';
-    } catch { return 'Usuario'; }
-  }
-
-  function headers() {
-    return {
-      'X-Tenant-ID': tenantID(),
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + (localStorage.getItem('access_token') || ''),
-    };
+    const user = FastClient.user();
+    if (user) return user.username || user.email || 'Usuario';
+    return FastClient.claim('username') || 'Usuario';
   }
 
   function esc(value) {
@@ -102,9 +85,8 @@
       return cachedUsers;
     }
     try {
-      const res = await fetch(USERS_API, { headers: headers() });
-      if (!res.ok) return [];
-      const json = await res.json();
+      const json = await FastClient.get(USERS_API);
+      if (!json) return [];
       cachedUsers = json.data || [];
       usersCacheTime = now;
       return cachedUsers;
@@ -120,30 +102,17 @@
     });
     if (recordModel) params.set('record_model', recordModel);
     if (recordId) params.set('record_id', recordId);
-    const res = await fetch(`${API}?${params}`, { headers: headers() });
-    if (!res.ok) throw new Error(`Error ${res.status}`);
-    const json = await res.json();
+    const json = await FastClient.get(`${API}?${params}`);
     return { data: json.data || [], total: json.total || 0 };
   }
 
   async function createMessage(data) {
-    const res = await fetch(API, {
-      method: 'POST', headers: headers(),
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || `Error ${res.status}`);
-    }
-    return res.json();
+    return FastClient.post(API, data);
   }
 
   async function createNotification(data) {
     try {
-      await fetch(NOTIF_API, {
-        method: 'POST', headers: headers(),
-        body: JSON.stringify(data),
-      });
+      await FastClient.post(NOTIF_API, data);
     } catch { /* best effort */ }
   }
 
@@ -534,10 +503,9 @@
       const uid = userID();
       if (!uid) return 0;
       try {
-        const res = await fetch(`${NOTIF_API}?user_id=${uid}&unread=true&limit=1`, { headers: headers() });
-        if (!res.ok) return 0;
-        const json = await res.json();
-        return json.unread_count || 0;
+        // FastClient ya devuelve el cuerpo parseado, así que no hay res.json().
+        const data = await FastClient.get(`${NOTIF_API}?user_id=${encodeURIComponent(uid)}&unread=true&limit=1`);
+        return (data && data.unread_count) || 0;
       } catch { return 0; }
     },
 

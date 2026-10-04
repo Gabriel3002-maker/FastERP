@@ -6,7 +6,7 @@
     </div>
 </div>
 
-<script>
+<script nonce="{{.Nonce}}">
 (() => {
     const moduleName = '{{.ModuleName}}';
     const moduleDir = `/modules/${moduleName}/frontend`;
@@ -20,10 +20,13 @@
         document.head.appendChild(link);
     };
 
-    // Los <script> insertados con innerHTML no se ejecutan, así que el loader
+    // Los <script nonce="{{.Nonce}}"> insertados con innerHTML no se ejecutan, así que el loader
     // los carga a mano y en orden: primero el motor de vistas del core, después
     // el JS del módulo, que puede depender de él.
+    const loaded = new Set();
     const addScript = (src) => new Promise((resolve) => {
+        if (loaded.has(src)) return resolve();
+        loaded.add(src);
         const script = document.createElement('script');
         script.src = src;
         script.onload = resolve;
@@ -42,6 +45,15 @@
             // Infraestructura del core, disponible para todos los módulos.
             addStyle('/static/css/fast-views.css');
             addStyle(`${moduleDir}/styles.css`);
+
+            // El cliente de auth va antes que el motor de vistas porque fast-views
+            // lo necesita para cada petición. El layout ya lo incluye, pero este
+            // script inline se ejecuta antes que el <script src> del layout, así
+            // que se comprueba en vez de asumirlo: si se cargara fast-views sin
+            // él, todas las peticiones saldrían sin Authorization.
+            if (typeof FastClient === 'undefined') {
+                await addScript('/static/js/fast-client.js');
+            }
 
             await addScript('/static/js/fast-views.js');
             await addScript(`${moduleDir}/app.js`);

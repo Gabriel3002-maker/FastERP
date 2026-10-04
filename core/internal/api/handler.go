@@ -499,7 +499,7 @@ func (h *Handler) ModuleRoutes(c *gin.Context) {
 }
 
 func (h *Handler) GetMenus(c *gin.Context) {
-	c.JSON(http.StatusOK, module.Global.Menus())
+	c.JSON(http.StatusOK, module.Global.MenusForTenant(c.GetString("tenant_id")))
 }
 
 func (h *Handler) GetCurrentUser(c *gin.Context) {

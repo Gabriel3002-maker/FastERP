@@ -44,9 +44,13 @@
 
 <!-- Filters -->
 <div class="filter-bar">
-    <button class="filter-btn active" onclick="filterModules('all')">Todos</button>
-    <button class="filter-btn" onclick="filterModules('installed')">Instalados</button>
-    <button class="filter-btn" onclick="filterModules('available')">Disponibles</button>
+    <button class="filter-btn active" data-filter="all">Todos</button>
+    <button class="filter-btn" data-filter="active">Activos</button>
+    <button class="filter-btn" data-filter="inactive">Inactivos</button>
+    <label class="filter-btn" for="module-upload" style="cursor:pointer;">
+        📤 Instalar desde .zip
+    </label>
+    <input type="file" id="module-upload" accept=".zip" hidden>
 </div>
 
 <!-- Loading -->
@@ -385,69 +389,64 @@
 }
 </style>
 
-<script>
-function getTenantIDFromToken() {
-    const token = localStorage.getItem('access_token');
-    if (!token) return null;
-    try {
-        const parts = token.split('.');
-        const decoded = JSON.parse(atob(parts[1]));
-        return decoded.tenant_id;
-    } catch (e) {
-        return null;
-    }
-}
-
+<script nonce="{{.Nonce}}">
+// El module store trabaja contra la API que Gin expone de verdad:
+//
+//   GET    /api/modules                  → los instalados (array plano)
+//   POST   /api/modules/install          → multipart con un .zip
+//   POST   /api/modules/:name/uninstall
+//   POST   /api/modules/:name/toggle
+//
+// Antes esta página usaba /api/modules/available, con un catálogo de módulos
+// disponibles y un ?name= para instalar. Esa ruta no existe en Gin, así que la
+// pantalla no cargaba nada; y el catálogo, además, no tiene equivalente: aquí solo
+// se ven los módulos ya instalados y entra uno nuevo subiendo su paquete.
+//
+// Todo el auth pasa por FastClient: token, tenant y refresco incluidos.
 let allModules = [];
 let currentFilter = 'all';
-const tenantID = getTenantIDFromToken() || localStorage.getItem('tenant_id');
+
+function esc(value) {
+    return String(value ?? '').replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    })[c]);
+}
 
 async function loadModules() {
+    const grid = document.getElementById('modules-grid');
     try {
-        const response = await fetch('/api/modules/available', {
-            headers: {
-                'X-Tenant-ID': tenantID,
-            }
-        });
+        allModules = (await FastClient.get('/api/modules')) || [];
 
-        const data = await response.json();
-        allModules = data.modules || [];
-
-        // Update stats
         document.getElementById('total-modules').textContent = allModules.length;
-        document.getElementById('installed-count').textContent =
-            allModules.filter(m => m.installed).length;
+        // "Instalados" y "total" son lo mismo ahora: la lista solo contiene
+        // instalados. Se mantiene la tarjeta por simetría con el resto del panel.
+        document.getElementById('installed-count').textContent = allModules.length;
         document.getElementById('active-count').textContent =
             allModules.filter(m => m.active).length;
 
         document.getElementById('loading').style.display = 'none';
         renderModules();
     } catch (error) {
-        showAlert('Error loading modules', 'error');
         document.getElementById('loading').style.display = 'none';
+        grid.style.display = 'none';
+        document.getElementById('empty-state').style.display = 'block';
+        showAlert('No se pudieron cargar los módulos: ' + error.message, 'error');
     }
 }
 
-function filterModules(filter) {
-    currentFilter = filter;
-
-    // Update button states
-    document.querySelectorAll('.filter-btn').forEach(btn => {
-        btn.classList.remove('active');
+document.querySelectorAll('.filter-btn[data-filter]').forEach(btn => {
+    btn.addEventListener('click', () => {
+        currentFilter = btn.dataset.filter;
+        document.querySelectorAll('.filter-btn[data-filter]').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        renderModules();
     });
-    event.target.classList.add('active');
-
-    renderModules();
-}
+});
 
 function renderModules() {
     let filtered = allModules;
-
-    if (currentFilter === 'installed') {
-        filtered = allModules.filter(m => m.installed);
-    } else if (currentFilter === 'available') {
-        filtered = allModules.filter(m => !m.installed);
-    }
+    if (currentFilter === 'active') filtered = allModules.filter(m => m.active);
+    else if (currentFilter === 'inactive') filtered = allModules.filter(m => !m.active);
 
     const grid = document.getElementById('modules-grid');
     const emptyState = document.getElementById('empty-state');
@@ -458,37 +457,30 @@ function renderModules() {
         return;
     }
 
-    grid.innerHTML = filtered.map(module => `
+    grid.innerHTML = filtered.map(m => `
         <div class="module-card">
-            <div class="module-icon">${module.icon || '📦'}</div>
-            <div class="module-name">${module.label}</div>
-            <div class="module-label">${module.name}</div>
-            <div class="module-description">${module.description}</div>
+            <div class="module-icon">${esc(m.icon || '📦')}</div>
+            <div class="module-name">${esc(m.label || m.name)}</div>
+            <div class="module-label">${esc(m.name)}</div>
+            <div class="module-description">${esc(m.description || '')}</div>
 
             <div class="module-meta">
-                <span class="module-version">v${module.version}</span>
-                <span class="module-author">${module.author}</span>
+                <span class="module-version">v${esc(m.version)}</span>
+                <span class="module-author">${esc(m.author || '')}</span>
             </div>
 
             <div style="margin-bottom: 10px;">
-                ${module.installed ? `
-                    <span class="badge badge-installed">✓ Instalado</span>
-                ` : ''}
-                ${module.active ? `
-                    <span class="badge badge-active">✓ Activo</span>
-                ` : ''}
+                <span class="badge badge-installed">✓ Instalado</span>
+                ${m.active ? '<span class="badge badge-active">✓ Activo</span>' : ''}
             </div>
 
             <div class="module-actions">
-                ${module.installed ? `
-                    <button class="btn-uninstall" onclick="uninstallModule('${module.id}')">
-                        Desactivar
-                    </button>
-                ` : `
-                    <button class="btn-install" onclick="installModule('${module.id}')">
-                        Instalar
-                    </button>
-                `}
+                <button class="btn-install" data-action="toggle" data-name="${esc(m.name)}" data-next="${m.active ? '0' : '1'}">
+                    ${m.active ? 'Desactivar' : 'Activar'}
+                </button>
+                <button class="btn-uninstall" data-action="uninstall" data-name="${esc(m.name)}">
+                    Desinstalar
+                </button>
             </div>
         </div>
     `).join('');
@@ -497,117 +489,76 @@ function renderModules() {
     emptyState.style.display = 'none';
 }
 
-async function installModule(moduleId) {
+// Delegación en el grid en vez de onclick con el nombre dentro de la cadena:
+// los nombres de módulo van a un atributo data-, no a un literal JavaScript. Un
+// módulo cuyo nombre trajera una comilla rompía la hoja y, con ella, el onclick.
+document.getElementById('modules-grid').addEventListener('click', async (e) => {
+    const btn = e.target.closest('button[data-action]');
+    if (!btn) return;
+    const name = btn.dataset.name;
+    if (btn.dataset.action === 'uninstall') await uninstallModule(name);
+    else await toggleModule(name, btn.dataset.next === '1');
+});
+
+document.getElementById('module-upload').addEventListener('change', async (e) => {
+    const file = e.target.files && e.target.files[0];
+    // Permite volver a elegir el mismo archivo después de una subida fallida.
+    e.target.value = '';
+    if (!file) return;
+
     const modal = document.getElementById('installModal');
-    const modalTitle = document.getElementById('modalTitle');
-    const moduleName = document.getElementById('moduleName');
     const progressFill = document.getElementById('progressFill');
     const progressText = document.getElementById('progressText');
-
-    // Mostrar modal con título correcto
+    document.getElementById('modalTitle').textContent = '⏳ Instalando ' + file.name;
+    document.getElementById('moduleName').textContent = file.name;
     modal.style.display = 'flex';
-    modalTitle.textContent = '⏳ Instalando Módulo';
-    const module = allModules.find(m => m.id === moduleId);
-    moduleName.textContent = module?.label || moduleId;
-
-    // Simular progreso
-    let progress = 0;
-    const progressInterval = setInterval(() => {
-        progress += Math.random() * 30;
-        if (progress > 90) progress = 90;
-        progressFill.style.width = progress + '%';
-        progressText.textContent = Math.floor(progress) + '%';
-    }, 200);
+    progressFill.style.width = '35%';
+    progressText.textContent = 'subiendo…';
 
     try {
-        const response = await fetch(`/api/modules/install?name=${moduleId}`, {
-            method: 'POST',
-            headers: {
-                'X-Tenant-ID': tenantID,
-            }
-        });
-
-        clearInterval(progressInterval);
-        progress = 100;
+        const data = await FastClient.upload('/api/modules/install', file);
         progressFill.style.width = '100%';
         progressText.textContent = '100%';
-
-        const data = await response.json();
-
-        if (response.ok) {
-            setTimeout(() => {
-                modal.style.display = 'none';
-                showAlert(`✓ ${data.message} - Recargando...`, 'success');
-                setTimeout(() => {
-                    location.reload();
-                }, 2000);
-            }, 500);
-        } else {
-            modal.style.display = 'none';
-            showAlert(`✗ ${data.error || 'Error installing module'}`, 'error');
-        }
-    } catch (error) {
-        clearInterval(progressInterval);
         modal.style.display = 'none';
-        showAlert('Error installing module', 'error');
+        showAlert(`✓ ${(data && data.message) || file.name} instalado. Recargando…`, 'success');
+        setTimeout(() => location.reload(), 1200);
+    } catch (error) {
+        modal.style.display = 'none';
+        // El mensaje del servidor importa aquí: el rechazo más común es un .zip
+        // sin manifest.json o con un módulo.wasm mal compilado, y el motivo lo
+        // dice InstallModule.
+        showAlert('✗ ' + error.message, 'error');
+    }
+});
+
+async function toggleModule(name, toActive) {
+    try {
+        await FastClient.post(`/api/modules/${encodeURIComponent(name)}/toggle`, { active: toActive });
+        showAlert(`✓ ${name} actualizado`, 'success');
+        setTimeout(() => location.reload(), 800);
+    } catch (error) {
+        showAlert('✗ ' + error.message, 'error');
     }
 }
 
-async function uninstallModule(moduleId) {
-    if (!confirm('¿Desactivar este módulo?')) return;
+async function uninstallModule(name) {
+    if (!confirm(`¿Desinstalar ${name}?\n\nSe borrarán sus tablas y sus datos.`)) return;
 
     const modal = document.getElementById('installModal');
-    const modalTitle = document.getElementById('modalTitle');
-    const moduleName = document.getElementById('moduleName');
-    const progressFill = document.getElementById('progressFill');
-    const progressText = document.getElementById('progressText');
-
-    // Mostrar modal con título correcto
+    document.getElementById('modalTitle').textContent = '⏳ Desinstalando ' + name;
+    document.getElementById('moduleName').textContent = name;
     modal.style.display = 'flex';
-    modalTitle.textContent = '⏳ Desinstalando Módulo';
-    const module = allModules.find(m => m.id === moduleId);
-    moduleName.textContent = module?.label || moduleId;
-
-    // Simular progreso de desinstalación
-    let progress = 0;
-    const progressInterval = setInterval(() => {
-        progress += Math.random() * 30;
-        if (progress > 90) progress = 90;
-        progressFill.style.width = progress + '%';
-        progressText.textContent = Math.floor(progress) + '%';
-    }, 200);
+    document.getElementById('progressFill').style.width = '50%';
+    document.getElementById('progressText').textContent = 'desinstalando…';
 
     try {
-        const response = await fetch(`/api/modules/uninstall?name=${moduleId}`, {
-            method: 'POST',
-            headers: {
-                'X-Tenant-ID': tenantID,
-            }
-        });
-
-        clearInterval(progressInterval);
-        progress = 100;
-        progressFill.style.width = '100%';
-        progressText.textContent = '100%';
-
-        const data = await response.json();
-
-        if (response.ok) {
-            setTimeout(() => {
-                modal.style.display = 'none';
-                showAlert(`✓ ${data.message} - Recargando...`, 'success');
-                setTimeout(() => {
-                    location.reload();
-                }, 2000);
-            }, 500);
-        } else {
-            modal.style.display = 'none';
-            showAlert(`✗ ${data.error || 'Error uninstalling module'}`, 'error');
-        }
-    } catch (error) {
-        clearInterval(progressInterval);
+        const data = await FastClient.post(`/api/modules/${encodeURIComponent(name)}/uninstall`);
         modal.style.display = 'none';
-        showAlert('Error uninstalling module', 'error');
+        showAlert(`✓ ${(data && data.message) || name} desinstalado. Recargando…`, 'success');
+        setTimeout(() => location.reload(), 1200);
+    } catch (error) {
+        modal.style.display = 'none';
+        showAlert('✗ ' + error.message, 'error');
     }
 }
 
@@ -615,11 +566,8 @@ function showAlert(message, type) {
     const alert = document.getElementById('alert');
     alert.textContent = message;
     alert.className = `alert show alert-${type}`;
-    setTimeout(() => {
-        alert.classList.remove('show');
-    }, 4000);
+    setTimeout(() => alert.classList.remove('show'), 5000);
 }
 
-// Load modules on page load
 loadModules();
 </script>

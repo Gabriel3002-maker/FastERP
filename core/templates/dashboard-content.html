@@ -204,6 +204,7 @@
                     <span class="section-item-text">📱 Tienda de Módulos</span>
                     <span class="section-item-arrow">→</span>
                 </a>
+                <div id="activeModulesList" class="section-items" style="margin-top: 8px;"></div>
             </div>
         </div>
     </div>
@@ -242,7 +243,7 @@
                     <span class="section-item-text">✓ Estado del Sistema</span>
                     <span class="section-item-arrow">→</span>
                 </a>
-                <a href="#" class="section-item" onclick="alert('v1.0.0 - Multi-tenant ERP'); return false;">
+                <a href="#" class="section-item" id="infoBtn">
                     <span class="section-item-text">ℹ️ Información</span>
                     <span class="section-item-arrow">→</span>
                 </a>
@@ -251,29 +252,76 @@
     </div>
 </div>
 
-<script>
+<script nonce="{{.Nonce}}">
 // Cargar estadísticas
-async function loadStats() {
-    const tenantID = getTenantIDFromToken() || localStorage.getItem('tenant_id');
-    const token = localStorage.getItem('access_token');
-
+//
+// /api/audit/stats todavía no existe en Gin (es parte del trabajo de migrar las
+// APIs de la capa legacy), así que el contador de auditoría se queda en guion y
+// el panel no falla. Cuando la ruta exista, al ir por FastClient no habrá que
+// tocar nada más aquí.
+async function loadModuleSummary() {
     try {
-        const auditRes = await fetch(`/api/audit/stats?days=1`, {
-            headers: {
-                'X-Tenant-ID': tenantID,
-                'Authorization': `Bearer ${token}`
-            }
-        });
+        const modules = await FastClient.get('/api/modules');
+        const active = Array.isArray(modules) ? modules.filter((m) => m && m.active).length : 0;
+        const count = document.getElementById('modulesCount');
+        if (count) count.textContent = String(active);
 
-        if (auditRes.ok) {
-            const auditData = await auditRes.json();
-            document.getElementById('auditCount').textContent =
-                auditData.stats?.total_events || 0;
+        const list = document.getElementById('activeModulesList');
+        if (!list) return;
+
+        if (!Array.isArray(modules) || modules.length === 0) {
+            list.innerHTML = '<div class="section-item"><span class="section-item-text">No hay módulos activos</span></div>';
+            return;
         }
+
+        const activeModules = modules.filter((m) => m && m.active);
+        if (activeModules.length === 0) {
+            list.innerHTML = '<div class="section-item"><span class="section-item-text">No hay módulos activos</span></div>';
+            return;
+        }
+
+        list.innerHTML = activeModules.map((m) => {
+            const route = m.frontend && m.frontend.pages && m.frontend.pages[0]
+                ? m.frontend.pages[0].path || '/admin/modules'
+                : '/admin/modules';
+            const label = m.label || m.name || 'Módulo';
+            const icon = m.icon || '📦';
+            return `
+                <a href="${route}" class="section-item">
+                    <span class="section-item-text">${icon} ${label}</span>
+                    <span class="section-item-arrow">→</span>
+                </a>
+            `;
+        }).join('');
     } catch (error) {
-        console.error('Error loading stats:', error);
+        if (error && error.status !== 404) {
+            console.warn('No se pudo leer la lista de módulos del tenant:', error.message);
+        }
+        const count = document.getElementById('modulesCount');
+        if (count) count.textContent = '0';
     }
 }
 
+async function loadStats() {
+    try {
+        const auditData = await FastClient.get('/api/audit/stats?days=1');
+        document.getElementById('auditCount').textContent =
+            (auditData && auditData.stats && auditData.stats.total_events) || 0;
+    } catch (error) {
+        // 404 = la ruta aún no está portada. Se ignora en vez de enseñar un error
+        // en la página de inicio, que es lo primero que ve todo el mundo.
+        if (error.status !== 404) {
+            console.warn('No se pudo leer el recuento de auditoría:', error.message);
+        }
+        document.getElementById('auditCount').textContent = '—';
+    }
+}
+
+document.getElementById('infoBtn')?.addEventListener('click', (event) => {
+    event.preventDefault();
+    alert('v1.0.0 - Multi-tenant ERP');
+});
+
 loadStats();
+loadModuleSummary();
 </script>

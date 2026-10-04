@@ -6,7 +6,7 @@
   <title>Login - FastERP</title>
 
   <!-- Theme application ANTES de cargar CSS para evitar flash -->
-  <script>
+  <script nonce="{{.Nonce}}">
     (function() {
       const LIGHT = 'light';
       const DARK = 'dark';
@@ -166,22 +166,28 @@
     }
   </style>
 </head>
-<body class="login-page">
+<body class="login-page" data-next="{{.Next}}">
   <div class="login-container">
     <div class="login-box">
       <h1>⚡ FastERP</h1>
 
       <div id="error" class="error-message"></div>
 
-      <form id="loginForm" class="login-form" onsubmit="handleLogin(event)">
+      <form id="loginForm" class="login-form">
+        <div class="form-group">
+          <label for="tenant">Tenant</label>
+          <input type="text" id="tenant" name="tenant" placeholder="empresa" autocomplete="organization"
+                 value="{{.TenantHint}}">
+        </div>
+
         <div class="form-group">
           <label for="username">Usuario</label>
-          <input type="text" id="username" name="username" placeholder="admin" required>
+          <input type="text" id="username" name="username" placeholder="admin" autocomplete="username" required>
         </div>
 
         <div class="form-group">
           <label for="password">Contraseña</label>
-          <input type="password" id="password" name="password" placeholder="••••••••" required>
+          <input type="password" id="password" name="password" placeholder="••••••••" autocomplete="current-password" required>
         </div>
 
         <button type="submit" id="submitBtn" class="btn-primary">Ingresar</button>
@@ -195,10 +201,28 @@
   </div>
 
   <script src="/static/js/theme.js"></script>
-  <script>
+  <script src="/static/js/fast-client.js"></script>
+  <script nonce="{{.Nonce}}">
+    // A dónde volver tras entrar. FastClient lo manda como ?next= cuando se le
+    // caduca la sesión a mitad de una pantalla.
+    //
+    // Solo se admiten rutas internas: sin esto, un ?next= con URL absoluta
+    // convertiría el login en un redirector abierto para phishing.
+    function nextAfterLogin() {
+      // Se lee de un atributo y no de una interpolación dentro del script: el
+      // valor viene de la query string y html/template tendría que escaparlo
+      // dentro de un literal JS, donde un salto de línea o un </script> cambian
+      // el significado. Como atributo no hay ambigüedad.
+      const next = document.body.dataset.next || '';
+      return next && next.startsWith('/') && !next.startsWith('//') ? next : '/admin';
+    }
+
+    document.getElementById('loginForm').addEventListener('submit', handleLogin);
+
     async function handleLogin(e) {
       e.preventDefault();
 
+      const tenant = document.getElementById('tenant').value.trim();
       const username = document.getElementById('username').value;
       const password = document.getElementById('password').value;
       const submitBtn = document.getElementById('submitBtn');
@@ -206,55 +230,40 @@
       const loadingDiv = document.getElementById('loading');
       const loginForm = document.getElementById('loginForm');
 
-      // Limpiar errores
       errorDiv.classList.remove('show');
-
-      // Mostrar loading
       loginForm.classList.add('hidden');
       loadingDiv.style.display = 'block';
       submitBtn.disabled = true;
 
       try {
-        const response = await fetch('/api/auth/login', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            username: username,
-            password: password,
-          }),
-        });
-
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(data.error || 'Login failed');
-        }
-
-        // Guardar en localStorage
-        localStorage.setItem('access_token', data.access_token);
-        localStorage.setItem('refresh_token', data.refresh_token);
-        localStorage.setItem('user_id', data.user_id);
-        localStorage.setItem('tenant_id', data.tenant_id);
-        localStorage.setItem('user_name', username);
-        localStorage.setItem('user_email', username + '@fastherp.com');
-
-        // Redirigir al dashboard
-        console.log('Login exitoso, redirigiendo...');
-        window.location.href = '/admin';
+        await FastClient.login(username, password, tenant);
+        window.location.href = nextAfterLogin();
 
       } catch (error) {
-        // Mostrar error
         loginForm.classList.remove('hidden');
         loadingDiv.style.display = 'none';
         submitBtn.disabled = false;
 
-        errorDiv.textContent = error.message;
-        errorDiv.classList.add('show');
+        // El mensaje del servidor está en inglés y no distingue entre "no existe
+        // el tenant" y "la contraseña está mal", que es justo lo que alguien
+        // probando claves necesita saber.
+        let message = error.message;
+        if (error.status === 400) {
+          message = 'Tenant desconocido. Revisa el valor del campo Tenant.';
+        } else if (error.status === 401) {
+          message = 'Usuario o contraseña incorrectos.';
+        } else if (error.status === 403) {
+          message = 'Ese usuario está deshabilitado.';
+        }
 
-        console.error('Login error:', error);
+        errorDiv.textContent = message;
+        errorDiv.classList.add('show');
       }
+    }
+
+    // Si ya hay sesión, /login no tiene sentido: al dashboard.
+    if (FastClient.isAuthenticated()) {
+      window.location.replace(nextAfterLogin());
     }
   </script>
 </body>

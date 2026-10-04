@@ -109,6 +109,13 @@ func (m *Manifest) FieldOrder(model string) []string {
 // MenuOrder devuelve los menús en el orden en que se declararon.
 func (m *Manifest) MenuOrder() []string { return m.menuOrder }
 
+// ModelOrder devuelve los nombres de modelo en el orden en que se declararon.
+//
+// Es lo que permite que el menú deducido salga en el orden que escribió quien hizo
+// el módulo, y no en el que imponga el mapa. Con varios modelos y sin nombre
+// legible, un menú alfabético obliga a recorrer la lista entera para encontrar uno.
+func (m *Manifest) ModelOrder() []string { return m.fieldOrder }
+
 // keyOrder devuelve, en el orden en que aparecen, las claves del objeto que
 // sigue a "want:" en un manifest.
 //

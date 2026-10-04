@@ -114,6 +114,10 @@ type MenuDef struct {
 	Route  string `json:"route,omitempty" yaml:"route,omitempty"`
 	Parent string `json:"parent,omitempty" yaml:"parent,omitempty"`
 	Seq    int    `json:"seq,omitempty" yaml:"seq,omitempty"`
+	// Model es "módulo/modelo" y abre esa lista con el CRUD deducido del
+	// esquema. Es opcional: una entrada puede apuntar sólo a una ruta y que la
+	// página la sirva el frontend del módulo.
+	Model string `json:"model,omitempty" yaml:"model,omitempty"`
 }
 
 // FrontendDef describe las páginas propias del módulo, cuando las tiene.

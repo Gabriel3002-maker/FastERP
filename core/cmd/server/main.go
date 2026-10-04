@@ -256,19 +256,10 @@ func seedDefaultModules(ctx context.Context, modulesDir string) {
 	}
 
 	for _, p := range presets {
-		// Try subdirectory first (new structure): modules/hello/module.wasm
-		modPath := filepath.Join(modulesDir, p.name, "module.wasm")
-		if _, err := os.Stat(modPath); os.IsNotExist(err) {
-			// Fallback to flat structure: modules/hello.wasm
-			modPath = filepath.Join(modulesDir, p.name+".wasm")
-			if _, err := os.Stat(modPath); os.IsNotExist(err) {
-				// Try .so plugin (legacy)
-				modPath = filepath.Join(modulesDir, p.name+".so")
-				if _, err := os.Stat(modPath); os.IsNotExist(err) {
-					log.Printf("[Seed] Module %s not found, skipping", p.name)
-					continue
-				}
-			}
+		modPath := moduleSeedAssetPath(modulesDir, p.name)
+		if modPath == "" {
+			log.Printf("[Seed] Module %s not found, skipping", p.name)
+			continue
 		}
 
 		_, err := conn.ExecContext(ctx,
@@ -280,9 +271,30 @@ func seedDefaultModules(ctx context.Context, modulesDir string) {
 		if err != nil {
 			log.Printf("[Seed] Failed to seed module %s: %v", p.name, err)
 		} else {
-			log.Printf("[Seed] Module seeded: %s (active)", p.name)
+			log.Printf("[Seed] Module seeded: %s (active) [%s]", p.name, filepath.Base(modPath))
 		}
 	}
+}
+
+func moduleSeedAssetPath(modulesDir, name string) string {
+	candidates := []string{
+		filepath.Join(modulesDir, name, "module.yaml"),
+		filepath.Join(modulesDir, name, "module.yml"),
+		filepath.Join(modulesDir, name, "manifest.yaml"),
+		filepath.Join(modulesDir, name, "manifest.json"),
+		filepath.Join(modulesDir, name, "module.wasm"),
+		filepath.Join(modulesDir, name+".wasm"),
+		filepath.Join(modulesDir, name+".so"),
+		filepath.Join(modulesDir, name+".dll"),
+		filepath.Join(modulesDir, name+".dylib"),
+	}
+
+	for _, candidate := range candidates {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	return ""
 }
 
 func getDefaultTenantID() string {

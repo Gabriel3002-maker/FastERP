@@ -1,83 +1,98 @@
-<!-- Module Page -->
-<div class="module-wrapper" id="moduleWrapper" style="min-height: 600px;">
-    <!-- Cargando... -->
-    <div id="loadingState" style="display: flex; align-items: center; justify-content: center; min-height: 600px; background: var(--bg-secondary); border-radius: 8px;">
-        <div style="text-align: center;">
-            <div style="font-size: 48px; margin-bottom: 20px;">⏳</div>
-            <p style="color: var(--text-secondary);">Cargando módulo {{.ModuleName}}...</p>
-        </div>
-    </div>
+<!-- Página de un módulo que no trae frontend propio.
 
-    <!-- Contenedor para React -->
-    <div id="moduleContainer" style="display: none;"></div>
+     Un módulo es un manifest.json + main.go, y el frontend es opcional: si no
+     declara <frontend>, no hay index.html que cargar y module-loader.html se queda
+     con un error en pantalla. Esta es la red de seguridad para ese caso.
+
+     No es un CRUD hecho a mano. Inserta un data-fast-view por modelo y deja que
+     fast-views.js haga el resto contra la metadata que publica /_meta: son las
+     mismas listas y formularios que vería alguien que hubiera escrito el frontend.
+     Es lo que permite instalar un módulo y ya tener algo usable, sin escribir
+     una línea de JavaScript. -->
+<div class="mp-wrap">
+    <header class="mp-header">
+        <div class="mp-icon">{{if .ModuleIcon}}{{.ModuleIcon}}{{else}}📦{{end}}</div>
+        <div>
+            <h1 class="mp-title">{{.ModuleLabel}}</h1>
+            <p class="mp-sub">{{.ModuleDescription}}</p>
+        </div>
+    </header>
+
+    {{if .ModuleModels}}
+        {{/* Un data-fast-view por modelo. El core ya sabe sus campos por el
+             manifest, así que no hay que declararlos aquí. */}}
+        {{range .ModuleModels}}
+            <section class="mp-model">
+                <h2 class="mp-model-title">{{.Label}}</h2>
+                <div data-fast-view data-model="{{.Model}}"></div>
+            </section>
+        {{end}}
+    {{else}}
+        <div class="mp-empty">
+            <div class="mp-empty-icon">🧩</div>
+            <p>Este módulo no declara modelos ni páginas, así que no hay nada que mostrar.</p>
+        </div>
+    {{end}}
 </div>
 
 <style>
-.module-wrapper {
-    width: 100%;
-    max-width: 100%;
+.mp-wrap { max-width: 1200px; }
+
+.mp-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 28px;
+    padding-bottom: 18px;
+    border-bottom: 1px solid var(--border);
+}
+.mp-icon { font-size: 40px; line-height: 1; }
+.mp-title { margin: 0; font-size: 22px; font-weight: 700; color: var(--text-primary); }
+.mp-sub  { margin: 4px 0 0; color: var(--text-secondary); font-size: 14px; }
+
+.mp-model { margin-bottom: 32px; }
+.mp-model-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0 0 10px;
+    text-transform: capitalize;
 }
 
-#moduleContainer {
+.mp-empty {
+    text-align: center;
+    padding: 48px 20px;
+    color: var(--text-secondary);
     background: var(--bg-secondary);
     border-radius: 8px;
-    padding: 20px;
 }
+.mp-empty-icon { font-size: 40px; margin-bottom: 12px; }
 </style>
 
-<script>
-// Mapeo de módulos a rutas de componentes
-const moduleRoutes = {
-    'contacts': '/admin/contacts',
-    'products': '/admin/products',
-    'sites': '/admin/sites',
-    'tienda_web': '/admin/tienda_web',
-    'sitio_web': '/admin/sitio_web',
-    'ventas': '/admin/ventas',
-    'compras': '/admin/compras',
-    'pos_venta': '/admin/pos_venta',
-    'chatter': '/admin/chatter',
-    'hello': '/admin/hello'
-};
+<script nonce="{{.Nonce}}">
+// Este partial carga el motor de vistas, que necesita FastClient para poner el
+// Authorization en cada petición. El layout incluye fast-client.js, pero más
+// abajo en el <body>: un script inline como este se ejecuta antes, así que
+// comprueba en vez de asumirlo. Si se cargara fast-views sin él, todas las
+// peticiones saldrían sin token y el CRUD devolvería 401.
+//
+// Se reutiliza la misma comprobación que module-loader.html. Que el script ya
+// esté en el <script src> del layout no sirve aquí: ese elemento se está
+// descargando pero todavía no se ha ejecutado.
+(async () => {
+    const addScript = (src) => new Promise((resolve) => {
+        const script = document.createElement('script');
+        script.src = src;
+        script.onload = resolve;
+        script.onerror = resolve;
+        document.body.appendChild(script);
+    });
 
-const moduleName = '{{.ModuleName}}';
-const moduleRoute = moduleRoutes[moduleName];
-
-if (moduleRoute) {
-    // En desarrollo con Vite, cambiar a window.location si estás usando desarrollo separado
-    // Por ahora, mostrar que está listo
-    console.log('Module:', moduleName, 'Route:', moduleRoute);
-
-    // Esperar un poco y mostrar mensaje de que necesita Vite
-    setTimeout(() => {
-        const loadingState = document.getElementById('loadingState');
-        const moduleContainer = document.getElementById('moduleContainer');
-
-        loadingState.style.display = 'none';
-        moduleContainer.style.display = 'block';
-
-        moduleContainer.innerHTML = `
-            <div style="text-align: center; padding: 40px;">
-                <div style="font-size: 48px; margin-bottom: 20px;">⚙️</div>
-                <h2 style="color: var(--text-primary); margin-bottom: 10px;">{{.ModuleName}}</h2>
-                <p style="color: var(--text-secondary); margin-bottom: 20px;">
-                    El módulo está instalado pero necesitas iniciar Vite en desarrollo para ver la UI.
-                </p>
-
-                <div style="background: var(--bg-primary); padding: 20px; border-radius: 6px; margin: 20px auto; text-align: left; max-width: 600px; font-family: monospace; font-size: 13px;">
-                    <p style="color: var(--text-secondary); margin: 5px 0;">
-                        En otra terminal:<br>
-                        <strong style="color: var(--primary);">$ cd frontend && npm run dev</strong>
-                    </p>
-                </div>
-
-                <p style="color: var(--text-secondary); font-size: 13px; margin-top: 30px;">
-                    Una vez que Vite esté corriendo en :5173, <a href="http://localhost:5173${moduleRoute}" target="_blank" style="color: var(--primary); text-decoration: none; font-weight: 600;">abre el módulo en la ventana de desarrollo</a>
-                </p>
-            </div>
-        `;
-    }, 1500);
-} else {
-    console.error('Module not found:', moduleName);
-}
+    if (typeof FastClient === 'undefined') {
+        await addScript('/static/js/fast-client.js');
+    }
+    if (typeof FastViews === 'undefined') {
+        await addScript('/static/js/fast-views.js');
+    }
+})();
 </script>

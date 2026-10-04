@@ -49,7 +49,7 @@
 <div id="empty-state" class="empty-state" style="display:none;">
     <div class="empty-state-icon">📭</div>
     <h2>Sin eventos de auditoría</h2>
-    <p>No hay registros de auditoría disponibles</p>
+    <p id="empty-state-detail">No hay registros de auditoría disponibles</p>
 </div>
 
 <style>
@@ -184,42 +184,46 @@
 }
 </style>
 
-<script>
-const tenantID = getTenantIDFromToken() || localStorage.getItem('tenant_id');
-const token = localStorage.getItem('access_token');
-
+<script nonce="{{.Nonce}}">
+// /api/audit/* todavía no está en Gin: es parte de las APIs que hay que migrar de
+// la capa legacy. La página lo dice en vez de quedarse con un spinner eterno, que
+// es lo que pasaba cuando el fetch fallaba y solo se registraba en consola.
 async function loadAuditData() {
+    const loading = document.getElementById('loading');
+    const emptyState = document.getElementById('empty-state');
     try {
-        const response = await fetch('/api/audit/entity', {
-            headers: {
-                'X-Tenant-ID': tenantID,
-                'Authorization': `Bearer ${token}`
-            }
-        });
+        const data = await FastClient.get('/api/audit/entity');
+        const events = (data && data.events) || [];
 
-        const data = await response.json();
-        const events = data.events || [];
-
-        // Update stats
         document.getElementById('total-events').textContent = events.length;
+        document.getElementById('user-count').textContent =
+            new Set(events.map(e => e.user_id)).size;
 
-        const statsRes = await fetch('/api/audit/stats?days=1', {
-            headers: {
-                'X-Tenant-ID': tenantID,
-                'Authorization': `Bearer ${token}`
-            }
-        });
-        const statsData = await statsRes.json();
-        document.getElementById('24h-events').textContent = statsData.stats?.total_events || 0;
-        document.getElementById('user-count').textContent = new Set(events.map(e => e.user_id)).size;
+        let stats24h = 0;
+        try {
+            const statsData = await FastClient.get('/api/audit/stats?days=1');
+            stats24h = (statsData && statsData.stats && statsData.stats.total_events) || 0;
+        } catch (e) { /* el contador de 24h es informativo: no bloquea la tabla */ }
+        document.getElementById('24h-events').textContent = stats24h;
 
-        document.getElementById('loading').style.display = 'none';
+        loading.style.display = 'none';
         renderAuditTable(events);
     } catch (error) {
-        console.error('Error loading audit data:', error);
-        document.getElementById('loading').style.display = 'none';
-        document.getElementById('empty-state').style.display = 'block';
+        loading.style.display = 'none';
+        emptyState.style.display = 'block';
+        const detail = document.getElementById('empty-state-detail');
+        if (detail) {
+            detail.textContent = error.status === 404
+                ? 'La auditoría aún no está disponible en esta versión del servidor.'
+                : 'No se pudo cargar la auditoría: ' + error.message;
+        }
     }
+}
+
+function esc(value) {
+    return String(value ?? '').replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    })[c]);
 }
 
 function renderAuditTable(events) {
@@ -233,14 +237,17 @@ function renderAuditTable(events) {
         return;
     }
 
+    // esc() en cada celda: entity, entity_id y status vienen de la auditoría, que
+    // escribe el nombre del modelo y del registro. Sin escapar, un modelo llamado
+    // a<img src=x onerror=...> se ejecutaría en el navegador de quien consulta.
     tbody.innerHTML = events.slice(0, 50).map(event => `
         <tr>
-            <td>${event.user_id || '-'}</td>
-            <td><span class="action-badge action-${event.action?.toLowerCase() || 'other'}">${event.action || '-'}</span></td>
-            <td>${event.entity || '-'}</td>
-            <td>${event.entity_id || '-'}</td>
-            <td>${event.status || 'OK'}</td>
-            <td>${new Date(event.created_at).toLocaleString('es-ES')}</td>
+            <td>${esc(event.user_id || '-')}</td>
+            <td><span class="action-badge action-${esc((event.action || 'other').toLowerCase())}">${esc(event.action || '-')}</span></td>
+            <td>${esc(event.entity || '-')}</td>
+            <td>${esc(event.entity_id || '-')}</td>
+            <td>${esc(event.status || 'OK')}</td>
+            <td>${esc(new Date(event.created_at).toLocaleString('es-ES'))}</td>
         </tr>
     `).join('');
 

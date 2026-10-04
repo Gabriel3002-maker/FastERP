@@ -59,6 +59,7 @@ if lsof -t -i:7071 >/dev/null 2>&1; then
   kill "$(lsof -t -i:7071)" 2>/dev/null || true
   sleep 1
 fi
+cd "$DIR/core"
 setsid /tmp/fasterp-server > /tmp/fasterp-server.log 2>&1 &
 sleep 3
 

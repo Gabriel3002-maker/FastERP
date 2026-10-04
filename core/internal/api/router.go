@@ -35,10 +35,23 @@ func SetupRouter(cfg *config.Config, modManager *module.ModuleManager) *gin.Engi
 
 	h := NewHandler(modManager, cfg.JWTSecret, cfg.JWTRefreshSecret, r)
 
+	renderer, err := NewRenderer(cfg.TemplatesDir)
+	if err != nil {
+		log.Fatalf("[FATAL] no se pudieron cargar las plantillas de %s: %v", cfg.TemplatesDir, err)
+	}
+
 	// Security middleware
+	//
+	// Van antes de registrar la UI a propósito. En gin los middleware se atan a la
+	// ruta en el momento de registrarla, así que una ruta registrada antes de un
+	// Use() se queda sin él: registrar la UI primero dejaba a /admin, /login y
+	// /static sin CSP, sin nosniff y sin X-Frame-Options, que es justo lo que
+	// protege la sesión contra clickjacking.
 	r.Use(securityHeadersMiddleware())
 	r.Use(corsMiddleware(cfg.CORSOrigins))
 	r.Use(rateLimiterMiddleware(cfg.RateLimit))
+
+	NewUI(renderer, cfg.ModulesDir, cfg.StaticDir).RegisterRoutes(r)
 
 	// Public routes (tenant-resolved)
 	// Credential endpoints get a far tighter budget than the global limit: they are
@@ -141,21 +154,14 @@ func securityHeadersMiddleware() gin.HandlerFunc {
 
 		// El admin es una SPA que carga su propio bundle y sirve ficheros subidos
 		// por el usuario. Un XSS aquí se lleva la sesión, y con ella el token
-		// guardado, así que la CSP es la única contención real. 'unsafe-inline' en
-		// stylesheet es deliberado: el cliente actual inyecta estilos de los módulos
-		// que carga. En script no se cede nada.
-		h.Set("Content-Security-Policy", strings.Join([]string{
-			"default-src 'self'",
-			"script-src 'self'",
-			"style-src 'self' 'unsafe-inline'",
-			"img-src 'self' data: blob:",
-			"font-src 'self' data:",
-			"connect-src 'self'",
-			"frame-ancestors 'none'",
-			"base-uri 'self'",
-			"form-action 'self'",
-			"object-src 'none'",
-		}, "; "))
+		// guardado, así que la CSP es la única contención real.
+		//
+		// Se construye sin nonce: esta es la política para todo lo que no es una
+		// página (JSON, assets, descargas). El renderer sustituye esta cabecera por
+		// una con nonce cuando responde HTML, porque las páginas llevan scripts
+		// inline. 'unsafe-inline' en style es deliberado: el cliente inyecta los
+		// estilos de los módulos que carga.
+		h.Set("Content-Security-Policy", cspHeader(""))
 
 		// Sin esto, ShouldBindJSON lee el cuerpo entero en memoria: un POST con
 		// Content-Length enorme contra cualquier ruta JSON es un OOM.

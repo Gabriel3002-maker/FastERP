@@ -6,7 +6,7 @@
     <title>{{.Title}} - FastERP</title>
 
     <!-- Auth check ANTES de renderizar contenido -->
-    <script>
+    <script nonce="{{.Nonce}}">
       (function() {
         const token = localStorage.getItem('access_token');
         if (!token) {
@@ -17,7 +17,7 @@
     </script>
 
     <!-- Theme application ANTES de cargar CSS para evitar flash -->
-    <script>
+    <script nonce="{{.Nonce}}">
       (function() {
         const LIGHT = 'light';
         const DARK = 'dark';
@@ -286,7 +286,12 @@
                     <span class="nav-icon">🎮</span>
                     <span>Module Store</span>
                 </a>
-                <div id="installed-modules-menu"></div>
+                {{/* El árbol del menú se resuelve en el servidor (module.Global.MenuTree())
+                     y se renderiza aquí una sola vez. Si el cliente lo vuelve a pintar a
+                     partir de /api/menus, aparece duplicado y rompe la fuente de verdad.
+                     La lista del tenant no está escrita en esta plantilla; está en el
+                     registry del core y el módulo activo se decide por installed_modules. */}}
+                {{template "menuTree" .Menus}}
             </div>
 
             <div class="nav-section">
@@ -297,8 +302,10 @@
                 </a>
             </div>
 
-            <button class="logout-btn" onclick="logout()">Cerrar Sesión</button>
+            <button class="logout-btn" id="logoutBtn" type="button">Cerrar Sesión</button>
         </div>
+
+        <script src="/static/js/fast-client.js"></script>
 
         <!-- Main Content -->
         <div class="main-content">
@@ -306,96 +313,70 @@
         </div>
     </div>
 
-    <script>
-        // Función global para extraer tenant_id del JWT token
-        function getTenantIDFromToken() {
-            const token = localStorage.getItem('access_token');
-            if (!token) return null;
-            try {
-                const parts = token.split('.');
-                const decoded = JSON.parse(atob(parts[1]));
-                return decoded.tenant_id;
-            } catch (e) {
-                return null;
-            }
-        }
-
-        // Cargar datos del usuario
+    <script nonce="{{.Nonce}}">
+        // Todo el auth de esta página va por FastClient. Aquí ya no se lee el JWT a
+        // mano ni se monta la cabecera Authorization a dedo: el claim del usuario
+        // que necesita el chatter sale de FastClient.claim('sub') y el tenant lo
+        // lleva el propio cliente.
         function loadUserInfo() {
-            const user = localStorage.getItem('user_name') || 'Admin';
-            const email = localStorage.getItem('user_email') || 'admin@fastherp.com';
+            const user = FastClient.user();
+            const name = (user && user.username) || 'Admin';
+            const email = (user && user.email) || '';
 
-            document.getElementById('userName').textContent = user;
+            document.getElementById('userName').textContent = name;
             document.getElementById('userEmail').textContent = email;
-
-            const avatar = user.charAt(0).toUpperCase();
-            document.getElementById('userAvatar').textContent = avatar;
+            document.getElementById('userAvatar').textContent = name.charAt(0).toUpperCase();
         }
 
-        // Logout
-        function logout() {
-            if (confirm('¿Cerrar sesión?')) {
-                localStorage.removeItem('access_token');
-                localStorage.removeItem('user_id');
-                localStorage.removeItem('user_name');
-                window.location.href = '/login';
-            }
+        async function logout() {
+            if (confirm('¿Cerrar sesión?')) await FastClient.logout();
+        }
+
+        document.getElementById('logoutBtn').addEventListener('click', logout);
+
+        // Marca la entrada de menú de la página actual.
+        //
+        // Se hace en el cliente y no con una condición en la plantilla porque el
+        // enlace tiene que compararse con location.pathname, no con el nombre de
+        // la página: una ruta de menú deducida es "/admin/productos/producto" y
+        // esa ruta es la única forma de distinguir dos entradas del mismo módulo.
+        function markActiveMenuItem() {
+            const here = window.location.pathname.replace(/\/+$/, '');
+            document.querySelectorAll('.nav-item[data-route]').forEach(a => {
+                const route = a.dataset.route.replace(/\/+$/, '');
+                if (route === here) a.classList.add('active');
+            });
+        }
+
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/[&<>\"']/g, (char) => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            }[char]));
         }
 
         loadUserInfo();
-
-        // Cargar módulos instalados en el menú
-        async function loadInstalledModules() {
-            const tenantID = getTenantIDFromToken() || localStorage.getItem('tenant_id');
-            if (!tenantID) return;
-
-            try {
-                const response = await fetch('/api/modules/available', {
-                    headers: { 'X-Tenant-ID': tenantID }
-                });
-                const data = await response.json();
-                const modules = data.modules || [];
-
-                // Filtrar solo módulos instalados (activos o no)
-                const installed = modules.filter(m => m.installed);
-
-                if (installed.length === 0) return;
-
-                // Agregar al menú
-                const menuContainer = document.getElementById('installed-modules-menu');
-                menuContainer.innerHTML = installed.map(m => `
-                    <a href="/admin/${m.name}" class="nav-item" title="${m.label}${m.active ? '' : ' (inactivo)'}">
-                        <span class="nav-icon">${m.icon || '📦'}</span>
-                        <span>${m.label}${m.active ? '' : ' (inactivo)'}</span>
-                    </a>
-                `).join('');
-            } catch (e) {
-                console.error('Error loading modules:', e);
-            }
-        }
-
-        loadInstalledModules();
+        markActiveMenuItem();
 
         // ── Notificaciones (Chatter) ──
         const NOTIF_API = '/api/chatter/notifications';
 
-        function getUserID() {
-            const token = localStorage.getItem('access_token');
-            if (!token) return null;
-            try { return JSON.parse(atob(token.split('.')[1])).user_id || null; }
-            catch { return null; }
+        // El id del usuario sale del claim "sub". El código anterior pedía
+        // "user_id", que el token no tiene, así que la peticiónaba sin usuario.
+        function currentUserID() {
+            return FastClient.claim('sub');
         }
 
         async function loadNotifications() {
-            const uid = getUserID();
+            const uid = currentUserID();
             if (!uid) return;
-            const tid = getTenantIDFromToken();
             try {
-                const res = await fetch(`${NOTIF_API}?user_id=${uid}&limit=20`, {
-                    headers: { 'X-Tenant-ID': tid || '', 'Authorization': 'Bearer ' + (localStorage.getItem('access_token') || '') }
-                });
-                if (!res.ok) return;
-                const data = await res.json();
+                const data = await FastClient.get(`${NOTIF_API}?user_id=${encodeURIComponent(uid)}&limit=20`);
+                if (!data) return;
+
                 const badge = document.getElementById('notifBadge');
                 const list = document.getElementById('notifList');
                 const count = data.unread_count || 0;
@@ -414,7 +395,7 @@
                 }
 
                 list.innerHTML = notifs.map(n => `
-                    <li class="fv-notification-item ${n.read ? '' : 'unread'}" data-id="${n.id}" data-model="${n.record_model || ''}" data-record="${n.record_id || ''}">
+                    <li class="fv-notification-item ${n.read ? '' : 'unread'}" data-id="${escNotif(n.id)}" data-model="${escNotif(n.record_model || '')}" data-record="${escNotif(n.record_id || '')}">
                         <div class="fv-notification-item-text">${escNotif(n.message)}</div>
                         <div class="fv-notification-item-meta">${escNotif(n.author_name || '')} · ${escNotif(n.type)}</div>
                     </li>
@@ -425,13 +406,17 @@
                         const model = item.dataset.model;
                         const record = item.dataset.record;
                         if (model && record) {
-                            const moduleName = model.split('/')[0];
-                            window.location.href = `/admin/${moduleName}`;
+                            window.location.href = `/admin/${model.split('/')[0]}`;
                         }
                     });
                 });
             } catch (e) {
-                console.error('Error loading notifications:', e);
+                // Un 401 ya lo ha resuelto FastClient redirigiendo al login. Si es un
+                // 404 es que el chatter no está instalado: el panel se queda vacío
+                // en vez de ensuciar la consola cada 30 segundos.
+                if (e && e.status !== 404 && e.status !== 403) {
+                    console.error('No se pudieron cargar las notificaciones:', e);
+                }
             }
         }
 
@@ -459,25 +444,45 @@
 
         // Mark all as read
         document.getElementById('notifMarkRead').addEventListener('click', async () => {
-            const uid = getUserID();
+            const uid = currentUserID();
             if (!uid) return;
-            const tid = getTenantIDFromToken();
             try {
-                await fetch(`${NOTIF_API}/read`, {
-                    method: 'POST',
-                    headers: { 'X-Tenant-ID': tid || '', 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem('access_token') || '') },
-                    body: JSON.stringify({ user_id: uid })
-                });
+                await FastClient.post(`${NOTIF_API}/read`, { user_id: uid });
                 loadNotifications();
-            } catch (e) { console.error(e); }
+            } catch (e) {
+                if (e && e.status !== 404) console.error(e);
+            }
         });
 
-        // Poll cada 30 segundos
-        loadNotifications();
-        setInterval(loadNotifications, 30000);
+        // Poll. Se para si la pestaña está oculta: un ERP abierto 8 horas sin mirar
+        // no necesita pedir notificaciones cada 30 segundos.
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) loadNotifications();
+        });
+        setInterval(() => { if (!document.hidden) loadNotifications(); }, 30000);
     </script>
 
     <script src="/static/js/theme.js"></script>
     {{.ExtraScripts}}
 </body>
 </html>
+
+{{/* Árbol del menú lateral.
+
+     Recursivo a propósito: MenuDef tiene un campo Parent, así que los menús
+     anidados son posibles desde el manifiesto y no hay un número fijo de niveles
+     que abrir en la plantilla. La llamada al propio nombre desde dentro es lo que
+     resuelve la recursión en html/template.
+
+     Se espera un []module.MenuNode. Cada nodo trae Route ya normalizada a una ruta
+     bajo /admin y Icon con valor por defecto puesto en Go, así que aquí no hay que
+     decidir nada: solo pintar y escapar. */}}
+{{define "menuTree"}}
+    {{range .}}
+        <a href="{{.Route}}" class="nav-item{{if .Model}} nav-item-model{{end}}" data-route="{{.Route}}" title="{{.Label}}">
+            <span class="nav-icon">{{if .Icon}}{{.Icon}}{{else}}📦{{end}}</span>
+            <span>{{.Label}}</span>
+        </a>
+        {{with .Children}}{{template "menuTree" .}}{{end}}
+    {{end}}
+{{end}}

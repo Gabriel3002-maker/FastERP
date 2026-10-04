@@ -41,6 +41,11 @@ services:
       FASTERP_JWT_REFRESH_SECRET: "${FASTERP_JWT_REFRESH_SECRET:?define FASTERP_JWT_REFRESH_SECRET en .env}"
       FASTERP_MODULES_DIR: "/app/modules"
       FASTERP_UPLOAD_DIR: "/app/uploads"
+      # static/ y templates/ van dentro de la imagen (ver Dockerfile), no como
+      # volúmenes: la UI tiene que existir sin depender de que alguien monte el
+      # directorio correcto.
+      FASTERP_STATIC_DIR: "/app/static"
+      FASTERP_TEMPLATES_DIR: "/app/templates"
       FASTERP_CORS_ORIGINS: "${FASTERP_CORS_ORIGINS:?define FASTERP_CORS_ORIGINS con el dominio real}"
       FASTERP_RATE_LIMIT: "${FASTERP_RATE_LIMIT:-100}"
       FASTERP_AUTH_RATE_LIMIT: "${FASTERP_AUTH_RATE_LIMIT:-10}"

@@ -267,7 +267,7 @@
 
             <div id="alert" class="alert"></div>
 
-            <form id="form" onsubmit="handleSubmit(event)">
+            <form id="form">
                 <!-- Organization -->
                 <div class="form-group">
                     <label for="tenant_name">
@@ -375,13 +375,13 @@
             <div class="success-icon">✓</div>
             <div class="success-title">Setup Complete!</div>
             <div class="success-text" id="successMessage"></div>
-            <button type="button" class="btn-primary" onclick="window.location.href='/login'" style="width: 100%;">
+            <button type="button" class="btn-primary" id="goToLoginBtn" style="width: 100%;">
                 Go to Login
             </button>
         </div>
     </div>
 
-    <script>
+    <script nonce="{{.Nonce}}">
         const form = document.getElementById('form');
         const tenantName = document.getElementById('tenant_name');
         const tenantSlug = document.getElementById('tenant_slug');
@@ -394,6 +394,12 @@
                 .replace(/\s+/g, '-')
                 .replace(/[^\w\-]/g, '');
             tenantSlug.value = slug;
+        });
+
+        form.addEventListener('submit', handleSubmit);
+
+        document.getElementById('goToLoginBtn').addEventListener('click', () => {
+            window.location.href = '/login';
         });
 
         function showAlert(message, type) {
