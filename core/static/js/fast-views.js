@@ -30,6 +30,10 @@
 
   const SEARCH_DEBOUNCE_MS = 300;
 
+  // Páginas que se pintan a cada lado de la actual. El primero y el último
+  // siempre están, así que esto solo decide cuántas intermedias se ven.
+  const PAGE_WINDOW = 3;
+
   function esc(value) {
     return String(value ?? '').replace(/[&<>"']/g, (c) => ({
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -56,6 +60,52 @@
       return Number.isNaN(n) ? null : n;
     }
     return raw;
+  }
+
+  /**
+   * Sistema de Notificaciones Toast (Estilo PrimeNG)
+   */
+  function showToast({ severity = 'info', summary = '', detail = '', life = 4500 }) {
+    let container = document.querySelector('.fv-toast-container');
+    if (!container) {
+      container = document.createElement('div');
+      container.className = 'fv-toast-container';
+      document.body.appendChild(container);
+    }
+
+    const toast = document.createElement('div');
+    toast.className = `fv-toast fv-toast-${severity}`;
+
+    const icons = {
+      success: '✓',
+      info: 'ℹ',
+      warn: '⚠️',
+      error: '✕'
+    };
+
+    toast.innerHTML = `
+      <div class="fv-toast-icon">${icons[severity] || 'ℹ'}</div>
+      <div class="fv-toast-content">
+        <div class="fv-toast-summary">${esc(summary)}</div>
+        ${detail ? `<div class="fv-toast-detail">${esc(detail)}</div>` : ''}
+      </div>
+      <button class="fv-toast-close" type="button" title="Cerrar">&times;</button>
+    `;
+
+    container.appendChild(toast);
+
+    const closeBtn = toast.querySelector('.fv-toast-close');
+    const dismiss = () => {
+      if (toast.classList.contains('fv-toast-fade-out')) return;
+      toast.classList.add('fv-toast-fade-out');
+      setTimeout(() => toast.remove(), 300);
+    };
+
+    closeBtn.addEventListener('click', dismiss);
+    if (life > 0) setTimeout(dismiss, life);
+  }
+  if (typeof window !== 'undefined') {
+    window.showToast = showToast;
   }
 
   /** Formatea un valor según el tipo que declaró el manifest, con badges estilo PrimeNG para estados. */
@@ -106,12 +156,19 @@
       this.meta = null;
       this.state = {
         page: 1,
-        limit: 20,
+        // Se ajusta a page_sizes al leer la metadata: un limit que el servidor
+        // no tiene en su lista blanca se clampea en silencio y el selector
+        // aparece sin nada marcado.
+        limit: 10,
         search: '',
         filters: {},   // campo → texto escrito en el encabezado
         orderBy: '',
         orderDir: 'asc',
       };
+
+      // Ids marcados en la tabla. Vive fuera de state porque no viaja en la
+      // query: es una decisión del cliente, no un filtro del listado.
+      this.selection = new Set();
     }
 
     /**
@@ -142,10 +199,22 @@
         return this.fail(`No se pudo leer el modelo: ${error.message}`);
       }
 
+      // El tamaño de página lo fija el servidor: se adopta el suyo para no pedir un
+      // limit que él tenga que redondear.
+      const sizes = this.pageSizes();
+      if (sizes.length && !sizes.includes(this.state.limit)) {
+        this.state.limit = sizes[0];
+      }
+
       // El orden inicial es la primera columna: lo más predecible para quien mira.
       this.state.orderBy = this.columns()[0]?.name || '';
       this.renderChrome();
       this.load();
+    }
+
+    /** Tamaños de página que el servidor acepta, de la metadata del modelo. */
+    pageSizes() {
+      return this.meta?.page_sizes?.length ? this.meta.page_sizes : [10, 25, 50, 100];
     }
 
     /** Columnas a mostrar, resueltas contra la metadata. */
@@ -157,7 +226,7 @@
 
     /** Estructura fija de la vista; sólo el cuerpo de la tabla se re-renderiza. */
     renderChrome() {
-      const sizes = this.meta.page_sizes || [10, 20, 50, 100];
+      const sizes = this.pageSizes();
 
       this.el.innerHTML = `
         <div class="fv">
@@ -167,12 +236,24 @@
               Mostrar
               <select>${sizes.map((s) => `<option${s === this.state.limit ? ' selected' : ''}>${s}</option>`).join('')}</select>
             </label>
-            <button class="fv-new" type="button">+ Nuevo</button>
+            <div class="fv-toolbar-actions">
+              <button class="fv-btn-secondary fv-import-btn" type="button" title="Importar datos masivos">📥 Importar</button>
+              <button class="fv-btn-secondary fv-export-btn" type="button" title="Exportar datos">📤 Exportar</button>
+              <button class="fv-new" type="button">+ Nuevo</button>
+            </div>
+          </div>
+          <div class="fv-selbar" hidden>
+            <span class="fv-selinfo"></span>
+            <button type="button" class="fv-clear-sel">Quitar selección</button>
           </div>
           <div class="fv-scroll">
             <table class="fv-table">
               <thead>
                 <tr class="fv-labels">
+                  <th class="fv-select-col">
+                    <input type="checkbox" class="fv-check-all"
+                      title="Seleccionar todo lo de esta página" aria-label="Seleccionar todo lo de esta página">
+                  </th>
                   ${this.columns().map((f) => `
                     <th data-sort="${esc(f.name)}" title="Ordenar por ${esc(f.label)}">
                       <span>${esc(f.label)}</span><i class="fv-arrow"></i>
@@ -180,6 +261,7 @@
                   <th class="fv-actions-col"></th>
                 </tr>
                 <tr class="fv-filters">
+                  <th></th>
                   ${this.columns().map((f) => `
                     <th>${f.options?.length
                         ? `<select data-filter="${esc(f.name)}">
@@ -197,12 +279,16 @@
           <div class="fv-footer">
             <span class="fv-info"></span>
             <div class="fv-pager">
-              <button class="fv-prev" type="button">‹ Anterior</button>
-              <button class="fv-next" type="button">Siguiente ›</button>
+              <button class="fv-step" data-step="-1" type="button"
+                title="Página anterior" aria-label="Página anterior">‹</button>
+              <span class="fv-pages"></span>
+              <button class="fv-step" data-step="1" type="button"
+                title="Página siguiente" aria-label="Página siguiente">›</button>
             </div>
           </div>
 
-          <dialog class="fv-dialog">
+          <!-- Diálogo Formulario CRUD -->
+          <dialog class="fv-dialog fv-crud-dialog">
             <form method="dialog" class="fv-form">
               <header>
                 <h2 class="fv-form-title"></h2>
@@ -224,10 +310,93 @@
               </footer>
             </form>
           </dialog>
+
+          <!-- Diálogo Exportación Masiva -->
+          <dialog class="fv-dialog fv-export-dialog">
+            <form method="dialog" class="fv-form">
+              <header>
+                <h2 class="fv-form-title">Exportar ${esc(this.meta.label)}</h2>
+                <button type="button" class="fv-close fv-export-close" aria-label="Cerrar">&times;</button>
+              </header>
+              <div class="fv-form-fields">
+                <p class="fv-export-scope"></p>
+                <div class="fv-field fv-wide">
+                  <label>Formato de Exportación</label>
+                  <select class="fv-export-format">
+                    <option value="xlsx">Excel (.xlsx)</option>
+                    <option value="csv">CSV (.csv)</option>
+                  </select>
+                </div>
+                <div class="fv-field fv-wide">
+                  <label>Campos a incluir</label>
+                  <div class="fv-export-cols-box">
+                    <label class="fv-col-choice">
+                      <input type="checkbox" class="fv-export-all-cb" checked> <strong>Todas las columnas</strong>
+                    </label>
+                    <div class="fv-export-cols-list">
+                      ${this.meta.fields.map(f => `
+                        <label class="fv-col-choice">
+                          <input type="checkbox" value="${esc(f.name)}" class="fv-export-col-cb" checked> ${esc(f.label || f.name)}
+                        </label>
+                      `).join('')}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <footer>
+                <button type="button" class="fv-cancel fv-export-cancel">Cancelar</button>
+                <button type="button" class="fv-save fv-export-do">📤 Descargar</button>
+              </footer>
+            </form>
+          </dialog>
+
+          <!-- Diálogo Importación Masiva -->
+          <dialog class="fv-dialog fv-import-dialog">
+            <form method="dialog" class="fv-form">
+              <header>
+                <h2 class="fv-form-title">Importar ${esc(this.meta.label)}</h2>
+                <button type="button" class="fv-close fv-import-close" aria-label="Cerrar">&times;</button>
+              </header>
+              <div class="fv-form-fields">
+                <div class="fv-field fv-wide">
+                  <label>1. Obtener Plantilla de Ejemplo</label>
+                  <div class="fv-template-actions">
+                    <button type="button" class="fv-btn-secondary fv-template-xlsx">📄 Plantilla Excel (.xlsx)</button>
+                    <button type="button" class="fv-btn-secondary fv-template-csv">📄 Plantilla CSV (.csv)</button>
+                  </div>
+                  <small>Descarga un archivo con las cabeceras exactas del modelo para llenarlo con tus datos.</small>
+                </div>
+                <div class="fv-field fv-wide">
+                  <label>2. Seleccionar Archivo de Datos (.xlsx o .csv)</label>
+                  <input type="file" class="fv-import-file-input" accept=".xlsx,.csv">
+                  <small>Valida primero el archivo: "Importar Registros" sólo se habilita cuando no hay errores.</small>
+                </div>
+                <div class="fv-field fv-wide fv-import-status-box" hidden>
+                  <div class="fv-import-status-msg"></div>
+                  <div class="fv-import-warn" hidden></div>
+                  <div class="fv-import-errors-wrap" hidden>
+                    <table class="fv-import-errors-table">
+                      <thead>
+                        <tr><th>Fila</th><th>Columna</th><th>Mensaje de Error</th></tr>
+                      </thead>
+                      <tbody></tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+              <footer>
+                <button type="button" class="fv-cancel fv-import-cancel">Cancelar</button>
+                <button type="button" class="fv-btn-secondary fv-import-validate-btn">🔍 Validar Archivo</button>
+                <button type="button" class="fv-save fv-import-submit-btn" disabled>📥 Importar Registros</button>
+              </footer>
+            </form>
+          </dialog>
         </div>`;
 
       this.body = this.el.querySelector('tbody');
-      this.dialog = this.el.querySelector('.fv-dialog');
+      this.dialog = this.el.querySelector('.fv-crud-dialog');
+      this.exportDialog = this.el.querySelector('.fv-export-dialog');
+      this.importDialog = this.el.querySelector('.fv-import-dialog');
       this.bind();
     }
 
@@ -274,8 +443,16 @@
     }
 
     bind() {
+      // bind() vuelve a ejecutarse si el módulo re-renderiza la vista: sin
+      // este remove, cada pasada añade otro keydown y las flechas saltan dos
+      // páginas por pulsación.
+      if (this.onKeydown) window.removeEventListener('keydown', this.onKeydown);
+
       const reload = (reset = true) => {
         if (reset) this.state.page = 1;
+        // La selección es de una página: si cambian los filtros, lo marcado
+        // deja de ser lo que la persona cree que está marcando.
+        this.clearSelection();
         this.load();
       };
 
@@ -316,23 +493,352 @@
         });
       }
 
-      this.el.querySelector('.fv-prev').addEventListener('click', () => {
-        if (this.state.page > 1) { this.state.page--; this.load(); }
+      // Los números de página se repintan en cada carga, así que no se enlaza cada
+      // botón: se delega en el contenedor, que sobrevive al innerHTML.
+      this.el.querySelector('.fv-pages').addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-goto]');
+        if (btn) this.goToPage(Number(btn.dataset.goto));
       });
-      this.el.querySelector('.fv-next').addEventListener('click', () => {
-        if (this.state.page < this.page.total_pages) { this.state.page++; this.load(); }
+
+      // Selección para exportar. Las casillas de fila también se repintan en
+      // cada carga, así que van delegadas en el cuerpo.
+      this.body.addEventListener('change', (e) => {
+        const cb = e.target.closest('[data-select]');
+        if (!cb) return;
+        if (cb.checked) this.selection.add(cb.dataset.select);
+        else this.selection.delete(cb.dataset.select);
+        this.syncSelectionUI();
       });
+
+      this.el.querySelector('.fv-check-all').addEventListener('change', (e) => {
+        const on = e.target.checked;
+        for (const row of this.body.querySelectorAll('tr[data-id]')) {
+          const id = row.dataset.id;
+          if (on) this.selection.add(id);
+          else this.selection.delete(id);
+        }
+        this.syncSelectionUI();
+      });
+
+      this.el.querySelector('.fv-clear-sel').addEventListener('click', () => {
+        this.selection.clear();
+        this.syncSelectionUI();
+      });
+
+      // Las flechas son fijas en el DOM, así que basta con enlazarlas una vez.
+      for (const btn of this.el.querySelectorAll('[data-step]')) {
+        btn.addEventListener('click', () => {
+          this.goToPage(this.state.page + Number(btn.dataset.step));
+        });
+      }
+
+      // Flechas ← → para recorrer páginas sin volver el ratón al pie. Se
+      // atienden en la ventana para no secuestrar las teclas de los diálogos.
+      this.onKeydown = (e) => {
+        if (this.importDialog?.open || this.exportDialog?.open || this.dialog?.open) return;
+        const tag = document.activeElement?.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+        if (e.key === 'ArrowLeft') this.goToPage(this.state.page - 1);
+        else if (e.key === 'ArrowRight') this.goToPage(this.state.page + 1);
+      };
+      window.addEventListener('keydown', this.onKeydown);
 
       this.el.querySelector('.fv-new').addEventListener('click', () => this.openForm());
       this.el.querySelector('.fv-save').addEventListener('click', () => this.save());
 
       for (const selector of ['.fv-close', '.fv-cancel']) {
-        this.el.querySelector(selector).addEventListener('click', () => this.dialog.close());
+        this.el.querySelectorAll(selector).forEach((btn) => {
+          btn.addEventListener('click', () => {
+            this.dialog?.close();
+            this.exportDialog?.close();
+            this.importDialog?.close();
+          });
+        });
       }
-      // Clic en el fondo del diálogo (fuera del formulario) también cierra.
-      this.dialog.addEventListener('click', (e) => {
-        if (e.target === this.dialog) this.dialog.close();
+      // Clic en el fondo del diálogo también cierra.
+      [this.dialog, this.exportDialog, this.importDialog].forEach((d) => {
+        d?.addEventListener('click', (e) => {
+          if (e.target === d) d.close();
+        });
       });
+
+      // --- Modales de Importación / Exportación ---
+      const importBtn = this.el.querySelector('.fv-import-btn');
+      const exportBtn = this.el.querySelector('.fv-export-btn');
+      if (exportBtn) exportBtn.addEventListener('click', () => this.openExportModal());
+      if (importBtn) importBtn.addEventListener('click', () => this.openImportModal());
+
+      // Exportar
+      const exportAllCb = this.el.querySelector('.fv-export-all-cb');
+      if (exportAllCb) {
+        exportAllCb.addEventListener('change', (e) => {
+          this.el.querySelectorAll('.fv-export-col-cb').forEach((cb) => {
+            cb.checked = e.target.checked;
+          });
+        });
+      }
+      const exportDoBtn = this.el.querySelector('.fv-export-do');
+      if (exportDoBtn) {
+        exportDoBtn.addEventListener('click', () => this.triggerExport());
+      }
+
+      // Plantillas
+      const tmplXlsx = this.el.querySelector('.fv-template-xlsx');
+      const tmplCsv = this.el.querySelector('.fv-template-csv');
+      if (tmplXlsx) tmplXlsx.addEventListener('click', () => this.downloadExport('xlsx', [], true));
+      if (tmplCsv) tmplCsv.addEventListener('click', () => this.downloadExport('csv', [], true));
+
+      // Importar
+      const importValidateBtn = this.el.querySelector('.fv-import-validate-btn');
+      const importSubmitBtn = this.el.querySelector('.fv-import-submit-btn');
+      if (importValidateBtn) importValidateBtn.addEventListener('click', () => this.runImport(true));
+      if (importSubmitBtn) importSubmitBtn.addEventListener('click', () => this.runImport(false));
+
+      // Cambiar de archivo invalida la validación anterior: hay que volver a validar.
+      const importFileInput = this.el.querySelector('.fv-import-file-input');
+      if (importFileInput) {
+        importFileInput.addEventListener('change', () => {
+          this.importValidated = false;
+          if (importSubmitBtn) importSubmitBtn.disabled = true;
+          const box = this.importDialog.querySelector('.fv-import-status-box');
+          if (box) box.hidden = true;
+        });
+      }
+    }
+
+    openExportModal() {
+      if (!this.exportDialog) return;
+      // Sin esto el diálogo no deja claro si se baja la selección o todo el
+      // filtro, y el archivo sale con más filas de las que la persona marca.
+      const note = this.exportDialog.querySelector('.fv-export-scope');
+      const n = this.selection.size;
+      note.textContent = n > 0
+        ? `Se exportarán solo los ${n} registro(s) que marcaste.`
+        : `No hay selección: se exportará todo lo que cumple el filtro actual.`;
+      note.className = `fv-export-scope${n > 0 ? ' is-scope-selection' : ''}`;
+      this.exportDialog.showModal();
+    }
+
+    openImportModal() {
+      if (!this.importDialog) return;
+      const statusBox = this.importDialog.querySelector('.fv-import-status-box');
+      if (statusBox) statusBox.hidden = true;
+      const errorsWrap = this.importDialog.querySelector('.fv-import-errors-wrap');
+      if (errorsWrap) errorsWrap.hidden = true;
+      const fileInput = this.importDialog.querySelector('.fv-import-file-input');
+      if (fileInput) fileInput.value = '';
+      // Importar exige validar antes: si no, se reabre con el botón muerto.
+      const submitBtn = this.importDialog.querySelector('.fv-import-submit-btn');
+      if (submitBtn) submitBtn.disabled = true;
+      this.importValidated = false;
+      this.importDialog.showModal();
+    }
+
+    async triggerExport() {
+      const format = this.exportDialog.querySelector('.fv-export-format').value;
+      const allChecked = this.exportDialog.querySelector('.fv-export-all-cb').checked;
+      const selectedFields = [];
+      if (!allChecked) {
+        this.exportDialog.querySelectorAll('.fv-export-col-cb:checked').forEach((cb) => {
+          selectedFields.push(cb.value);
+        });
+      }
+      const submitBtn = this.exportDialog.querySelector('.fv-export-do');
+      submitBtn.disabled = true;
+      try {
+        await this.downloadExport(format, selectedFields, false);
+        this.exportDialog.close();
+      } catch (err) {
+        showToast({ severity: 'error', summary: 'Error al exportar', detail: err.message });
+      } finally {
+        submitBtn.disabled = false;
+      }
+    }
+
+    async downloadExport(format, fields = [], isTemplate = false) {
+      const params = isTemplate ? new URLSearchParams({ format, limit: '0' }) : this.query();
+      params.set('format', format);
+      if (fields.length) params.set('fields', fields.join(','));
+
+      // Con registros marcados, el export se limita a esos. La plantilla nunca
+      // lleva ids: tiene que salir con las cabeceras y nada más.
+      const only = isTemplate ? [] : [...this.selection];
+      if (only.length) params.set('ids', only.join(','));
+
+      const url = `${this.base}/export?${params.toString()}`;
+      const clientToken = window.FastClient ? window.FastClient.accessToken() : null;
+      const clientTenant = window.FastClient ? window.FastClient.tenant() : null;
+      const token = clientToken || localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
+      const tenant = clientTenant || localStorage.getItem('tenant_id') || 'default';
+      const headers = { 'X-Tenant-ID': tenant };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch(url, { headers });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({ error: 'Error al exportar' }));
+        throw new Error(json.error || 'No se pudo descargar el archivo');
+      }
+      const blob = await res.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      const prefix = isTemplate ? `plantilla_${this.model}` : `${this.model}_export`;
+      a.download = `${prefix}.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(downloadUrl);
+
+      if (isTemplate) {
+        showToast({
+          severity: 'info',
+          summary: 'Plantilla descargada',
+          detail: `Plantilla de ${this.meta.label} en formato .${format.toUpperCase()} descargada.`,
+        });
+      } else {
+        showToast({
+          severity: 'success',
+          summary: 'Exportación completada',
+          detail: only.length
+            ? `${only.length} registro(s) seleccionados de ${this.meta.label} guardados como .${format.toUpperCase()}.`
+            : `Datos de ${this.meta.label} guardados como .${format.toUpperCase()}.`,
+        });
+      }
+    }
+
+    /**
+     * Importa el archivo seleccionado.
+     *
+     * `validateOnly` distingue los dos botones del diálogo y ya no se consulta
+     * ningún "modo de prueba": antes el checkbox venía marcado por defecto, así
+     * que pulsar "Importar Registros" repetía la validación y no guardaba nada.
+     * Importar sólo se habilita tras una validación limpia del mismo archivo.
+     */
+    async runImport(validateOnly) {
+      const fileInput = this.importDialog.querySelector('.fv-import-file-input');
+      const isDryRun = validateOnly === true;
+
+      const file = fileInput?.files[0];
+      if (!file) {
+        showToast({
+          severity: 'warn',
+          summary: 'Archivo Requerido',
+          detail: 'Por favor selecciona un archivo .xlsx o .csv para importar.',
+        });
+        return;
+      }
+
+      const statusBox = this.importDialog.querySelector('.fv-import-status-box');
+      const statusMsg = this.importDialog.querySelector('.fv-import-status-msg');
+      const warnBox = this.importDialog.querySelector('.fv-import-warn');
+      const errorsWrap = this.importDialog.querySelector('.fv-import-errors-wrap');
+      const errorsTbody = this.importDialog.querySelector('.fv-import-errors-table tbody');
+
+      statusBox.hidden = false;
+      statusMsg.className = 'fv-import-status-msg p-badge-info';
+      statusMsg.textContent = isDryRun ? '⏳ Validando datos del archivo...' : '⏳ Procesando importación de datos...';
+      errorsWrap.hidden = true;
+      errorsTbody.innerHTML = '';
+      warnBox.hidden = true;
+      warnBox.innerHTML = '';
+
+      const valBtn = this.importDialog.querySelector('.fv-import-validate-btn');
+      const submitBtn = this.importDialog.querySelector('.fv-import-submit-btn');
+      valBtn.disabled = true;
+      submitBtn.disabled = true;
+
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const clientToken = window.FastClient ? window.FastClient.accessToken() : null;
+        const clientTenant = window.FastClient ? window.FastClient.tenant() : null;
+        const token = clientToken || localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
+        const tenant = clientTenant || localStorage.getItem('tenant_id') || 'default';
+        const headers = { 'X-Tenant-ID': tenant };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+
+        const url = `${this.base}/import?dry_run=${isDryRun}`;
+        const res = await fetch(url, { method: 'POST', headers, body: formData });
+        const data = await res.json().catch(() => ({ error: 'Respuesta inválida del servidor' }));
+
+        // Cabeceras que no corresponden a ningún campo: sus valores se
+        // descartarían al guardar. Se avisa antes de que sea una sorpresa.
+        if (data.unmatched_columns && data.unmatched_columns.length) {
+          warnBox.hidden = false;
+          warnBox.innerHTML = `⚠️ ${data.unmatched_columns.length} columna(s) del archivo no coinciden con ningún campo del modelo y se ignorarán: <strong>${esc(data.unmatched_columns.join(', '))}</strong>. Descarga la plantilla y usa sus cabeceras exactas.`;
+        }
+
+        if (data.errors && data.errors.length) {
+          this.importValidated = false;
+          statusMsg.className = 'fv-import-status-msg p-badge-danger';
+          statusMsg.textContent = `❌ Se encontraron ${data.errors.length} error(es) en el archivo de importación.`;
+          errorsWrap.hidden = false;
+          errorsTbody.innerHTML = data.errors.map((e) => `
+            <tr>
+              <td>Fila ${esc(e.row)}</td>
+              <td><strong>${esc(e.column || e.field)}</strong></td>
+              <td class="fv-error">${esc(e.error)}</td>
+            </tr>
+          `).join('');
+
+          showToast({
+            severity: 'error',
+            summary: 'Errores en archivo',
+            detail: `Se detectaron ${data.errors.length} errores. Revisa la lista en el modal.`,
+          });
+        } else if (res.ok && data.success) {
+          statusMsg.className = 'fv-import-status-msg p-badge-success';
+          if (data.dry_run) {
+            this.importValidated = true;
+            statusMsg.textContent = `✅ Validación exitosa: Los ${data.total_rows} registro(s) son válidos. Pulsa "Importar Registros" para guardarlos.`;
+            showToast({
+              severity: 'success',
+              summary: 'Validación Exitosa',
+              detail: `${data.total_rows} registros válidos. Ya puedes importarlos.`,
+            });
+          } else {
+            statusMsg.textContent = `🎉 Importación completada: Se crearon ${data.created_count} registro(s) exitosamente.`;
+            showToast({
+              severity: 'success',
+              summary: 'Importación Completada',
+              detail: `Se crearon ${data.created_count} registro(s) correctamente.`,
+            });
+            this.importValidated = false;
+            setTimeout(async () => {
+              this.importDialog.close();
+              // Los registros importados caen en la primera página: recargar sin
+              // filtros ni búsqueda para que se vean de verdad.
+              await this.resetList();
+              this.el.dispatchEvent(new CustomEvent('fast:saved', {
+                bubbles: true,
+                detail: { imported: data.created_count, creating: true },
+              }));
+            }, 1400);
+          }
+        } else {
+          this.importValidated = false;
+          statusMsg.className = 'fv-import-status-msg p-badge-danger';
+          statusMsg.textContent = `❌ Error: ${data.error || 'No se pudo procesar el archivo.'}`;
+          showToast({
+            severity: 'error',
+            summary: 'Error de Importación',
+            detail: data.error || 'No se pudo procesar el archivo.',
+          });
+        }
+      } catch (err) {
+        this.importValidated = false;
+        statusMsg.className = 'fv-import-status-msg p-badge-danger';
+        statusMsg.textContent = `❌ Error: ${err.message}`;
+        showToast({
+          severity: 'error',
+          summary: 'Error en Servidor',
+          detail: err.message,
+        });
+      } finally {
+        valBtn.disabled = false;
+        submitBtn.disabled = !this.importValidated;
+      }
     }
 
     /** Abre el formulario vacío (alta) o con los datos del registro (edición). */
@@ -512,12 +1018,36 @@
       return params;
     }
 
+    /**
+     * Vuelve al listado sin filtros ni búsqueda y lo recarga.
+     *
+     * Tras importar, los registros nuevos se insertan al final (created_at desc)
+     * y caen en la primera página. Recargar conservando la búsqueda o el filtro
+     * activo los deja fuera de la vista y parece que no se guardó nada.
+     */
+    async resetList() {
+      this.state.page = 1;
+      this.state.search = '';
+      this.state.filters = {};
+
+      const search = this.el.querySelector('.fv-search');
+      if (search) search.value = '';
+      for (const input of this.el.querySelectorAll('[data-filter]')) {
+        input.value = '';
+      }
+
+      await this.load();
+    }
+
     async load() {
       try {
         this.page = await this.api.get(`${this.base}?${this.query()}`);
         this.state.page = this.page.pagination?.page || this.page.page || 1;
         this.renderRows();
         this.renderFooter();
+        // Las casillas se recrean en cada render: hay que volver a marcar lo
+        // que siga seleccionado y recalcular el estado de "seleccionar todo".
+        this.syncSelectionUI();
         this.el.dispatchEvent(new CustomEvent('fast:change', {
           bubbles: true, detail: { page: this.page },
         }));
@@ -539,7 +1069,12 @@
       }
 
       this.body.innerHTML = rows.map((record) => `
-        <tr data-id="${esc(record.id)}">
+        <tr data-id="${esc(record.id)}"${this.selection.has(record.id) ? ' class="is-selected"' : ''}>
+          <td class="fv-select-cell">
+            <input type="checkbox" data-select="${esc(record.id)}"
+              ${this.selection.has(record.id) ? 'checked' : ''}
+              aria-label="Seleccionar ${esc(formatValue(record[this.columns()[0]?.name], this.columns()[0]) || record.id)}">
+          </td>
           ${columns.map((f) => `<td>${formatValue(record[f.name], f)}</td>`).join('')}
           <td class="fv-actions">
             ${this.transitionButtons(record)}
@@ -565,20 +1100,129 @@
       }
     }
 
-    renderFooter() {
-      const p = this.page.pagination || this.page;
+    /**
+     * Refleja la selección en la barra de aviso y en la casilla de la cabecera.
+     *
+     * La casilla de arriba se marca sólo si están marcadas todas las filas
+     * visibles: con selección parcial queda sin marcar, que es lo que dice un
+     * "seleccionar todo" de verdad.
+     */
+    syncSelectionUI() {
+      const boxes = [...this.body.querySelectorAll('[data-select]')];
+
+      for (const cb of boxes) {
+        const want = this.selection.has(cb.dataset.select);
+        if (cb.checked !== want) cb.checked = want;
+        cb.closest('tr')?.classList.toggle('is-selected', want);
+      }
+
+      // El recuento sale del Set, no de las casillas: al pulsar "seleccionar
+      // todo" el DOM todavía va marcando la casilla de cabecera y las de fila
+      // siguen sin marcar, así que contar antes de sincronizar daría 0 y la
+      // cabecera se quedaría sin marcar con las 3 filas seleccionadas.
+      const selected = boxes.filter((cb) => this.selection.has(cb.dataset.select)).length;
+
+      const checkAll = this.el.querySelector('.fv-check-all');
+      checkAll.checked = boxes.length > 0 && selected === boxes.length;
+      checkAll.indeterminate = selected > 0 && selected < boxes.length;
+
+      const bar = this.el.querySelector('.fv-selbar');
+      bar.hidden = this.selection.size === 0;
+      this.el.querySelector('.fv-selinfo').textContent =
+        this.selection.size === 1
+          ? '1 registro seleccionado — se exportará solo ese.'
+          : `${this.selection.size} registros seleccionados — se exportarán solo esos.`;
+    }
+
+    /** Limpia la selección al cambiar de página o de filtro. */
+    clearSelection() {
+      if (this.selection.size === 0) return;
+      this.selection.clear();
+      this.syncSelectionUI();
+    }
+
+    /** Salta a una página. Fuera de rango no hace nada: no inventa páginas. */
+    goToPage(target) {
+      const { pages } = this.pagination();
+      const page = Math.trunc(target);
+      if (!Number.isFinite(page) || page < 1 || page > pages || page === this.state.page) return;
+      this.state.page = page;
+      this.clearSelection();
+      this.load();
+    }
+
+    /**
+     * Paginación normalizada de la respuesta.
+     *
+     * Gin devuelve {items, pagination:{page,limit,total,pages}} y la capa legacy
+     * devuelve los campos en la raíz. Leer this.page.total_pages a pelo daba
+     * undefined y toda comparación contra él era falsa.
+     */
+    pagination() {
+      const p = this.page?.pagination || this.page || {};
       const total = p.total ?? 0;
-      const page = p.page ?? 1;
-      const limit = p.limit ?? 25;
-      const pages = p.pages ?? p.total_pages ?? 1;
+      const limit = p.limit ?? this.state.limit ?? 0;
+      const pages = p.pages ?? p.total_pages ?? (limit > 0 ? Math.ceil(total / limit) : 1);
+      return {
+        total,
+        limit,
+        page: p.page ?? this.state.page ?? 1,
+        pages: Math.max(pages || 1, 1),
+      };
+    }
+
+    renderFooter() {
+      const { total, page, limit, pages } = this.pagination();
 
       const from = total === 0 ? 0 : (page - 1) * limit + 1;
       const to = Math.min(page * limit, total);
 
       this.el.querySelector('.fv-info').textContent =
         total === 0 ? 'Sin registros' : `${from}–${to} de ${total} · página ${page} de ${pages}`;
-      this.el.querySelector('.fv-prev').disabled = page <= 1;
-      this.el.querySelector('.fv-next').disabled = page >= pages;
+
+      // Sin páginas que recorrer no hay nada que paginar: se oculta el pie
+      // entero en vez de dejar dos flechas muertos.
+      const pager = this.el.querySelector('.fv-pager');
+      if (pager) pager.hidden = pages <= 1;
+
+      this.el.querySelector('[data-step="-1"]').disabled = page <= 1;
+      this.el.querySelector('[data-step="1"]').disabled = page >= pages;
+
+      this.renderPageNumbers(page, pages);
+    }
+
+    /**
+     * Números de página alrededor de la actual: primero, actual±3, último,
+     * con elipsis en los huecos. Al no haber botones de anterior/siguiente,
+     * estos números son la única forma de avanzar: por eso la ventana es
+     * ancha y el primer y el último siempre están a un clic.
+     */
+    renderPageNumbers(current, total) {
+      const host = this.el.querySelector('.fv-pages');
+      if (!host) return;
+
+      if (total <= 1) {
+        host.innerHTML = '';
+        return;
+      }
+
+      const window_ = new Set([1, total, current]);
+      for (let d = 1; d <= PAGE_WINDOW; d++) {
+        if (current - d > 1) window_.add(current - d);
+        if (current + d < total) window_.add(current + d);
+      }
+
+      const numbers = [...window_].filter((n) => n >= 1 && n <= total).sort((a, b) => a - b);
+
+      let html = '';
+      let previous = 0;
+      for (const n of numbers) {
+        if (previous && n - previous > 1) html += '<span class="fv-gap">…</span>';
+        html += `<button type="button" class="fv-page${n === current ? ' is-current' : ''}"
+          data-goto="${n}"${n === current ? ' aria-current="page"' : ''}>${n}</button>`;
+        previous = n;
+      }
+      host.innerHTML = html;
     }
 
     /**
@@ -618,7 +1262,8 @@
         await this.api.del(`${this.base}/${id}`);
 
         // Si era el último de la página, retroceder para no quedar en vacío.
-        if (this.page.data.length === 1 && this.state.page > 1) this.state.page--;
+        const rows = this.page.items || this.page.data || [];
+        if (rows.length === 1 && this.state.page > 1) this.state.page--;
         this.load();
       } catch (error) {
         alert('Error: ' + error.message);

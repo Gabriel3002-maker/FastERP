@@ -2,14 +2,18 @@ package api
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/fasterp/backend/internal/db"
+	"github.com/fasterp/backend/internal/exportimport"
 	"github.com/fasterp/backend/internal/module"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 // Rutas del CRUD de un módulo.
@@ -24,6 +28,9 @@ func (h *Handler) RegisterModuleDataRoutes(rg *gin.RouterGroup) {
 	// comodines, pero registrar la ruta en orden deja el router legible.
 	rg.GET("/:module/_meta", h.dispatchModuleList(moduleMetaHandler))
 	rg.GET("/:module/:model/_meta", h.dispatchModel(modelMetaHandler))
+
+	rg.GET("/:module/:model/export", h.dispatchModel(exportHandler))
+	rg.POST("/:module/:model/import", h.dispatchModel(importHandler))
 
 	rg.GET("/:module/:model", h.dispatchModel(listHandler))
 	rg.POST("/:module/:model", h.dispatchModel(createHandler))
@@ -55,6 +62,10 @@ func (h *Handler) resolveModule(c *gin.Context, name string) (*module.ModuleInst
 	if inst == nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "module not found"})
 		return nil, false
+	}
+
+	if bypass, ok := c.Get("bypass_installed_check"); ok && bypass == true {
+		return inst, true
 	}
 
 	var active bool
@@ -264,25 +275,18 @@ func parsePagination(c *gin.Context) (page, limit int) {
 		page = 1
 	}
 
-	limit, _ = strconv.Atoi(c.DefaultQuery("limit", "25"))
+	limit, _ = strconv.Atoi(c.DefaultQuery("limit", strconv.Itoa(module.DefaultPageSize)))
 	if limit <= 0 {
-		limit = 25
+		limit = module.DefaultPageSize
 	}
 	// Se ajusta al tamaño permitido más cercano en vez de rechazar: un
 	// limit=30 no es un error, es un 25 con un redondeo.
-	limit = nearestPageSize(limit)
+	limit = module.NearestPageSize(limit)
 	return page, limit
 }
 
 func nearestPageSize(want int) int {
-	best := module.PageSizes[0]
-	for _, size := range module.PageSizes {
-		if size > want {
-			break
-		}
-		best = size
-	}
-	return best
+	return module.NearestPageSize(want)
 }
 
 // opAliases son los nombres de operador que usan los clientes para los que
@@ -351,6 +355,38 @@ func parseFilters(c *gin.Context, reg *module.ModelRegistration) ([]filter, erro
 
 // splitList parte "a,b,c" en sus partes, respetando el separador dentro de
 // comillas para el caso de "O'Brien,Ana".
+// maxExportIDs acota cuántos registros se pueden exportar por selección. El
+// export completo ya se topa con limit; esta lista llega en la URL y sin tope
+// una de 100k ids se vuelve un Where de 100k parámetros.
+const maxExportIDs = 1000
+
+// parseIDList valida la lista de ids de una exportación por selección. Cada uno
+// tiene que ser un UUID: es lo que garantiza que el valor vaya como parámetro
+// de tipo uuid y no como texto que Postgres tenga que adivinar.
+func parseIDList(raw string) ([]any, error) {
+	parts := strings.Split(raw, ",")
+	if len(parts) > maxExportIDs {
+		return nil, fmt.Errorf("no se pueden exportar más de %d registros seleccionados", maxExportIDs)
+	}
+
+	out := make([]any, 0, len(parts))
+	for _, p := range parts {
+		id := strings.TrimSpace(p)
+		if id == "" {
+			continue
+		}
+		parsed, err := uuid.Parse(id)
+		if err != nil {
+			return nil, fmt.Errorf("id inválido en la selección: %q", id)
+		}
+		out = append(out, parsed)
+	}
+	if len(out) == 0 {
+		return nil, errors.New("la selección no contiene ningún id")
+	}
+	return out, nil
+}
+
 func splitList(text string) []any {
 	parts := strings.Split(text, ",")
 	out := make([]any, 0, len(parts))
@@ -527,6 +563,162 @@ func deleteHandler(c *gin.Context, _ *module.ModuleInstance, reg *module.ModelRe
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
+}
+
+// exportHandler exporta los datos de un modelo en formato CSV o XLSX.
+func exportHandler(c *gin.Context, inst *module.ModuleInstance, reg *module.ModelRegistration) {
+	ctx, tenantID := c.Request.Context(), c.GetString("tenant_id")
+	modelName := reg.Manifest.Name
+
+	fmtStr := c.DefaultQuery("format", "csv")
+	format := exportimport.ParseFormat(fmtStr)
+
+	var selectedFields []string
+	if fieldsStr := c.Query("fields"); fieldsStr != "" {
+		selectedFields = strings.Split(fieldsStr, ",")
+	}
+
+	qb := module.NewQueryBuilder(*reg)
+	qb.Where("tenant_id", "=", tenantID)
+
+	if search := strings.TrimSpace(c.Query("search")); search != "" {
+		applySearch(qb, inst.Manifest, *reg, search)
+	}
+
+	filters, err := parseFilters(c, reg)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	for _, f := range filters {
+		qb.Where(f.field, f.op, f.value)
+	}
+
+	// Exportar solo lo que el usuario marcó en la tabla. Los ids los manda el
+	// cliente, así que se validan uno a uno: un id que no sea un UUID no se
+	// busca, se rechaza.
+	if idsStr := strings.TrimSpace(c.Query("ids")); idsStr != "" {
+		ids, err := parseIDList(idsStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		marks := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
+		qb.WhereRaw("id IN ("+marks+")", ids...)
+	}
+
+	orderBy, orderDir := c.DefaultQuery("order", "created_at"), c.DefaultQuery("dir", "desc")
+	if orderBy != "created_at" && orderBy != "updated_at" && orderBy != "id" && !reg.HasField(orderBy) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "unknown order field: " + orderBy})
+		return
+	}
+	qb.OrderBy(orderBy, orderDir)
+
+	// limit=0 es la petición de "plantilla de ejemplo": sólo la fila de
+	// cabeceras. Sin esto caía en el default y la plantilla salía con los
+	// registros del tenant ya rellenos, que es como se duplica todo al
+	// reimportar el archivo descargado.
+	headersOnly := false
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10000"))
+	if limit == 0 {
+		headersOnly = true
+		limit = 1
+	} else if limit < 0 || limit > 50000 {
+		limit = 10000
+	}
+	qb.Limit(limit)
+
+	cols, query, args, err := qb.BuildSelect()
+	if err != nil {
+		internalError(c, "export "+modelName, err)
+		return
+	}
+
+	rows, err := db.Executor(c).QueryContext(ctx, query, args...)
+	if err != nil {
+		internalError(c, "export "+modelName, err)
+		return
+	}
+	defer rows.Close()
+
+	records, err := rowsToMaps(rows, cols)
+	if err != nil {
+		internalError(c, "export "+modelName, err)
+		return
+	}
+
+	opts := exportimport.ExportOptions{
+		Format:         format,
+		SelectedFields: selectedFields,
+		UseLabels:      true,
+		HeadersOnly:    headersOnly,
+	}
+
+	fileBytes, contentType, filename, err := exportimport.ExportData(*reg, records, opts)
+	if err != nil {
+		internalError(c, "export "+modelName, err)
+		return
+	}
+
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+	c.Data(http.StatusOK, contentType, fileBytes)
+}
+
+// importHandler importa registros de un archivo CSV o XLSX enviado por el cliente.
+func importHandler(c *gin.Context, inst *module.ModuleInstance, reg *module.ModelRegistration) {
+	ctx, tenantID := c.Request.Context(), c.GetString("tenant_id")
+	dryRun := c.Query("dry_run") == "true"
+
+	var fileBytes []byte
+	var format exportimport.ExportFormat
+
+	fileHeader, err := c.FormFile("file")
+	if err == nil && fileHeader != nil {
+		f, err := fileHeader.Open()
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "no se pudo abrir el archivo subido: " + err.Error()})
+			return
+		}
+		defer f.Close()
+
+		fileBytes, err = io.ReadAll(f)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "error leyendo el archivo: " + err.Error()})
+			return
+		}
+
+		if strings.HasSuffix(strings.ToLower(fileHeader.Filename), ".xlsx") {
+			format = exportimport.FormatXLSX
+		} else {
+			format = exportimport.FormatCSV
+		}
+	} else {
+		fileBytes, err = c.GetRawData()
+		if err != nil || len(fileBytes) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "se requiere un archivo adjunto 'file' o datos CSV/XLSX en el cuerpo"})
+			return
+		}
+		fmtStr := c.DefaultQuery("format", "csv")
+		format = exportimport.ParseFormat(fmtStr)
+	}
+
+	opts := exportimport.ImportOptions{
+		Format: format,
+		DryRun: dryRun,
+	}
+
+	res, err := exportimport.ImportData(ctx, db.Executor(c), *reg, tenantID, fileBytes, opts)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if !res.Success {
+		c.JSON(http.StatusUnprocessableEntity, res)
+		return
+	}
+
+	c.JSON(http.StatusOK, res)
 }
 
 // returningColumns son las columnas que el INSERT y el UPDATE devuelven.

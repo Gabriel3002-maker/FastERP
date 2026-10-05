@@ -35,10 +35,7 @@ func meta() *module.ModelMeta {
 
 func validate(t *testing.T, body map[string]any, creating bool) error {
 	t.Helper()
-	mt, err := meta(), error(nil)
-	if err != nil {
-		t.Fatalf("meta: %v", err)
-	}
+	mt := meta()
 	return validateInput(mt, body, creating)
 }
 

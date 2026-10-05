@@ -42,7 +42,7 @@ func Executor(c *gin.Context) QueryExecutor {
 		panic("db.Executor called without TenantMiddleware: no connection pinned to a tenant. " +
 			"This handler is reachable outside a tenant-scoped route.")
 	}
-	conn, ok := v.(*TenantConn)
+	conn, ok := v.(QueryExecutor)
 	if !ok {
 		panic(fmt.Sprintf("db.Executor: unexpected db_conn type %T", v))
 	}

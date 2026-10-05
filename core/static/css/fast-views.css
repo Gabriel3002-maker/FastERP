@@ -248,6 +248,70 @@
 
 .fv-actions-col { width: 1px; }
 
+/* Columna de selección: se estrecha al máximo porque su contenido es un
+   cuadrado de 16px y nada más. */
+.fv-select-col,
+.fv-select-cell { width: 1px; }
+
+.fv-select-col { text-align: center; }
+
+.fv-select-col input[type="checkbox"],
+.fv-select-cell input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--fv-accent);
+}
+
+/* La fila marcada se distingue sin besoin de leer la casilla. */
+.fv-table tbody tr.is-selected { background: var(--fv-hover); }
+
+.fv-selbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  margin: .5rem 0;
+  padding: .5rem .75rem;
+  border: 1px solid var(--fv-accent);
+  border-radius: var(--fv-radius);
+  background: var(--fv-hover);
+  font-size: .85rem;
+}
+
+/* hidden no gana a display:flex. */
+.fv-selbar[hidden] { display: none; }
+
+.fv-clear-sel {
+  padding: .25rem .6rem;
+  border: 1px solid var(--fv-border);
+  border-radius: 6px;
+  background: var(--fv-surface);
+  color: inherit;
+  font: inherit;
+  font-size: .8rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.fv-clear-sel:hover { border-color: var(--fv-accent); color: var(--fv-accent); }
+
+.fv-export-scope {
+  margin: 0 0 .75rem;
+  padding: .5rem .75rem;
+  border-radius: var(--fv-radius);
+  background: var(--fv-hover);
+  color: var(--fv-muted);
+  font-size: .82rem;
+}
+
+.fv-export-scope.is-scope-selection {
+  border: 1px solid var(--fv-accent);
+  color: inherit;
+  font-weight: 600;
+}
+
 .fv-actions {
   display: flex;
   gap: .4rem;
@@ -301,8 +365,13 @@
 
 .fv-pager {
   display: flex;
+  align-items: center;
   gap: .5rem;
 }
+
+/* hidden no gana a display:flex: sin esto el pager sigue visible con una
+   sola página, con las dos flechas apagadas. */
+.fv-pager[hidden] { display: none; }
 
 .fv-pager button {
   padding: .4rem .8rem;
@@ -313,6 +382,38 @@
   font: inherit;
   font-size: .85rem;
   cursor: pointer;
+}
+
+/* Las flechas ‹ › son un carácter: no merecen el ancho de una etiqueta. */
+.fv-pager .fv-step {
+  padding: .4rem .55rem;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.fv-pages {
+  display: flex;
+  align-items: center;
+  gap: .25rem;
+}
+
+.fv-pager .fv-page {
+  min-width: 2rem;
+  padding: .4rem .5rem;
+  text-align: center;
+}
+
+.fv-pager .fv-page.is-current {
+  background: var(--fv-accent);
+  border-color: var(--fv-accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.fv-gap {
+  padding: 0 .15rem;
+  color: var(--fv-muted);
+  font-size: .85rem;
 }
 
 .fv-pager button:hover:not(:disabled) { border-color: var(--fv-accent); color: var(--fv-accent); }
@@ -961,3 +1062,220 @@
   color: var(--fv-muted);
   font-size: 0.85rem;
 }
+
+/* ============================================================================
+   Import & Export UI Controls & Dialogs
+   ============================================================================ */
+
+.fv-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.fv-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.55rem 0.95rem;
+  border: 1px solid var(--fv-border);
+  border-radius: 8px;
+  background: var(--fv-surface);
+  color: inherit;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.fv-btn-secondary:hover {
+  border-color: var(--fv-accent);
+  color: var(--fv-accent);
+  background: color-mix(in srgb, var(--fv-accent) 6%, var(--fv-surface));
+}
+
+.fv-export-cols-box {
+  border: 1px solid var(--fv-border);
+  border-radius: 8px;
+  padding: 0.75rem;
+  background: color-mix(in srgb, var(--fv-surface) 98%, #6366f1);
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.fv-export-cols-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.4rem 0.75rem;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--fv-border);
+}
+
+.fv-col-choice {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.fv-col-choice input[type="checkbox"] {
+  accent-color: var(--fv-accent);
+}
+
+.fv-template-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.fv-import-file-input {
+  padding: 0.6rem !important;
+  border: 2px dashed var(--fv-border) !important;
+  border-radius: 8px !important;
+  background: color-mix(in srgb, var(--fv-surface) 97%, #6366f1) !important;
+  cursor: pointer;
+}
+
+.fv-import-file-input:hover {
+  border-color: var(--fv-accent) !important;
+}
+
+.fv-import-status-box {
+  margin-top: 0.75rem;
+}
+
+.fv-import-status-msg {
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.fv-import-warn {
+  margin-top: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: #7c4a03;
+  background: #fff7e6;
+  border: 1px solid #f0c36d;
+}
+
+.fv-import-errors-wrap {
+  margin-top: 0.75rem;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--fv-border);
+  border-radius: 8px;
+}
+
+.fv-import-errors-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.fv-import-errors-table th,
+.fv-import-errors-table td {
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid var(--fv-border);
+}
+
+.fv-import-errors-table th {
+  background: color-mix(in srgb, var(--fv-surface) 94%, #dc2626);
+  color: var(--fv-muted);
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+}
+
+/* --- Sistema de Notificaciones Toast PrimeNG --- */
+.fv-toast-container {
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  pointer-events: none;
+  max-width: 420px;
+  width: calc(100vw - 48px);
+}
+
+.fv-toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 18px;
+  border-radius: 8px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.2);
+  background: var(--fv-surface, #1e293b);
+  border: 1px solid var(--fv-border, #334155);
+  color: var(--fv-text, #f8fafc);
+  animation: fvToastSlideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1), transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.fv-toast.fv-toast-fade-out {
+  opacity: 0;
+  transform: translateX(40px);
+}
+
+.fv-toast-success { border-left: 6px solid #22c55e; }
+.fv-toast-info { border-left: 6px solid #3b82f6; }
+.fv-toast-warn { border-left: 6px solid #f59e0b; }
+.fv-toast-error { border-left: 6px solid #ef4444; }
+
+.fv-toast-icon {
+  font-size: 1.25rem;
+  font-weight: bold;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2px;
+}
+
+.fv-toast-success .fv-toast-icon { color: #22c55e; }
+.fv-toast-info .fv-toast-icon { color: #3b82f6; }
+.fv-toast-warn .fv-toast-icon { color: #f59e0b; }
+.fv-toast-error .fv-toast-icon { color: #ef4444; }
+
+.fv-toast-content { flex: 1; }
+.fv-toast-summary { font-weight: 700; font-size: 0.92rem; margin-bottom: 3px; letter-spacing: -0.01em; }
+.fv-toast-detail { font-size: 0.84rem; opacity: 0.88; line-height: 1.4; color: var(--fv-muted); }
+
+.fv-toast-close {
+  background: none;
+  border: none;
+  color: var(--fv-muted);
+  opacity: 0.7;
+  font-size: 1.3rem;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  transition: opacity 0.15s, color 0.15s;
+}
+.fv-toast-close:hover {
+  opacity: 1;
+  color: var(--fv-text);
+}
+
+@keyframes fvToastSlideIn {
+  from { opacity: 0; transform: translateY(-16px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+

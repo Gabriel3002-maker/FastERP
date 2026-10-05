@@ -19,7 +19,29 @@ const maxInferredColumns = 6
 
 // PageSizes son los tamaños de página que el cliente ofrece. Fijarlos aquí y no
 // aceptarlos del cliente es lo que evita que alguien pida limit=100000.
-var PageSizes = []int{10, 25, 50, 100}
+//
+// El 5 entra porque revisar una tabla corta paginada de cinco en cinco es más
+// cómodo que con la página siguiente, y porque el selector lo ofrece.
+var PageSizes = []int{5, 10, 25, 50, 100}
+
+// DefaultPageSize es el tamaño con el que se abre una lista.
+const DefaultPageSize = 10
+
+// NearestPageSize ajusta un limit arbitrario al tamaño permitido más cercano.
+// Un limit=7 no es un error: es un 5 redondeado. Debe ser monótona en want.
+func NearestPageSize(want int) int {
+	if want <= 0 {
+		return DefaultPageSize
+	}
+	best := PageSizes[0]
+	for _, size := range PageSizes {
+		if size > want {
+			break
+		}
+		best = size
+	}
+	return best
+}
 
 // FilterOps son los operadores de filtro que el cliente puede construir.
 var FilterOps = []string{"=", "!=", ">", "<", ">=", "<=", "ILIKE", "IN", "NOT IN", "IS NULL", "IS NOT NULL"}

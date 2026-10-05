@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -13,6 +14,8 @@ import (
 	"sync"
 
 	"github.com/fasterp/backend/db"
+	"github.com/fasterp/backend/internal/exportimport"
+	"github.com/fasterp/backend/internal/module"
 	"github.com/fasterp/backend/sdk"
 )
 
@@ -138,6 +141,48 @@ func (h *GenericCRUDHandler) handleGet(ctx context.Context, w http.ResponseWrite
 		return
 	}
 
+	if id == "export" {
+		opts := listOptionsFrom(r)
+		opts.Limit = 10000
+		page, err := s.List(ctx, model, opts)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		fmtStr := r.URL.Query().Get("format")
+		format := exportimport.ParseFormat(fmtStr)
+
+		var selected []string
+		if fStr := r.URL.Query().Get("fields"); fStr != "" {
+			selected = strings.Split(fStr, ",")
+		}
+
+		reg, err := modelRegistrationFromSDK(s, model)
+		if err != nil {
+			writeErr(w, http.StatusNotFound, err.Error())
+			return
+		}
+
+		expOpts := exportimport.ExportOptions{
+			Format:         format,
+			SelectedFields: selected,
+			UseLabels:      true,
+		}
+
+		fileBytes, contentType, filename, err := exportimport.ExportData(reg, page.Data, expOpts)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+		w.WriteHeader(http.StatusOK)
+		w.Write(fileBytes)
+		return
+	}
+
 	if id != "" {
 		record, err := s.Get(ctx, model, id)
 		if err != nil {
@@ -157,6 +202,59 @@ func (h *GenericCRUDHandler) handleGet(ctx context.Context, w http.ResponseWrite
 }
 
 func (h *GenericCRUDHandler) handlePost(ctx context.Context, w http.ResponseWriter, r *http.Request, s *sdk.ModuleSDK, model string) {
+	// Verificar si es una petición de importación (/api/{module}/{model}/import)
+	if strings.HasSuffix(strings.TrimRight(r.URL.Path, "/"), "/import") {
+		dryRun := r.URL.Query().Get("dry_run") == "true"
+		var fileBytes []byte
+		var format exportimport.ExportFormat
+
+		file, header, err := r.FormFile("file")
+		if err == nil && file != nil {
+			defer file.Close()
+			fileBytes, err = io.ReadAll(file)
+			if err != nil {
+				writeErr(w, http.StatusBadRequest, "error leyendo archivo: "+err.Error())
+				return
+			}
+			if strings.HasSuffix(strings.ToLower(header.Filename), ".xlsx") {
+				format = exportimport.FormatXLSX
+			} else {
+				format = exportimport.FormatCSV
+			}
+		} else {
+			fileBytes, err = io.ReadAll(r.Body)
+			if err != nil || len(fileBytes) == 0 {
+				writeErr(w, http.StatusBadRequest, "se requiere un archivo adjunto 'file' o datos en el cuerpo")
+				return
+			}
+			format = exportimport.ParseFormat(r.URL.Query().Get("format"))
+		}
+
+		reg, err := modelRegistrationFromSDK(s, model)
+		if err != nil {
+			writeErr(w, http.StatusNotFound, err.Error())
+			return
+		}
+
+		opts := exportimport.ImportOptions{
+			Format: format,
+			DryRun: dryRun,
+		}
+
+		res, err := exportimport.ImportData(ctx, s.DB, reg, s.TenantID, fileBytes, opts)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+
+		if !res.Success {
+			writeJSON(w, http.StatusUnprocessableEntity, res)
+			return
+		}
+		writeJSON(w, http.StatusOK, res)
+		return
+	}
+
 	data, err := decodeBody(r)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -169,6 +267,39 @@ func (h *GenericCRUDHandler) handlePost(ctx context.Context, w http.ResponseWrit
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id})
+}
+
+func modelRegistrationFromSDK(s *sdk.ModuleSDK, model string) (module.ModelRegistration, error) {
+	if s.Manifest == nil || s.Manifest.Models == nil {
+		return module.ModelRegistration{}, fmt.Errorf("manifest no cargado")
+	}
+	modelDef, ok := s.Manifest.Models[model]
+	if !ok {
+		return module.ModelRegistration{}, fmt.Errorf("modelo %s no encontrado en manifest", model)
+	}
+
+	fields := make([]module.FieldDef, 0, len(modelDef.Fields))
+	for _, name := range modelDef.OrderedFields() {
+		f := modelDef.Fields[name]
+		fields = append(fields, module.FieldDef{
+			Name:     name,
+			Type:     f.Type,
+			Label:    f.Label,
+			Required: f.Required,
+			Options:  f.Options,
+			Readonly: f.Readonly,
+			Computed: f.Computed,
+		})
+	}
+
+	return module.ModelRegistration{
+		Manifest: &module.ModelDef{
+			Name:   model,
+			Label:  modelDef.Label,
+			Fields: fields,
+		},
+		TableName: "mod_" + s.ModuleID + "_" + model,
+	}, nil
 }
 
 func (h *GenericCRUDHandler) handleUpdate(ctx context.Context, w http.ResponseWriter, r *http.Request, s *sdk.ModuleSDK, model, id string) {

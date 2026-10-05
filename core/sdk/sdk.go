@@ -26,7 +26,9 @@ import (
 )
 
 // PageSizes son los únicos tamaños de página que el usuario puede elegir.
-var PageSizes = []int{10, 20, 50, 100}
+// Debe coincidir con module.PageSizes: si divergen, el mismo limit devuelve
+// páginas de distinto tamaño según la capa HTTP por la que entre.
+var PageSizes = []int{5, 10, 25, 50, 100}
 
 const DefaultPageSize = 20
 

@@ -350,3 +350,43 @@ func TestMetaDeUnModeloInexistenteFalla(t *testing.T) {
 		t.Error("pedir la meta de un modelo inexistente debería fallar")
 	}
 }
+
+// Un limit que no está en la lista blanca se ajusta al tamaño más cercano, no
+// se rechaza: limit=5 tiene que devolver 5 filas y no las 10 del mínimo viejo.
+func TestNearestPageSizeAjustaAlPermitido(t *testing.T) {
+	casos := []struct{ want, got int }{
+		{5, 5},
+		{7, 5},
+		{10, 10},
+		{20, 10},
+		{25, 25},
+		{30, 25},
+		{1000, 100},
+		{0, DefaultPageSize},
+		{-3, DefaultPageSize},
+	}
+	for _, c := range casos {
+		if got := NearestPageSize(c.want); got != c.got {
+			t.Errorf("NearestPageSize(%d) = %d, se esperaba %d", c.want, got, c.got)
+		}
+	}
+}
+
+// El tamaño por defecto tiene que estar en la lista: si no, el cliente abre
+// pidiendo un limit que el servidor le redondea y el selector va sin marcar.
+func TestDefaultPageSizeEstaEnLaLista(t *testing.T) {
+	for _, s := range PageSizes {
+		if s == DefaultPageSize {
+			return
+		}
+	}
+	t.Errorf("DefaultPageSize (%d) no está en PageSizes %v", DefaultPageSize, PageSizes)
+}
+
+func TestPageSizesEstaOrdenada(t *testing.T) {
+	for i := 1; i < len(PageSizes); i++ {
+		if PageSizes[i] <= PageSizes[i-1] {
+			t.Fatalf("PageSizes debe crecer sin repetir: %v", PageSizes)
+		}
+	}
+}
