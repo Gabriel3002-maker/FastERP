@@ -28,13 +28,47 @@ import (
 // comprobación que se puede saltar con curl — y sí añadiría el bug de bucle.
 type UI struct {
 	renderer *Renderer
-	modules  string // directorio raíz de los módulos, para servir su frontend
+	modules  string // raíz(s) de los módulos, para servir su frontend
+	dirs     []string
 	static   string
 }
 
 // NewUI construye el conjunto de rutas de interfaz.
 func NewUI(renderer *Renderer, modulesDir, staticDir string) *UI {
-	return &UI{renderer: renderer, modules: modulesDir, static: staticDir}
+	dirs := splitDirs(modulesDir)
+	return &UI{renderer: renderer, modules: modulesDir, dirs: dirs, static: staticDir}
+}
+
+// splitDirs admite "a:b" o "a" y devuelve la lista de raíces.
+func splitDirs(s string) []string {
+	var out []string
+	for _, part := range strings.Split(s, ":") {
+		if p := strings.TrimSpace(part); p != "" {
+			out = append(out, p)
+		}
+	}
+	if len(out) == 0 {
+		out = []string{s}
+	}
+	return out
+}
+
+// frontendDir localiza <raíz>/<módulo>/frontend entre las raíces
+// configuradas. Con FASTERP_MODULES_DIR="modules:fast_erp_uk/modules" la
+// UI tiene que buscar primero los módulos del producto (ventas, contacts...)
+// y caer al módulo UK cuando corresponda, en vez de asumir que todo está en
+// la única raíz histórica.
+func (ui *UI) frontendDir(name string) string {
+	for _, d := range ui.dirs {
+		p := filepath.Join(d, name, "frontend")
+		if st, err := os.Stat(p); err == nil && st.IsDir() {
+			return p
+		}
+	}
+	if len(ui.dirs) > 0 {
+		return filepath.Join(ui.dirs[0], name, "frontend")
+	}
+	return name
 }
 
 // LoginData son los datos que la página de login recibe del servidor.
@@ -309,7 +343,7 @@ func (ui *UI) modulePageData(c *gin.Context, name string, inst *module.ModuleIns
 	}
 
 	if fe := m.Frontend; fe != nil && fe.Entry != "" {
-		index := filepath.Join(moduleFrontendPath(ui.modules, name), filepath.Base(fe.Entry))
+		index := filepath.Join(ui.frontendDir(name), filepath.Base(fe.Entry))
 		if info, err := os.Stat(index); err == nil && !info.IsDir() {
 			return modulePageResult{content: "module-loader.html", data: data}
 		}
@@ -415,7 +449,7 @@ func (ui *UI) serveModuleAsset(c *gin.Context) {
 		return
 	}
 
-	full, err := safeAssetPathClean(moduleFrontendPath(ui.modules, name), strings.TrimPrefix(rest, "frontend/"))
+	full, err := safeAssetPathClean(ui.frontendDir(name), strings.TrimPrefix(rest, "frontend/"))
 	if err != nil {
 		c.String(http.StatusBadRequest, "ruta inválida")
 		return
