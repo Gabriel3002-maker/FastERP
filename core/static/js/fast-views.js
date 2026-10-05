@@ -169,6 +169,10 @@
       // Ids marcados en la tabla. Vive fuera de state porque no viaja en la
       // query: es una decisión del cliente, no un filtro del listado.
       this.selection = new Set();
+      // true = "todos los que cumplen el filtro", en todas las páginas. Es un
+      // estado aparte del Set porque los ids de las páginas que no están en
+      // pantalla no hay cómo conocerlos sin traerlos todos.
+      this.selectAllMatching = false;
     }
 
     /**
@@ -505,25 +509,41 @@
       this.body.addEventListener('change', (e) => {
         const cb = e.target.closest('[data-select]');
         if (!cb) return;
-        if (cb.checked) this.selection.add(cb.dataset.select);
+        const want = cb.checked;
+        if (this.selectAllMatching) {
+          // Veníamos de "todo el filtro": al desmarcar una fila se fija lo que
+          // queda marcado y se abandona el modo, en vez de desmarcarla sola.
+          this.selectAllMatching = false;
+          for (const row of this.body.querySelectorAll('tr[data-id]')) {
+            this.selection.add(row.dataset.id);
+          }
+        }
+        if (want) this.selection.add(cb.dataset.select);
         else this.selection.delete(cb.dataset.select);
         this.syncSelectionUI();
       });
 
       this.el.querySelector('.fv-check-all').addEventListener('change', (e) => {
-        const on = e.target.checked;
-        for (const row of this.body.querySelectorAll('tr[data-id]')) {
-          const id = row.dataset.id;
-          if (on) this.selection.add(id);
-          else this.selection.delete(id);
+        const want = e.target.checked;
+        if (this.selectAllMatching) {
+          // La cabecera estaba marcada entera: desmarcarla quita todo.
+          this.selectAllMatching = false;
+          this.selection.clear();
+        } else if (want) {
+          // "Todos" son todos los que cumplen el filtro, no los de esta página.
+          // No hace falta traer sus ids: el export sin ids ya significa "todo
+          // lo que filtra", así que no se topa con el límite de ids.
+          this.selectAllMatching = true;
+          this.selection.clear();
+        } else {
+          for (const row of this.body.querySelectorAll('tr[data-id]')) {
+            this.selection.delete(row.dataset.id);
+          }
         }
         this.syncSelectionUI();
       });
 
-      this.el.querySelector('.fv-clear-sel').addEventListener('click', () => {
-        this.selection.clear();
-        this.syncSelectionUI();
-      });
+      this.el.querySelector('.fv-clear-sel').addEventListener('click', () => this.clearSelection());
 
       // Las flechas son fijas en el DOM, así que basta con enlazarlas una vez.
       for (const btn of this.el.querySelectorAll('[data-step]')) {
@@ -612,10 +632,19 @@
       // filtro, y el archivo sale con más filas de las que la persona marca.
       const note = this.exportDialog.querySelector('.fv-export-scope');
       const n = this.selection.size;
-      note.textContent = n > 0
-        ? `Se exportarán solo los ${n} registro(s) que marcaste.`
-        : `No hay selección: se exportará todo lo que cumple el filtro actual.`;
-      note.className = `fv-export-scope${n > 0 ? ' is-scope-selection' : ''}`;
+      const total = this.page?.pagination?.total ?? this.page?.total ?? null;
+      let text;
+      if (this.selectAllMatching) {
+        text = total != null
+          ? `Se exportarán los ${total} registros que cumplen el filtro, en todas las páginas.`
+          : 'Se exportarán todos los registros que cumplen el filtro, en todas las páginas.';
+      } else if (n > 0) {
+        text = `Se exportarán solo los ${n} registro(s) que marcaste.`;
+      } else {
+        text = 'No hay selección: se exportará todo lo que cumple el filtro actual.';
+      }
+      note.textContent = text;
+      note.className = `fv-export-scope${n > 0 || this.selectAllMatching ? ' is-scope-selection' : ''}`;
       this.exportDialog.showModal();
     }
 
@@ -656,13 +685,14 @@
     }
 
     async downloadExport(format, fields = [], isTemplate = false) {
-      const params = isTemplate ? new URLSearchParams({ format, limit: '0' }) : this.query();
+      const params = isTemplate ? new URLSearchParams({ format, limit: '0' }) : this.exportQuery();
       params.set('format', format);
       if (fields.length) params.set('fields', fields.join(','));
 
-      // Con registros marcados, el export se limita a esos. La plantilla nunca
-      // lleva ids: tiene que salir con las cabeceras y nada más.
-      const only = isTemplate ? [] : [...this.selection];
+      // Con registros marcados, el export se limita a esos. En modo "todo el
+      // filtro" no se manda ids: el servidor exporta lo que filtra, que ya
+      // son todos. La plantilla nunca lleva ids: sale con cabeceras y nada más.
+      const only = (isTemplate || this.selectAllMatching) ? [] : [...this.selection];
       if (only.length) params.set('ids', only.join(','));
 
       const url = `${this.base}/export?${params.toString()}`;
@@ -1001,6 +1031,16 @@
     }
 
     /** Traduce el estado a los parámetros que entiende la API en Go. */
+    // Los filtros y la búsqueda, pero sin page ni limit: el export no se pagina
+    // y el limit de la tabla (10 por defecto) recortaba el archivo a la página
+    // visible. El servidor se queda con su propio tope de filas.
+    exportQuery() {
+      const params = this.query();
+      params.delete('page');
+      params.delete('limit');
+      return params;
+    }
+
     query() {
       const params = new URLSearchParams({
         page: this.state.page,
@@ -1069,10 +1109,11 @@
       }
 
       this.body.innerHTML = rows.map((record) => `
-        <tr data-id="${esc(record.id)}"${this.selection.has(record.id) ? ' class="is-selected"' : ''}>
+        <tr data-id="${esc(record.id)}"${
+          this.selectAllMatching || this.selection.has(record.id) ? ' class="is-selected"' : ''}>
           <td class="fv-select-cell">
             <input type="checkbox" data-select="${esc(record.id)}"
-              ${this.selection.has(record.id) ? 'checked' : ''}
+              ${this.selectAllMatching || this.selection.has(record.id) ? 'checked' : ''}
               aria-label="Seleccionar ${esc(formatValue(record[this.columns()[0]?.name], this.columns()[0]) || record.id)}">
           </td>
           ${columns.map((f) => `<td>${formatValue(record[f.name], f)}</td>`).join('')}
@@ -1105,13 +1146,15 @@
      *
      * La casilla de arriba se marca sólo si están marcadas todas las filas
      * visibles: con selección parcial queda sin marcar, que es lo que dice un
-     * "seleccionar todo" de verdad.
+     * "seleccionar todo" de verdad. En modo "todo el filtro" sí queda marcada
+     * entera, y entonces no hay nada indeterminado que mostrar.
      */
     syncSelectionUI() {
       const boxes = [...this.body.querySelectorAll('[data-select]')];
+      const isSelected = (id) => this.selectAllMatching || this.selection.has(id);
 
       for (const cb of boxes) {
-        const want = this.selection.has(cb.dataset.select);
+        const want = isSelected(cb.dataset.select);
         if (cb.checked !== want) cb.checked = want;
         cb.closest('tr')?.classList.toggle('is-selected', want);
       }
@@ -1120,24 +1163,35 @@
       // todo" el DOM todavía va marcando la casilla de cabecera y las de fila
       // siguen sin marcar, así que contar antes de sincronizar daría 0 y la
       // cabecera se quedaría sin marcar con las 3 filas seleccionadas.
-      const selected = boxes.filter((cb) => this.selection.has(cb.dataset.select)).length;
+      const selected = boxes.filter((cb) => isSelected(cb.dataset.select)).length;
 
       const checkAll = this.el.querySelector('.fv-check-all');
-      checkAll.checked = boxes.length > 0 && selected === boxes.length;
-      checkAll.indeterminate = selected > 0 && selected < boxes.length;
+      const everyVisible = boxes.length > 0 && selected === boxes.length;
+      checkAll.checked = this.selectAllMatching || everyVisible;
+      checkAll.indeterminate = !this.selectAllMatching && selected > 0 && !everyVisible;
 
       const bar = this.el.querySelector('.fv-selbar');
-      bar.hidden = this.selection.size === 0;
-      this.el.querySelector('.fv-selinfo').textContent =
-        this.selection.size === 1
+      const total = this.page?.pagination?.total ?? this.page?.total ?? null;
+      const none = !this.selectAllMatching && this.selection.size === 0;
+      bar.hidden = none;
+
+      const info = this.el.querySelector('.fv-selinfo');
+      if (this.selectAllMatching) {
+        info.textContent = total != null
+          ? `Los ${total} registros del filtro están seleccionados, en todas las páginas.`
+          : 'Todos los registros del filtro están seleccionados, en todas las páginas.';
+      } else {
+        info.textContent = this.selection.size === 1
           ? '1 registro seleccionado — se exportará solo ese.'
           : `${this.selection.size} registros seleccionados — se exportarán solo esos.`;
+      }
     }
 
     /** Limpia la selección al cambiar de página o de filtro. */
     clearSelection() {
-      if (this.selection.size === 0) return;
+      if (!this.selectAllMatching && this.selection.size === 0) return;
       this.selection.clear();
+      this.selectAllMatching = false;
       this.syncSelectionUI();
     }
 

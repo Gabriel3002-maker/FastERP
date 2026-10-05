@@ -224,12 +224,13 @@ func applySearch(qb *module.QueryBuilder, m *module.Manifest, reg module.ModelRe
 	// otro tenant. El builder no los añade por su cuenta porque no sabe dónde
 	// empieza el grupo.
 	//
-	// El ESCAPE va una vez, al final del grupo: el carácter de escape es el del
-	// patrón, y todos los operandos de la comparación comparten el mismo.
+	// El ESCAPE va dentro del paréntesis, pegado a cada ILIKE, y no una vez al
+	// final del grupo: Postgres rechaza "(... ILIKE ?) ESCAPE '\'" con syntax
+	// error, y el 500 que salía era de aquí, no de los datos.
 	var group []string
 	for _, f := range meta.Fields {
 		if f.Searchable {
-			group = append(group, quoteIdent(f.Name)+" ILIKE ?")
+			group = append(group, quoteIdent(f.Name)+` ILIKE ? ESCAPE '\'`)
 		}
 	}
 
@@ -247,7 +248,7 @@ func applySearch(qb *module.QueryBuilder, m *module.Manifest, reg module.ModelRe
 	for i := range args {
 		args[i] = pattern
 	}
-	qb.WhereRaw("("+strings.Join(group, " OR ")+") ESCAPE '\\'", args...)
+	qb.WhereRaw("("+strings.Join(group, " OR ")+")", args...)
 }
 
 // escapeLike neutraliza los comodines de LIKE para que un % escrito por la
@@ -359,6 +360,12 @@ func parseFilters(c *gin.Context, reg *module.ModelRegistration) ([]filter, erro
 // export completo ya se topa con limit; esta lista llega en la URL y sin tope
 // una de 100k ids se vuelve un Where de 100k parámetros.
 const maxExportIDs = 1000
+
+// maxExportRows es el tope de filas de un export. Va aparte del tamaño de
+// página a propósito: el listado pide limit=10 para pintar diez filas, y si el
+// export leyera ese mismo parámetro el archivo salía truncado a la página
+// visible sin avisar.
+const maxExportRows = 50000
 
 // parseIDList valida la lista de ids de una exportación por selección. Cada uno
 // tiene que ser un UUID: es lo que garantiza que el valor vaya como parámetro
@@ -615,16 +622,15 @@ func exportHandler(c *gin.Context, inst *module.ModuleInstance, reg *module.Mode
 	qb.OrderBy(orderBy, orderDir)
 
 	// limit=0 es la petición de "plantilla de ejemplo": sólo la fila de
-	// cabeceras. Sin esto caía en el default y la plantilla salía con los
-	// registros del tenant ya rellenos, que es como se duplica todo al
-	// reimportar el archivo descargado.
+	// cabeceras. Sin esto la plantilla salía con los registros del tenant ya
+	// rellenos, que es como se duplica todo al reimportarla.
 	headersOnly := false
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10000"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", strconv.Itoa(maxExportRows)))
 	if limit == 0 {
 		headersOnly = true
 		limit = 1
-	} else if limit < 0 || limit > 50000 {
-		limit = 10000
+	} else if limit < 0 || limit > maxExportRows {
+		limit = maxExportRows
 	}
 	qb.Limit(limit)
 

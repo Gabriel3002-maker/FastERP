@@ -209,11 +209,15 @@ func TestApplySearchKeepsTenantFilterOutsideTheGroup(t *testing.T) {
 		t.Fatalf("BuildSelect: %v", err)
 	}
 
-	// El ESCAPE va una vez al final del grupo: el carácter de escape pertenece
-	// al patrón, y los dos operandos comparten el mismo.
-	want := `WHERE "tenant_id" = $1 AND ("name" ILIKE $2 OR "email" ILIKE $3) ESCAPE '\'`
+	// El ESCAPE va dentro del paréntesis, en cada ILIKE, y no una vez al
+	// final: Postgres rechaza "(... ILIKE ?) ESCAPE '\'" con syntax error, y
+	// con él la búsqueda devolvía 500 en el listado y en el export.
+	want := `WHERE "tenant_id" = $1 AND ("name" ILIKE $2 ESCAPE '\' OR "email" ILIKE $3 ESCAPE '\')`
 	if !strings.Contains(q, want) {
 		t.Errorf("query %q\ndoes not contain\n%q", q, want)
+	}
+	if strings.Contains(q, `) ESCAPE`) {
+		t.Errorf("query %q tiene el ESCAPE fuera del paréntesis; Postgres lo rechaza", q)
 	}
 	if len(args) != 3 || args[0] != "t-1" {
 		t.Errorf("args = %v, want the tenant first", args)
