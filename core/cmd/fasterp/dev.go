@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -36,72 +35,98 @@ func modulesDirDefault() string {
 // No necesita base de datos, y esa es la idea: el error de un YAML mal escrito
 // tiene que salir antes de levantar Postgres, no después.
 func runCheck(args []string) error {
-	dir := modulesDirDefault()
+	root := modulesDirDefault()
 	var only string
 	if len(args) > 0 {
 		only = args[0]
-		dir = filepath.Join(dir, only)
-	}
-
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return fmt.Errorf("no se pudo leer %s: %w", dir, err)
 	}
 
 	var n int
-	for _, e := range entries {
-		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+	for _, dir := range splitModuleDirs(root) {
+		if only != "" {
+			if path := module.FindManifest(dir, only); path != "" {
+				return checkOne(path, only)
+			}
 			continue
 		}
-		if only != "" && e.Name() != only {
-			continue
-		}
-		path := module.FindManifest(dir, e.Name())
-		if path == "" {
-			fmt.Printf("%-16s sin manifest\n", e.Name())
-			continue
-		}
-
-		m, err := module.LoadManifest(path)
+		entries, err := os.ReadDir(dir)
 		if err != nil {
-			fmt.Printf("%-16s ✗ %v\n", e.Name(), err)
-			return fmt.Errorf("%s: %v", e.Name(), err)
+			return fmt.Errorf("no se pudo leer %s: %w", dir, err)
 		}
-
-		stmts, err := module.PlanSchema(m)
-		if err != nil {
-			fmt.Printf("%-16s ✗ %v\n", e.Name(), err)
-			return fmt.Errorf("%s: %v", e.Name(), err)
-		}
-
-		fmt.Printf("%-16s ✓ %s — %d modelo(s), %d sentencia(s) de esquema\n",
-			m.Name, m.Label, len(m.Models), len(stmts))
-		for _, modelName := range m.FieldOrderModel() {
-			def := m.Models[modelName]
-			if def == nil {
+		for _, e := range entries {
+			if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
 				continue
 			}
-			cols := make([]string, 0, len(def.Fields))
-			for _, f := range def.OrderedFields() {
-				t := f.Type
-				if len(f.Options) > 0 {
-					t += "(" + strings.Join(f.Options, "|") + ")"
-				}
-				cols = append(cols, fmt.Sprintf("%s:%s", f.Name, t))
+			path := module.FindManifest(dir, e.Name())
+			if path == "" {
+				fmt.Printf("%-16s sin manifest\n", e.Name())
+				continue
 			}
-			fmt.Printf("  %s  mod_%s_%s\n    %s\n", modelName, m.Name, modelName, strings.Join(cols, "  "))
-			if def.Workflow != nil {
-				for _, action := range sortedKeys(def.Workflow.Transitions) {
-					tr := def.Workflow.Transitions[action]
-					fmt.Printf("    %s: %s → %s (%s)\n", action, strings.Join(tr.From, ", "), tr.To, tr.Label)
-				}
+			if err := checkOne(path, e.Name()); err != nil {
+				return err
 			}
+			n++
 		}
-		n++
+	}
+	if only != "" {
+		return fmt.Errorf("no se encontró el módulo %q", only)
+	}
+	if n == 0 {
+		return fmt.Errorf("no hay módulos en %s", root)
+	}
+	return nil
+}
+
+// splitModuleDirs acepta "a:b" o "a" separados por ":".
+func splitModuleDirs(root string) []string {
+	var out []string
+	for _, part := range strings.Split(root, ":") {
+		if p := strings.TrimSpace(part); p != "" {
+			out = append(out, p)
+		}
+	}
+	if len(out) == 0 {
+		return []string{root}
+	}
+	return out
+}
+
+// checkOne valida el manifest de un módulo y enseña el esquema que generaría.
+func checkOne(path, name string) error {
+	m, err := module.LoadManifest(path)
+	if err != nil {
+		fmt.Printf("%-16s ✗ %v\n", name, err)
+		return fmt.Errorf("%s: %v", name, err)
 	}
 
-	if n == 0 {
-		return fmt.Errorf("no hay módulos en %s", dir)
+	stmts, err := module.PlanSchema(m)
+	if err != nil {
+		fmt.Printf("%-16s ✗ %v\n", name, err)
+		return fmt.Errorf("%s: %v", name, err)
+	}
+
+	fmt.Printf("%-16s ✓ %s — %d modelo(s), %d sentencia(s) de esquema\n",
+		m.Name, m.Label, len(m.Models), len(stmts))
+	for _, modelName := range m.FieldOrderModel() {
+		def := m.Models[modelName]
+		if def == nil {
+			continue
+		}
+		cols := make([]string, 0, len(def.Fields))
+		for _, f := range def.OrderedFields() {
+			t := f.Type
+			if len(f.Options) > 0 {
+				t += "(" + strings.Join(f.Options, "|") + ")"
+			}
+			cols = append(cols, fmt.Sprintf("%s:%s", f.Name, t))
+		}
+		fmt.Printf("  %s  mod_%s_%s\n    %s\n", modelName, m.Name, modelName, strings.Join(cols, "  "))
+		if def.Workflow != nil {
+			for _, action := range sortedKeys(def.Workflow.Transitions) {
+				tr := def.Workflow.Transitions[action]
+				fmt.Printf("    %s: %s → %s (%s)\n", action, strings.Join(tr.From, ", "), tr.To, tr.Label)
+			}
+		}
 	}
 	return nil
 }

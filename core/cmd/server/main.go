@@ -297,21 +297,26 @@ func moduleSeedPresets(modulesDir string) []struct {
 }
 
 func moduleSeedAssetPath(modulesDir, name string) string {
-	candidates := []string{
-		filepath.Join(modulesDir, name, "module.yaml"),
-		filepath.Join(modulesDir, name, "module.yml"),
-		filepath.Join(modulesDir, name, "manifest.yaml"),
-		filepath.Join(modulesDir, name, "manifest.json"),
-		filepath.Join(modulesDir, name, "module.wasm"),
-		filepath.Join(modulesDir, name+".wasm"),
-		filepath.Join(modulesDir, name+".so"),
-		filepath.Join(modulesDir, name+".dll"),
-		filepath.Join(modulesDir, name+".dylib"),
-	}
-
-	for _, candidate := range candidates {
-		if _, err := os.Stat(candidate); err == nil {
-			return candidate
+	for _, dir := range strings.Split(modulesDir, ":") {
+		dir = strings.TrimSpace(dir)
+		if dir == "" {
+			continue
+		}
+		candidates := []string{
+			filepath.Join(dir, name, "module.yaml"),
+			filepath.Join(dir, name, "module.yml"),
+			filepath.Join(dir, name, "manifest.yaml"),
+			filepath.Join(dir, name, "manifest.json"),
+			filepath.Join(dir, name, "module.wasm"),
+			filepath.Join(dir, name+".wasm"),
+			filepath.Join(dir, name+".so"),
+			filepath.Join(dir, name+".dll"),
+			filepath.Join(dir, name+".dylib"),
+		}
+		for _, candidate := range candidates {
+			if _, err := os.Stat(candidate); err == nil {
+				return candidate
+			}
 		}
 	}
 	return ""

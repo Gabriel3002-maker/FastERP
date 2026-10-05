@@ -116,103 +116,43 @@ func (m *Manifest) MenuOrder() []string { return m.menuOrder }
 // legible, un menú alfabético obliga a recorrer la lista entera para encontrar uno.
 func (m *Manifest) ModelOrder() []string { return m.fieldOrder }
 
-// keyOrder devuelve, en el orden en que aparecen, las claves del objeto que
-// sigue a "want:" en un manifest.
+// keyOrder devuelve las claves de primer nivel del objeto que aparece bajo la
+// clave `want:`, en el orden en que están escritas en el manifesto.
 //
-// Es un escaneo de bytes sobre el texto, no un segundo parseo: el objetivo es
-// recuperar el orden, y hacerlo así es exacto para lo que escriben las personas
-// (YAML e indentado, JSON en una línea oPretty). Solo mira claves de primer
-// nivel del bloque que le sigue a la clave pedida, así que un "models:" dentro
-// de otro objeto no confunde.
+// Se lee con yaml.v3 como árbol de nodos por una razón concreta: los mapas de
+// Go no conservan el orden, así que la única fuente de verdad del orden es el
+// texto fuente via yaml.Node. Un escaneo de bytes heurístico anterior creía
+// distinguir los niveles por sangría o por {}/[], y en YAML puro (que usa
+// sangría, no llaves) devolvía basura como "abel"/"ields" en vez de los
+// nombres de modelo. Eso hacía que BuildInstance registrara solo un modelo
+// por manifest: el primero era el único que coincidía en ModelOrder(), y el
+// resto quedaba atascado en el campo "sin registro". yaml.Node lo resuelve
+// tanto para YAML como para JSON (yaml.v3 parsea JSON como subconjunto).
 func keyOrder(data []byte, want string) []string {
-	start := findBlockStart(data, want)
-	if start < 0 {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
 		return nil
 	}
-
-	var keys []string
-	depth := 0
-	// El primer carácter del bloque ya es el principio de una clave.
-	expectKey := true
-
-	for i := start; i < len(data); i++ {
-		c := data[i]
-
-		if c == '"' || c == '\'' {
-			quote := c
-			j := i + 1
-			for j < len(data) && data[j] != quote {
-				if data[j] == '\\' {
-					j++
-				}
-				j++
-			}
-			if j < len(data) && depth == 0 && expectKey {
-				keys = append(keys, string(data[i+1:j]))
-			}
-			i = j
-			expectKey = false
-			continue
-		}
-
-		switch c {
-		case '{', '[':
-			depth++
-		case '}', ']':
-			if depth == 0 {
-				return keys // se acaba el bloque
-			}
-			depth--
-		case '\n', '\r':
-			expectKey = false
-			continue
-		case ' ', '\t':
-			continue
-		}
-
-		if depth == 0 && expectKey {
-			j := i
-			for j < len(data) && data[j] != ':' && data[j] != '\n' && data[j] != '\r' {
-				j++
-			}
-			if j < len(data) && data[j] == ':' {
-				keys = append(keys, strings.TrimSpace(string(data[i:j])))
-				i = j
-				expectKey = false
-				continue
-			}
-		}
-		expectKey = c != ','
+	if len(doc.Content) == 0 {
+		return nil
 	}
-	return keys
-}
-
-// findBlockStart localiza el índice justo después de "want:" y de su salto de
-// línea, o -1 si no aparece como clave de primer nivel.
-func findBlockStart(data []byte, want string) int {
-	needle := []byte(want + ":")
-	for i := 0; i+len(needle) <= len(data); i++ {
-		// Solo en el borde de una línea, para no pillar un "models:" que sea
-		// parte de otro valor.
-		if i > 0 && data[i-1] != '\n' && data[i-1] != '\r' && data[i-1] != ' ' {
-			continue
-		}
-		if string(data[i:i+len(needle)]) != string(needle) {
-			continue
-		}
-		// Lo que precede debe ser el nombre de la clave o un "- " de YAML.
-		j := i - 1
-		for j >= 0 && (data[j] == ' ' || data[j] == '\t') {
-			j--
-		}
-		if j < 0 || (data[j] != '\n' && data[j] != '\r' && data[j] != '-') {
-			continue
-		}
-		k := i + len(needle)
-		for k < len(data) && (data[k] == ' ' || data[k] == '\t' || data[k] == '\r' || data[k] == '\n') {
-			k++
-		}
-		return k
+	top := doc.Content[0]
+	if top.Kind != yaml.MappingNode {
+		return nil
 	}
-	return -1
+	for i := 0; i+1 < len(top.Content); i += 2 {
+		if top.Content[i].Value != want {
+			continue
+		}
+		sub := top.Content[i+1]
+		if sub.Kind != yaml.MappingNode {
+			return nil
+		}
+		var out []string
+		for j := 0; j+1 < len(sub.Content); j += 2 {
+			out = append(out, sub.Content[j].Value)
+		}
+		return out
+	}
+	return nil
 }

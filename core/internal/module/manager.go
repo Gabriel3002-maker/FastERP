@@ -24,12 +24,46 @@ type ModuleManager struct {
 	mu         sync.RWMutex
 	ModulesDir string
 	UploadDir  string
+
+	// dirs es la lista efectiva de raíces de módulos. ModulesDir (la raíz
+	// histórica) queda para safePath y para instalar módulos subidos; dirs es
+	// de donde se leen. ModulesDir puede ser ":"-separada,
+	// p.ej. "modules:fast_erp_uk/modules", para servir los módulos de dos
+	// orígenes sin juntarlos en un solo directorio.
+	dirs []string
 }
 
 func NewManager(modulesDir, uploadDir string) *ModuleManager {
-	os.MkdirAll(modulesDir, 0755)
+	dirs := splitDirs(modulesDir)
+	for _, d := range dirs {
+		os.MkdirAll(d, 0755)
+	}
 	os.MkdirAll(uploadDir, 0755)
-	return &ModuleManager{ModulesDir: modulesDir, UploadDir: uploadDir}
+	return &ModuleManager{ModulesDir: dirs[0], UploadDir: uploadDir, dirs: dirs}
+}
+
+// splitDirs acepta "a:b" o "a" y devuelve las rutas sin espacios ni vacías.
+func splitDirs(s string) []string {
+	var out []string
+	for _, part := range strings.Split(s, ":") {
+		if p := strings.TrimSpace(part); p != "" {
+			out = append(out, p)
+		}
+	}
+	if len(out) == 0 {
+		out = []string{"."}
+	}
+	return out
+}
+
+// findManifest busca el manifest de un módulo en cualquiera de las raíces.
+func (m *ModuleManager) findManifest(name string) string {
+	for _, dir := range m.dirs {
+		if p := FindManifest(dir, name); p != "" {
+			return p
+		}
+	}
+	return ""
 }
 
 type ModulePackage struct {
@@ -205,7 +239,7 @@ func (m *ModuleManager) safePath(name string) (string, error) {
 // que cambia solo necesita volver a cargarse, y las columnas se añaden cuando
 // toca reconciliar.
 func (m *ModuleManager) LoadModule(name string) (*ModuleInstance, error) {
-	path := FindManifest(m.ModulesDir, name)
+	path := m.findManifest(name)
 	if path == "" {
 		return nil, fmt.Errorf("no se encontró el manifest de %q en %s (se busca module.yaml o manifest.json)", name, m.ModulesDir)
 	}
@@ -275,7 +309,7 @@ func (m *ModuleManager) Apply(ctx context.Context, inst *ModuleInstance) error {
 // módulo que ya estaba cargado se queda como estaba: un error de sintaxis al
 // guardar un YAML no puede dejar el servidor sin el módulo.
 func (m *ModuleManager) Reload(ctx context.Context, name string) error {
-	path := FindManifest(m.ModulesDir, name)
+	path := m.findManifest(name)
 	if path == "" {
 		return m.Unload(name)
 	}
@@ -306,17 +340,25 @@ func (m *ModuleManager) Reload(ctx context.Context, name string) error {
 // cuáles faltan: es un error de instalación, no un fallo de arranque, y se
 // entiende mucho mejor nombrándolo.
 func (m *ModuleManager) LoadAll(ctx context.Context) error {
-	entries, err := os.ReadDir(m.ModulesDir)
-	if err != nil {
-		return err
-	}
-
-	names := make([]string, 0, len(entries))
-	for _, e := range entries {
-		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+	// Se recogen los nombres de módulo de todas las raíces que configuren.
+	// Si un nombre aparece en dos raíces, gana la primera: repetir un módulo
+	// es un error de ficheros de instalación, no algo que tolerar en silencio.
+	names := []string{}
+	seen := map[string]bool{}
+	for _, dir := range m.dirs {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
 			continue
 		}
-		names = append(names, e.Name())
+		for _, e := range entries {
+			if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+				continue
+			}
+			if !seen[e.Name()] {
+				seen[e.Name()] = true
+				names = append(names, e.Name())
+			}
+		}
 	}
 
 	loaded := make(map[string]bool, len(names))
@@ -328,7 +370,7 @@ func (m *ModuleManager) LoadAll(ctx context.Context) error {
 			if loaded[name] {
 				continue
 			}
-			path := FindManifest(m.ModulesDir, name)
+			path := m.findManifest(name)
 			if path == "" {
 				continue
 			}
@@ -359,7 +401,7 @@ func (m *ModuleManager) LoadAll(ctx context.Context) error {
 		if loaded[name] {
 			continue
 		}
-		path := FindManifest(m.ModulesDir, name)
+		path := m.findManifest(name)
 		if path == "" {
 			continue
 		}

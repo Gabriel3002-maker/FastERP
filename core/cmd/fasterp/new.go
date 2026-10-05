@@ -42,7 +42,14 @@ func runNew(args []string) error {
 		labelText = titleize(name)
 	}
 
-	dir := filepath.Join(*modelsDir, name)
+	// modelsDir puede ser una lista ":"-separada: el nuevo módulo se crea en
+	// la primera raíz, que es donde quien escribe el yaml va luego a editarla.
+	primary := *modelsDir
+	if i := strings.IndexByte(primary, ':'); i >= 0 {
+		primary = strings.TrimSpace(primary[:i])
+	}
+
+	dir := filepath.Join(primary, name)
 	if *dirFlag != "" {
 		dir = *dirFlag
 	}

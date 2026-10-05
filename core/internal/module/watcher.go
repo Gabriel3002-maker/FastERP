@@ -35,6 +35,10 @@ func NewWatcher(mgr *ModuleManager) *Watcher {
 }
 
 // Watch bloquea hasta que el contexto se cancela, recargando lo que cambie.
+//
+// modulesDir admite la lista ":"-separada, igual que NewManager: se vigila
+// cada raíz a la vez. Si dos raíces declaran el mismo módulo, es el mismo
+// nombre en el mapa, y Reload recarga desde la primera (regla de LoadAll).
 func (w *Watcher) Watch(ctx context.Context, modulesDir string) error {
 	interval := w.Interval
 	if interval <= 0 {
@@ -45,12 +49,18 @@ func (w *Watcher) Watch(ctx context.Context, modulesDir string) error {
 		debounce = 250 * time.Millisecond
 	}
 
-	known := w.snapshot(modulesDir)
+	dirs := splitDirs(modulesDir)
+	known := map[string]string{}
+	dirOf := map[string]string{}
+	for _, d := range dirs {
+		for k, v := range w.snapshot(d) {
+			known[k] = v
+			dirOf[k] = d
+		}
+	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	// Los cambios pendientes se acumulan aquí y se aplican juntos cuando el
-	// escritor termina, no en cada tick.
 	pending := map[string]time.Time{}
 
 	for {
@@ -59,21 +69,23 @@ func (w *Watcher) Watch(ctx context.Context, modulesDir string) error {
 			return ctx.Err()
 
 		case now := <-ticker.C:
-			// Un solo snapshot por vuelta: el bucle de abajo recorre el
-			// directorio, y hacerlo dos veces por tick no aporta nada.
-			current := w.snapshot(modulesDir)
+			current := map[string]string{}
+			for _, d := range dirs {
+				for k, v := range w.snapshot(d) {
+					if _, dup := current[k]; !dup {
+						current[k] = v
+						dirOf[k] = d
+					}
+				}
+			}
 
 			for name, seen := range current {
 				if known[name] != seen {
-					// Módulo nuevo, o manifest modificado. Los dos casos se
-					// tratan igual: se recarga.
 					pending[name] = now.Add(debounce)
 					known[name] = seen
 				}
 			}
 
-			// Módulos que ya no están en el directorio: se avisa para que
-			// reload los descargue, igual que recarga los que cambian.
 			for name := range known {
 				if _, still := current[name]; !still {
 					delete(known, name)
@@ -86,7 +98,7 @@ func (w *Watcher) Watch(ctx context.Context, modulesDir string) error {
 					continue
 				}
 				delete(pending, name)
-				w.reload(ctx, name)
+				w.reload(ctx, name, dirOf[name])
 			}
 		}
 	}
@@ -97,8 +109,11 @@ func (w *Watcher) Watch(ctx context.Context, modulesDir string) error {
 // Un manifest inválido no es un fallo del watcher: el módulo que ya estaba
 // cargado se queda, y el error se enseña. Guardar un YAML a medias no puede
 // dejar el servidor sin el módulo.
-func (w *Watcher) reload(ctx context.Context, name string) {
-	if _, err := os.Stat(filepath.Join(w.mgr.ModulesDir, name)); err != nil {
+func (w *Watcher) reload(ctx context.Context, name string, dir string) {
+	if dir == "" {
+		dir = w.mgr.ModulesDir
+	}
+	if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
 		// El directorio se borró: se descarga el módulo.
 		if err := w.mgr.Unload(name); err != nil {
 			log.Printf("[Watcher] no se pudo descargar %s: %v", name, err)
