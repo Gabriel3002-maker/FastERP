@@ -94,6 +94,11 @@ func (qb *QueryBuilder) selectColumnsAndJoins() ([]string, []string, error) {
 			continue
 		}
 		def := qb.fieldDef(name)
+		if def != nil && !IsStored(def.Type) {
+			// one2many y many2many no son columnas de esta tabla: se hidratan
+			// aparte. Pedirlas como columna rompe la consulta.
+			continue
+		}
 		if def != nil && def.Type == "many2one" && def.RelatedModel != "" && def.RelatedField != "" {
 			displayAlias := name + "_display"
 			joinAlias := "rel_" + name
@@ -429,7 +434,8 @@ func (qb *QueryBuilder) BuildCount() (string, []interface{}, error) {
 }
 
 // BuildInsert generates INSERT ... RETURNING. values is a map of field→value.
-func (qb *QueryBuilder) BuildInsert(tenantID string, values map[string]interface{}) (string, []interface{}, error) {
+// userID se graba en created_by/updated_by para dejar quién creó el registro.
+func (qb *QueryBuilder) BuildInsert(tenantID, userID string, values map[string]interface{}) (string, []interface{}, error) {
 	if qb.err != nil {
 		return "", nil, qb.err
 	}
@@ -442,6 +448,9 @@ func (qb *QueryBuilder) BuildInsert(tenantID string, values map[string]interface
 	var cols []string
 	var args []interface{}
 	for _, f := range qb.model.Manifest.Fields {
+		if !IsStored(f.Type) {
+			continue
+		}
 		cols = append(cols, f.Name)
 		if v, ok := values[f.Name]; ok {
 			args = append(args, v)
@@ -451,6 +460,12 @@ func (qb *QueryBuilder) BuildInsert(tenantID string, values map[string]interface
 	}
 	cols = append(cols, "tenant_id")
 	args = append(args, tenantID)
+	cols = append(cols, "created_by", "updated_by")
+	if userID == "" {
+		args = append(args, nil, nil)
+	} else {
+		args = append(args, userID, userID)
+	}
 
 	for _, c := range cols {
 		if !safeIdent(c) {
@@ -465,9 +480,12 @@ func (qb *QueryBuilder) BuildInsert(tenantID string, values map[string]interface
 
 	returnCols := []string{"id"}
 	for _, f := range qb.model.Manifest.Fields {
+		if !IsStored(f.Type) {
+			continue
+		}
 		returnCols = append(returnCols, f.Name)
 	}
-	returnCols = append(returnCols, "created_at", "updated_at")
+	returnCols = append(returnCols, "created_at", "updated_at", "created_by", "updated_by")
 
 	var buf strings.Builder
 	fmt.Fprintf(&buf, "INSERT INTO %s (%s) VALUES (%s) RETURNING ",
@@ -486,7 +504,8 @@ func (qb *QueryBuilder) BuildInsert(tenantID string, values map[string]interface
 }
 
 // BuildUpdate generates UPDATE ... RETURNING. values is a map of field→value.
-func (qb *QueryBuilder) BuildUpdate(id, tenantID string, values map[string]interface{}) (string, []interface{}, error) {
+// userID se graba en updated_by para dejar quién editó por última vez.
+func (qb *QueryBuilder) BuildUpdate(id, tenantID, userID string, values map[string]interface{}) (string, []interface{}, error) {
 	if qb.err != nil {
 		return "", nil, qb.err
 	}
@@ -500,6 +519,9 @@ func (qb *QueryBuilder) BuildUpdate(id, tenantID string, values map[string]inter
 	var args []interface{}
 	argIdx := 1
 	for _, f := range qb.model.Manifest.Fields {
+		if !IsStored(f.Type) {
+			continue
+		}
 		if v, ok := values[f.Name]; ok {
 			setCols = append(setCols, f.Name)
 			args = append(args, v)
@@ -521,20 +543,29 @@ func (qb *QueryBuilder) BuildUpdate(id, tenantID string, values map[string]inter
 		setClauses[i] = fmt.Sprintf("%s = $%d", quoteIdent(c), i+1)
 	}
 
+	if userID == "" {
+		args = append(args, nil)
+	} else {
+		args = append(args, userID)
+	}
 	args = append(args, id, tenantID)
 
 	returnCols := []string{"id"}
 	for _, f := range qb.model.Manifest.Fields {
+		if !IsStored(f.Type) {
+			continue
+		}
 		returnCols = append(returnCols, f.Name)
 	}
-	returnCols = append(returnCols, "created_at", "updated_at")
+	returnCols = append(returnCols, "created_at", "updated_at", "created_by", "updated_by")
 
 	var buf strings.Builder
-	fmt.Fprintf(&buf, "UPDATE %s SET %s, updated_at = NOW() WHERE id = $%d AND tenant_id = $%d RETURNING ",
+	fmt.Fprintf(&buf, "UPDATE %s SET %s, updated_at = NOW(), updated_by = $%d WHERE id = $%d AND tenant_id = $%d RETURNING ",
 		quoteIdent(tn),
 		strings.Join(setClauses, ", "),
 		len(setCols)+1,
 		len(setCols)+2,
+		len(setCols)+3,
 	)
 	for i, c := range returnCols {
 		if i > 0 {

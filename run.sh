@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Levanta FastERP: PostgreSQL + el core Gin (API). La UI server-rendered sigue
-# en la capa legacy (core/main.go); este script no la sirve.
+# Levanta FastERP: PostgreSQL + el core Gin (API + UI).
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$0")" && pwd)"

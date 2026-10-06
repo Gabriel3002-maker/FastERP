@@ -4,11 +4,11 @@
 
 run:
 	@echo "Building and running FastERP Core..."
-	go run ./main.go
+	go run ./cmd/server
 
 build:
 	@echo "Building FastERP Core binary..."
-	go build -o ../../bin/fasterp-core ./main.go
+	go build -o ../../bin/fasterp-core ./cmd/server
 	@echo "Binary at ../../bin/fasterp-core"
 
 dev:

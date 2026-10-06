@@ -195,13 +195,18 @@ func checkValue(f module.FieldMeta, val any) error {
 			return fmt.Errorf("%s debe ser un texto", f.Name)
 		}
 
-	case "integer", "int", "bigint":
+	case "integer", "int":
 		n, err := toInt64(val)
 		if err != nil {
 			return fmt.Errorf("%s debe ser un número entero", f.Name)
 		}
-		if f.Type == "bigint" && (n > 1<<31-1 || n < -(1<<31)) {
-			return fmt.Errorf("%s no cabe en un bigint", f.Name)
+		if n > 1<<31-1 || n < -(1 << 31) {
+			return fmt.Errorf("%s no cabe en un integer (32 bits)", f.Name)
+		}
+
+	case "bigint":
+		if _, err := toInt64(val); err != nil {
+			return fmt.Errorf("%s debe ser un número entero", f.Name)
 		}
 
 	case "decimal", "numeric", "money", "float", "double":
@@ -237,6 +242,18 @@ func checkValue(f module.FieldMeta, val any) error {
 		}
 		if !isUUID(s) {
 			return fmt.Errorf("%s no es un UUID válido", f.Name)
+		}
+
+	case "many2many", "m2m", "one2many", "o2m":
+		arr, ok := val.([]any)
+		if !ok {
+			return fmt.Errorf("%s debe ser una lista de UUIDs", f.Name)
+		}
+		for _, item := range arr {
+			s, ok := item.(string)
+			if !ok || !isUUID(s) {
+				return fmt.Errorf("%s solo admite UUIDs en su lista", f.Name)
+			}
 		}
 	}
 	return nil

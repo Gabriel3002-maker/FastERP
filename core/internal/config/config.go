@@ -21,6 +21,7 @@ type Config struct {
 	CORSOrigins      string
 	RateLimit        int
 	AuthRateLimit    int
+	BackupRateLimit  int
 	MaxOpenConns     int
 	MaxIdleConns     int
 	Seed             bool
@@ -44,6 +45,7 @@ func Load() *Config {
 		CORSOrigins:      getEnv("FASTERP_CORS_ORIGINS", "http://localhost:5051"),
 		RateLimit:        getEnvInt("FASTERP_RATE_LIMIT", 100),
 		AuthRateLimit:    getEnvInt("FASTERP_AUTH_RATE_LIMIT", 10),
+		BackupRateLimit:  getEnvInt("FASTERP_BACKUP_RATE_LIMIT", 5),
 		MaxOpenConns:     getEnvInt("FASTERP_DB_MAX_OPEN", 50),
 		MaxIdleConns:     getEnvInt("FASTERP_DB_MAX_IDLE", 10),
 		Seed:             getEnvBool("FASTERP_SEED", true),

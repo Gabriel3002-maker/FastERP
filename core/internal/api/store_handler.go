@@ -20,18 +20,20 @@ var allowedImageExt = map[string]bool{
 	".jpg": true, ".jpeg": true, ".png": true, ".webp": true, ".gif": true,
 }
 
-// productsImageDir is the on-disk folder that backs the public /uploads/products path.
-func (h *Handler) productsImageDir() string {
-	return filepath.Join(h.modManager.UploadDir, "products")
+// productsImageDir is the on-disk folder for this tenant's product images:
+// uploads/products/<tenantID>/. Segregating by tenant keeps one tenant's
+// files out of another's: the backup of a tenant only carries its subtree.
+func (h *Handler) productsImageDir(tenantID string) string {
+	return filepath.Join(h.modManager.UploadDir, "products", tenantID)
 }
 
 // RegisterStoreRoutes wires the mini-store (tienda_web) endpoints and serves
 // product images statically from /uploads/products.
 func (h *Handler) RegisterStoreRoutes() {
-	os.MkdirAll(h.productsImageDir(), 0755)
+	os.MkdirAll(filepath.Join(h.modManager.UploadDir, "products"), 0755)
 
 	// Public static serving of product images (so <img src> works without a token).
-	h.router.Static("/uploads/products", h.productsImageDir())
+	h.router.Static("/uploads/products", filepath.Join(h.modManager.UploadDir, "products"))
 
 	g := h.router.Group("/api/store", h.TenantMiddleware(), h.AuthMiddleware())
 	{
@@ -128,13 +130,17 @@ func (h *Handler) StoreUploadImage(c *gin.Context) {
 	}
 
 	fname := uuid.New().String() + ext
-	dest := filepath.Join(h.productsImageDir(), fname)
+	if err := os.MkdirAll(h.productsImageDir(tenantID), 0755); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "no se pudo preparar el directorio"})
+		return
+	}
+	dest := filepath.Join(h.productsImageDir(tenantID), fname)
 	if err := c.SaveUploadedFile(file, dest); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "no se pudo guardar la imagen"})
 		return
 	}
 
-	url := "/uploads/products/" + fname
+	url := "/uploads/products/" + tenantID + "/" + fname
 	img, err := store.AddImage(ctx, db.Executor(c), tenantID, productID, url, file.Filename)
 	if err != nil {
 		os.Remove(dest) // roll back the file if the DB insert failed
@@ -164,7 +170,8 @@ func (h *Handler) StoreDeleteImage(c *gin.Context) {
 
 	// Best-effort file cleanup for locally stored images.
 	if strings.HasPrefix(url, "/uploads/products/") {
-		os.Remove(filepath.Join(h.productsImageDir(), filepath.Base(url)))
+		rel := strings.TrimPrefix(url, "/uploads/products/")
+		os.Remove(filepath.Join(h.modManager.UploadDir, "products", filepath.FromSlash(rel)))
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "success", "message": "Imagen eliminada"})
 }

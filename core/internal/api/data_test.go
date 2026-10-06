@@ -139,7 +139,7 @@ func TestDispatchModelUnknownModule(t *testing.T) {
 	h := NewHandler(nil, testSecret, testSecret+"-refresh", gin.New())
 
 	r := gin.New()
-	r.GET("/api/:module/:model", h.dispatchModel(listHandler))
+	r.GET("/api/:module/:model", h.dispatchModel("read", listHandler))
 
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest("GET", "/api/definitely-not-a-module/thing", nil))

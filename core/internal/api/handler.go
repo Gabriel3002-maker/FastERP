@@ -299,9 +299,73 @@ func (h *Handler) AuthMiddleware() gin.HandlerFunc {
 
 		c.Set("user_id", claims["sub"])
 		c.Set("username", claims["username"])
-		c.Set("is_admin", claims["is_admin"])
+
+		// El token vale 15 minutos, pero un usuario desactivado o degradado no
+		// tiene por qué poder usarlos: se confirma contra la base en cada
+		// petición. Es un lookup por PK, barato, y cierra la ventana de revocación.
+		userID, _ := claims["sub"].(string)
+		var active, isAdmin bool
+		// En producción TenantMiddleware siempre pinea db_conn; si falta (un
+		// test, una ruta mal montada) se omite el re-chequeo en vez de romper.
+		if conn, ok := c.Get("db_conn"); ok && conn != nil {
+			err = db.Executor(c).QueryRowContext(c.Request.Context(),
+				"SELECT active, is_admin FROM users WHERE id = $1 AND tenant_id = $2",
+				userID, c.GetString("tenant_id"),
+			).Scan(&active, &isAdmin)
+			if err != nil || !active {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "user not found or disabled"})
+				return
+			}
+			c.Set("is_admin", isAdmin)
+		} else {
+			c.Set("is_admin", claims["is_admin"])
+		}
 		c.Next()
 	}
+}
+
+// requirePermission aplica la lista de permisos por acción sobre el CRUD de
+// módulos. is_admin pasa siempre; quien no tenga ninguna fila en
+// user_permissions para ese (module, model) queda en modo compatible y puede
+// todo — en cuanto exista una fila para ese recurso, solo lo declarado.
+func (h *Handler) requirePermission(c *gin.Context, inst *module.ModuleInstance, reg *module.ModelRegistration, action string) bool {
+	if a, _ := c.Get("is_admin"); a == true {
+		return true
+	}
+
+	userIDVal, _ := c.Get("user_id")
+	userID, _ := userIDVal.(string)
+	if userID == "" {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing user"})
+		return false
+	}
+
+	var entries int
+	err := db.Executor(c).QueryRowContext(c.Request.Context(),
+		`SELECT COUNT(*) FROM user_permissions
+		 WHERE user_id = $1 AND module = $2 AND model = $3`,
+		userID, inst.Manifest.Name, reg.Manifest.Name,
+	).Scan(&entries)
+	if err != nil {
+		log.Printf("[RBAC] permission check failed: %v", err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "permission check failed"})
+		return false
+	}
+	if entries == 0 {
+		return true
+	}
+
+	var allowed int
+	err = db.Executor(c).QueryRowContext(c.Request.Context(),
+		`SELECT COUNT(*) FROM user_permissions
+		 WHERE user_id = $1 AND module = $2 AND model = $3 AND action = $4`,
+		userID, inst.Manifest.Name, reg.Manifest.Name, action,
+	).Scan(&allowed)
+	if err != nil || allowed == 0 {
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "permission denied"})
+		return false
+	}
+	return true
 }
 
 func (h *Handler) ListModules(c *gin.Context) {

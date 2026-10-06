@@ -200,6 +200,9 @@ func CreateTableSQL(m *Manifest, md *ModelDef) (string, error) {
 	}
 
 	for _, f := range md.orderedFields() {
+		if !IsStored(f.Type) {
+			continue
+		}
 		colType, err := typeSQL(f)
 		if err != nil {
 			return "", err
@@ -220,6 +223,8 @@ func CreateTableSQL(m *Manifest, md *ModelDef) (string, error) {
 	cols = append(cols,
 		"  created_at TIMESTAMP NOT NULL DEFAULT NOW()",
 		"  updated_at TIMESTAMP NOT NULL DEFAULT NOW()",
+		"  created_by UUID",
+		"  updated_by UUID",
 	)
 
 	return fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (\n%s\n)", table, strings.Join(cols, ",\n")), nil
@@ -234,6 +239,9 @@ func IndexSQL(m *Manifest, md *ModelDef) []string {
 	table := m.TableName(md.Name)
 	var out []string
 	for _, f := range md.orderedFields() {
+		if !IsStored(f.Type) {
+			continue
+		}
 		if !f.Unique && !f.Index {
 			continue
 		}
@@ -279,6 +287,13 @@ func RLS(table string) []string {
 type SchemaStatement struct {
 	SQL  string
 	What string
+}
+
+// M2MTableName es el nombre determinista de la tabla asociativa de un campo
+// many2many: mod_<modulo>_<modelo>_<campo>. Determinista para que el CRUD
+// sepa dónde escribir sin consultar el esquema.
+func M2MTableName(moduleName, modelName, fieldName string) string {
+	return "mod_" + moduleName + "_" + modelName + "_" + fieldName
 }
 
 // HistoryTable es donde se guarda el recorrido de un registro por su máquina de
@@ -347,7 +362,19 @@ func PlanSchema(m *Manifest) ([]SchemaStatement, error) {
 
 		// Lo que ya existe se añade después: ADD COLUMN IF NOT EXISTS sobre
 		// columnas que ya están no hace nada y no da error.
+		for _, col := range []struct{ name, typ string }{
+			{"created_by", "UUID"},
+			{"updated_by", "UUID"},
+		} {
+			stmts = append(stmts, SchemaStatement{
+				SQL:  fmt.Sprintf("ALTER TABLE %s ADD COLUMN IF NOT EXISTS %s %s", table, col.name, col.typ),
+				What: "añadir columna " + table + "." + col.name,
+			})
+		}
 		for _, f := range md.orderedFields() {
+			if !IsStored(f.Type) {
+				continue
+			}
 			colType, err := typeSQL(f)
 			if err != nil {
 				return nil, fmt.Errorf("modelo %q: %w", name, err)
@@ -366,6 +393,28 @@ func PlanSchema(m *Manifest) ([]SchemaStatement, error) {
 		}
 		for _, r := range RLS(table) {
 			stmts = append(stmts, SchemaStatement{SQL: r, What: "activar RLS en " + table})
+		}
+
+		// many2many: su relación vive en una tabla asociativa propia, no en una
+		// columna. Sin ella, el CRUD no puede persistir ni leer la relación.
+		for _, f := range md.orderedFields() {
+			if !IsManyToMany(f.Type) {
+				continue
+			}
+			join := M2MTableName(m.Name, name, f.Name)
+			stmts = append(stmts,
+				SchemaStatement{SQL: fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
+  tenant_id UUID NOT NULL,
+  left_id UUID NOT NULL,
+  right_id UUID NOT NULL,
+  PRIMARY KEY (left_id, right_id)
+)`, join), What: "crear tabla asociativa " + join},
+				SchemaStatement{SQL: fmt.Sprintf("CREATE INDEX IF NOT EXISTS idx_%s_left ON %s (left_id, tenant_id)", join, join), What: "índice de " + join},
+				SchemaStatement{SQL: fmt.Sprintf("CREATE INDEX IF NOT EXISTS idx_%s_right ON %s (right_id, tenant_id)", join, join), What: "índice de " + join},
+			)
+			for _, r := range RLS(join) {
+				stmts = append(stmts, SchemaStatement{SQL: r, What: "activar RLS en " + join})
+			}
 		}
 
 		// La tabla de historial solo si el modelo tiene máquina de estados:

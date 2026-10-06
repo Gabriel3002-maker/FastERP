@@ -24,20 +24,6 @@
       "cwd": "${workspaceFolder}/core"
     },
     {
-      "name": "Core: UI + API (legacy)",
-      "type": "go",
-      "request": "launch",
-      "mode": "debug",
-      "program": "${workspaceFolder}/core/main.go",
-      "env": {
-        "FASTERP_MODULES_DIR": "./modules",
-        "FASTERP_UPLOAD_DIR": "./uploads"
-      },
-      "args": [],
-      "showLog": true,
-      "cwd": "${workspaceFolder}/core"
-    },
-    {
       "name": "Core: Tests",
       "type": "go",
       "request": "launch",

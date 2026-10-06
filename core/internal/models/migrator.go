@@ -54,6 +54,14 @@ func AutoMigrate() error {
 			updated_at TIMESTAMP DEFAULT NOW(),
 			UNIQUE(tenant_id, name)
 		)`,
+		`CREATE TABLE IF NOT EXISTS user_permissions (
+			tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+			user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			module VARCHAR(100) NOT NULL,
+			model VARCHAR(100) NOT NULL,
+			action VARCHAR(20) NOT NULL,
+			PRIMARY KEY (tenant_id, user_id, module, model, action)
+		)`,
 		`CREATE TABLE IF NOT EXISTS refresh_tokens (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 			tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,

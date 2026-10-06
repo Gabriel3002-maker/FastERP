@@ -285,7 +285,7 @@ func insertRecords(ctx context.Context, db DBExecutor, reg module.ModelRegistrat
 
 	count := 0
 	for _, rec := range records {
-		query, args, err := qb.BuildInsert(tenantID, rec)
+		query, args, err := qb.BuildInsert(tenantID, "", rec)
 		if err != nil {
 			return count, fmt.Errorf("error construyendo SQL insert: %w", err)
 		}

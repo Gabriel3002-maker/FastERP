@@ -67,6 +67,8 @@ func main() {
 	}
 	seedDefaultModules(ctx, cfg.ModulesDir)
 
+	migrateLegacyUploads(cfg.UploadDir)
+
 	modManager := module.NewManager(cfg.ModulesDir, cfg.UploadDir)
 	loadInstalledModules(ctx, modManager)
 
@@ -95,6 +97,58 @@ func main() {
 		log.Printf("[WARN] Graceful shutdown timed out: %v", err)
 	}
 	log.Println("[FastERP] Stopped")
+}
+
+// migrateLegacyUploads mueve los ficheros subidos antes de la segregación por
+// tenant (UploadDir/<kind>/<fichero>) a la carpeta del tenant "default"
+// (UploadDir/<kind>/<tenantID>/<fichero>) y actualiza las URLs guardadas en la
+// base. Idempotente: sin ficheros sueltos en la raíz de kinds, no hace nada.
+func migrateLegacyUploads(uploadDir string) {
+	var defaultID string
+	if err := db.DB.QueryRow(`SELECT id FROM tenants WHERE slug = 'default' AND active = true`).Scan(&defaultID); err != nil {
+		return
+	}
+
+	kinds := map[string]string{
+		"products": "mod_tienda_web_store_image",
+		"media":    "mod_sitio_web_media",
+	}
+	for kind, table := range kinds {
+		dir := filepath.Join(uploadDir, kind)
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		dest := filepath.Join(dir, defaultID)
+		moved := false
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			if err := os.MkdirAll(dest, 0755); err != nil {
+				log.Printf("[Uploads] no se pudo crear %s: %v", dest, err)
+				break
+			}
+			if err := os.Rename(filepath.Join(dir, e.Name()), filepath.Join(dest, e.Name())); err != nil {
+				log.Printf("[Uploads] no se pudo mover %s: %v", e.Name(), err)
+				continue
+			}
+			moved = true
+		}
+		if moved {
+			oldPrefix := fmt.Sprintf("/uploads/%s/", kind)
+			newPrefix := fmt.Sprintf("/uploads/%s/%s/", kind, defaultID)
+			// Solo las URLs que aún no llevan tenant (no empiezan por el tenant actual).
+			if _, err := db.DB.Exec(
+				fmt.Sprintf(`UPDATE %s SET url = $1 || substring(url from %d) WHERE url LIKE $2 AND url NOT LIKE $3`,
+					table, len(oldPrefix)+1),
+				newPrefix, oldPrefix+"%", newPrefix+"%"); err != nil {
+				log.Printf("[Uploads] no se pudieron reescribir URLs en %s: %v", table, err)
+			} else {
+				log.Printf("[Uploads] migrados los ficheros heredados de %s al tenant default", kind)
+			}
+		}
+	}
 }
 
 func seedDefaultTenant() {

@@ -20,8 +20,8 @@ import (
 // RegisterWebRoutes wires the PUBLIC site host (no auth): the CMS pages at
 // /site[/:slug] and the storefront feed at /api/public/products. Page editing
 // itself uses the module's authed CRUD (/api/sitio_web/web_page).
-func (h *Handler) mediaDir() string {
-	return filepath.Join(h.modManager.UploadDir, "media")
+func (h *Handler) mediaDir(tenantID string) string {
+	return filepath.Join(h.modManager.UploadDir, "media", tenantID)
 }
 
 // allowedMediaExt es la lista blanca de formatos que el CMS acepta.
@@ -55,8 +55,8 @@ func (h *Handler) RegisterWebRoutes() {
 	h.router.GET("/site/:slug", h.PublicPage)
 	h.router.GET("/api/public/products", h.PublicProducts)
 
-	os.MkdirAll(h.mediaDir(), 0755)
-	h.router.Static("/uploads/media", h.mediaDir())
+	os.MkdirAll(filepath.Join(h.modManager.UploadDir, "media"), 0755)
+	h.router.Static("/uploads/media", filepath.Join(h.modManager.UploadDir, "media"))
 
 	g := h.router.Group("/api/web", h.TenantMiddleware(), h.AuthMiddleware())
 	{
@@ -200,13 +200,17 @@ func (h *Handler) WebUploadMedia(c *gin.Context) {
 	}
 
 	fname := uuid.New().String() + ext
-	dest := filepath.Join(h.mediaDir(), fname)
+	if err := os.MkdirAll(h.mediaDir(tenantID), 0755); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "no se pudo preparar el directorio"})
+		return
+	}
+	dest := filepath.Join(h.mediaDir(tenantID), fname)
 	if err := c.SaveUploadedFile(file, dest); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "no se pudo guardar el archivo"})
 		return
 	}
 
-	url := "/uploads/media/" + fname
+	url := "/uploads/media/" + tenantID + "/" + fname
 	mimeType := mimeFromExt(ext)
 	alt := strings.TrimSuffix(file.Filename, ext)
 
@@ -233,7 +237,8 @@ func (h *Handler) WebDeleteMedia(c *gin.Context) {
 		return
 	}
 	if strings.HasPrefix(url, "/uploads/media/") {
-		os.Remove(filepath.Join(h.mediaDir(), filepath.Base(url)))
+		rel := strings.TrimPrefix(url, "/uploads/media/")
+		os.Remove(filepath.Join(h.modManager.UploadDir, "media", filepath.FromSlash(rel)))
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "success", "message": "Archivo eliminado"})
 }

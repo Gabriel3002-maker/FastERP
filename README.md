@@ -28,42 +28,25 @@ git submodule update --init --recursive
 ```
 fasterp/
 ├── core/                  # el core (todo el Go)
-│   ├── cmd/server/        # entry point: API Gin + JWT
-│   ├── main.go            # entry point legacy: API + UI en templates Go
-│   ├── handlers/          # dispatcher CRUD genérico + UI server-rendered
+│   ├── cmd/server/        # entry point: API Gin + UI
 │   ├── internal/
 │   │   ├── api/           # rutas Gin, auth, middleware
 │   │   ├── module/        # carga de WASM, migración de esquema
 │   │   ├── db/            # pool, RLS, executor por tenant
 │   │   └── web/           # sitio público
-│   ├── sdk/               # SDK/ORM dirigido por manifest
-│   ├── db/  config/  models/  middleware/
 │   └── templates/  static/
 ├── modules/               # submódulo → FastERP-modules
 ├── docker/                # init de Postgres y roles
 └── run.sh
 ```
 
-## Los dos entry points
+## Capa HTTP única
 
-Conviene saberlo antes de tocar nada: hay **dos capas HTTP** y no son
-equivalentes.
+El core sirve todo con Gin (`core/cmd/server`): API con JWT + refresh tokens,
+RLS por tenant, admin HTMX desde `templates/`, y CRUD de módulos.
+La capa legacy (`core/main.go`, `handlers/`, `sdk/`) se eliminó: RLS y RBAC
+viven solo en `internal/`.
 
-| | `core/cmd/server` (Gin) | `core/main.go` (legacy) |
-|---|---|---|
-| Router | `gin.Engine` | `http.ServeMux` |
-| Auth | JWT + refresh | cookie de sesión |
-| Aislamiento | RLS con `app.tenant_id` por conexión | filtros `tenant_id` explícitos |
-| UI | ninguna (solo API) | admin HTML en `templates/` |
-| Docker | sí (`core/Dockerfile`) | no |
-
-La capa Gin es la que va a producción y la que usa el `docker-compose`. La
-legacy existe porque trae la interfaz de administración; su dispatcher
-genérico (`core/handlers/api_router.go`) es donde se está trabajando la
-reestructuración 1.0.1.
-
-Las dos comparten `core/sdk` y `core/internal/module`, así que el esquema y las
-migraciones se comportan igual en ambas.
 
 ## API
 
@@ -162,8 +145,7 @@ go vet ./...
 go test ./...
 ```
 
-En VSCode: `Ctrl+Shift+D` → "Core: API (Gin)" para depurar, o "Core: UI + API
-(legacy)" para la interfaz de administración. La tarea "Módulos: recompilar
+En VSCode: `Ctrl+Shift+D` → "Core: API (Gin)" para depurar. La tarea "Módulos: recompilar
 WASM" recompila todos los módulos con `main.go`.
 
 ## Docker
@@ -173,8 +155,7 @@ docker compose up --build -d
 docker compose down
 ```
 
-Levanta Postgres y el core. La UI en templates no está en la imagen: para
-desarrollarla, corre el entry point legacy con `go run ./main.go` desde `core/`.
+Levanta Postgres y el core. La UI server-rendered va incluida en la imagen.
 
 ## Estado
 
@@ -182,10 +163,6 @@ Lo que está verificado: `go build`, `go vet` y `go test` pasan en `core/`.
 
 Lo que está en curso y conviene tener presente:
 
-- **RBAC.** `users` solo tiene `is_admin`. El CRUD genérico aplica
-  `TenantMiddleware` + `AuthMiddleware`, así que cualquier usuario del tenant
-  lee todos los datos de todos los módulos. Antes de meter datos sensibles
-  (nóminas, datos bancarios) hay que añadir roles y permisos por acción
-  aplicados dentro del SDK.
-- **Las dos capas HTTP.** Conviene decidir cuál es la buena y retirar la otra.
-- **La UI.** Hoy es server-rendered en la capa legacy. La capa Gin no la sirve.
+- **RBAC.** Implementado de forma básica: tabla `user_permissions` y chequeo por
+  acción (create/read/update/delete) en el CRUD genérico. `is_admin` salta el
+  control. Ampliar a roles sigue siendo trabajo futuro.

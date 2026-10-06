@@ -78,6 +78,9 @@ func SetupRouter(cfg *config.Config, modManager *module.ModuleManager) *gin.Engi
 		{
 			admin.GET("/tenants", h.ListTenants)
 			admin.GET("/tenants/:id", h.GetTenant)
+			backupLimiter := rateLimiterMiddleware(cfg.BackupRateLimit)
+			admin.GET("/tenants/:id/backup", backupLimiter, h.Backup)
+			admin.POST("/tenants/:id/restore", backupLimiter, h.Restore)
 
 			// Installing a module writes its schema into the database and
 			// executes code inside this process. That is an administrative

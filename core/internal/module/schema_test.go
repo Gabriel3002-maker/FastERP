@@ -453,3 +453,34 @@ func TestIndicesIncluyenTenant(t *testing.T) {
 		}
 	}
 }
+
+func TestPlanSchemaManyToManyCreaTablaAsociativa(t *testing.T) {
+	mod := `name: x
+label: X
+models:
+  a:
+    fields:
+      - {name: nombre, type: string}
+      - {name: etiquetas, type: many2many, related_model: b}
+`
+	m, err := ParseManifest([]byte(mod), "x/module.yaml")
+	if err != nil {
+		t.Fatalf("ParseManifest: %v", err)
+	}
+	stmts, err := PlanSchema(m)
+	if err != nil {
+		t.Fatalf("PlanSchema: %v", err)
+	}
+	var found bool
+	for _, s := range stmts {
+		if strings.Contains(s.SQL, "CREATE TABLE IF NOT EXISTS mod_x_a_etiquetas") {
+			found = true
+		}
+		if strings.Contains(s.SQL, "etiquetas UUID") || strings.Contains(s.SQL, `"etiquetas" UUID`) {
+			t.Errorf("many2many no debe crear columna: %s", s.SQL)
+		}
+	}
+	if !found {
+		t.Error("no se creó la tabla asociativa del many2many")
+	}
+}

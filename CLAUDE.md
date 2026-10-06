@@ -24,31 +24,21 @@ cd core && go test ./...       # tests
 cd core && go vet ./...
 ```
 
-En VSCode: "Core: API (Gin)" para el entry point de API, "Core: UI + API
-(legacy)" para la que trae la interfaz.
+En VSCode: "Core: API (Gin)" como entry point único (API + UI).
 
 ## Arquitectura
 
-### Dos capas HTTP, y solo una va a producción
+### Una sola capa HTTP
 
-Esto es lo primero que hay que tener claro, porque rompe expectativas.
+El core es Gin (`core/cmd/server`): API con JWT + refresh, RLS por tenant, y la
+UI admin (HTMX) desde `core/templates/`. **Nunca añadas rutas al `gin.Engine`
+en runtime**: el CRUD de módulos se registra una vez al arrancar.
 
-| | `core/cmd/server` (Gin) | `core/main.go` (legacy) |
-|---|---|---|
-| Router | `gin.Engine` | `http.ServeMux` |
-| Auth | JWT + refresh tokens | cookie de sesión |
-| Aislamiento | RLS, `app.tenant_id` por conexión | `WHERE tenant_id` explícito |
-| UI | ninguna | admin HTML en `core/templates/` |
-| Docker | sí | no |
+La antigua capa legacy (`core/main.go`, `core/handlers/`, `core/sdk/`,
+`core/db/`, `core/config/`, `core/middleware/`, `core/utils/`) se eliminó del
+repo: compartir schema por ahí ya no es una opción y se perdía tiempo
+manteniendo dos mundos. Todo lo vivo está en `core/internal/` y `core/cmd/`.
 
-`docker-compose.yml` y el `Dockerfile` usan **Gin**. La legacy existe porque
-trae la UI, y su dispatcher (`core/handlers/api_router.go`) es donde se está
-trabajando la reestructuración 1.0.1.
-
-Comparten `core/sdk` y `core/internal/module`, así que el esquema y las
-migraciones se comportan igual en ambas. **Nunca añadas rutas al `gin.Engine`
-en runtime** como hacen algunas capas: el CRUD de módulos se registra una vez al
-arrancar.
 
 ### Multi-tenant
 
@@ -141,6 +131,5 @@ Dos cosas que parecen aceptables y no lo son:
 
 - RBAC / permisos por acción (bloqueante para datos sensibles).
 - Decidir cuál de las dos capas HTTP es la definitiva.
-- La capa Gin no sirve la UI; hoy solo la legacy la tiene.
 - `internal/module` deja `selectColumnsWithJoins` definido y sin usar: es la
   mitad hecha del soporte de relaciones en `List`.

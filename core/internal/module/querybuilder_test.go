@@ -108,7 +108,7 @@ func TestBuildSelectMany2OneJoins(t *testing.T) {
 
 func TestBuildInsertIgnoresUndeclaredFields(t *testing.T) {
 	// A client posting a column that is not in the manifest must not reach SQL.
-	q, args, err := NewQueryBuilder(testModel()).BuildInsert("t-1", map[string]interface{}{
+	q, args, err := NewQueryBuilder(testModel()).BuildInsert("t-1", "u-1", map[string]interface{}{
 		"name":     "Acme",
 		"is_admin": true,
 	})
@@ -126,7 +126,7 @@ func TestBuildInsertIgnoresUndeclaredFields(t *testing.T) {
 }
 
 func TestBuildUpdateAndDeleteScopeByTenant(t *testing.T) {
-	up, _, err := NewQueryBuilder(testModel()).BuildUpdate("id-1", "t-1", map[string]interface{}{"name": "Acme"})
+	up, _, err := NewQueryBuilder(testModel()).BuildUpdate("id-1", "t-1", "u-1", map[string]interface{}{"name": "Acme"})
 	if err != nil {
 		t.Fatalf("BuildUpdate: %v", err)
 	}

@@ -27,24 +27,24 @@ func (h *Handler) RegisterModuleDataRoutes(rg *gin.RouterGroup) {
 	// nombre de un modelo. Gin resuelve los segmentos estáticos antes que los
 	// comodines, pero registrar la ruta en orden deja el router legible.
 	rg.GET("/:module/_meta", h.dispatchModuleList(moduleMetaHandler))
-	rg.GET("/:module/:model/_meta", h.dispatchModel(modelMetaHandler))
+	rg.GET("/:module/:model/_meta", h.dispatchModel("read", modelMetaHandler))
 
-	rg.GET("/:module/:model/export", h.dispatchModel(exportHandler))
-	rg.POST("/:module/:model/import", h.dispatchModel(importHandler))
+	rg.GET("/:module/:model/export", h.dispatchModel("read", exportHandler))
+	rg.POST("/:module/:model/import", h.dispatchModel("create", importHandler))
 
-	rg.GET("/:module/:model", h.dispatchModel(listHandler))
-	rg.POST("/:module/:model", h.dispatchModel(createHandler))
-	rg.GET("/:module/:model/:id", h.dispatchModel(getHandler))
-	rg.PUT("/:module/:model/:id", h.dispatchModel(updateHandler))
-	rg.PATCH("/:module/:model/:id", h.dispatchModel(updateHandler))
-	rg.DELETE("/:module/:model/:id", h.dispatchModel(deleteHandler))
+	rg.GET("/:module/:model", h.dispatchModel("read", listHandler))
+	rg.POST("/:module/:model", h.dispatchModel("create", createHandler))
+	rg.GET("/:module/:model/:id", h.dispatchModel("read", getHandler))
+	rg.PUT("/:module/:model/:id", h.dispatchModel("update", updateHandler))
+	rg.PATCH("/:module/:model/:id", h.dispatchModel("update", updateHandler))
+	rg.DELETE("/:module/:model/:id", h.dispatchModel("delete", deleteHandler))
 
 	// Workflow. El historial va antes que la transición porque las dos cuelgan
 	// de /:id y una ruta con más segmentos no compite con la otra; el orden solo
 	// afecta a la legibilidad.
-	rg.GET("/:module/:model/:id/transitions", h.dispatchModel(transitionsHandler))
-	rg.POST("/:module/:model/:id/transitions/:action", h.dispatchModel(transitionHandler))
-	rg.GET("/:module/:model/:id/history", h.dispatchModel(historyHandler))
+	rg.GET("/:module/:model/:id/transitions", h.dispatchModel("read", transitionsHandler))
+	rg.POST("/:module/:model/:id/transitions/:action", h.dispatchModel("update", transitionHandler))
+	rg.GET("/:module/:model/:id/history", h.dispatchModel("read", historyHandler))
 }
 
 // moduleAction es una operación sobre un modelo. model es nil en las acciones a
@@ -102,7 +102,7 @@ func (h *Handler) dispatchModuleList(build moduleAction) gin.HandlerFunc {
 }
 
 // dispatchModel resuelve el modelo y ejecuta la acción.
-func (h *Handler) dispatchModel(action moduleAction) gin.HandlerFunc {
+func (h *Handler) dispatchModel(action string, build moduleAction) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		inst, ok := h.resolveModule(c, c.Param("module"))
 		if !ok {
@@ -114,7 +114,10 @@ func (h *Handler) dispatchModel(action moduleAction) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": "model not found"})
 			return
 		}
-		action(c, inst, reg)
+		if !h.requirePermission(c, inst, reg, action) {
+			return
+		}
+		build(c, inst, reg)
 	}
 }
 
@@ -181,6 +184,10 @@ func listHandler(c *gin.Context, inst *module.ModuleInstance, reg *module.ModelR
 	items, err := rowsToMaps(rows, cols)
 	if err != nil {
 		internalError(c, "list "+modelName, err)
+		return
+	}
+	if err := hydrateManyToMany(c, inst, reg, items); err != nil {
+		internalError(c, "hydrate "+modelName, err)
 		return
 	}
 
@@ -406,7 +413,7 @@ func splitList(text string) []any {
 }
 
 // getHandler devuelve un registro.
-func getHandler(c *gin.Context, _ *module.ModuleInstance, reg *module.ModelRegistration) {
+func getHandler(c *gin.Context, inst *module.ModuleInstance, reg *module.ModelRegistration) {
 	ctx, tenantID := c.Request.Context(), c.GetString("tenant_id")
 
 	qb := module.NewQueryBuilder(*reg).
@@ -426,6 +433,10 @@ func getHandler(c *gin.Context, _ *module.ModuleInstance, reg *module.ModelRegis
 	}
 	if err != nil {
 		internalError(c, "get "+reg.Manifest.Name, err)
+		return
+	}
+	if err := hydrateManyToMany(c, inst, reg, []map[string]any{item}); err != nil {
+		internalError(c, "hydrate "+reg.Manifest.Name, err)
 		return
 	}
 	c.JSON(http.StatusOK, item)
@@ -469,8 +480,18 @@ func createHandler(c *gin.Context, inst *module.ModuleInstance, reg *module.Mode
 		return
 	}
 
+	stored, m2m, err := relationalFields(reg, body)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := checkRelatedExist(c, inst, reg, stored); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
 	qb := module.NewQueryBuilder(*reg)
-	query, args, err := qb.BuildInsert(tenantID, body)
+	query, args, err := qb.BuildInsert(tenantID, c.GetString("user_id"), stored)
 	if err != nil {
 		internalError(c, "create "+reg.Manifest.Name, err)
 		return
@@ -483,6 +504,16 @@ func createHandler(c *gin.Context, inst *module.ModuleInstance, reg *module.Mode
 		return
 	}
 	item["tenant_id"] = tenantID
+
+	id, _ := item["id"].(string)
+	if err := applyManyToMany(c, inst, reg, id, m2m); err != nil {
+		internalError(c, "create m2m "+reg.Manifest.Name, err)
+		return
+	}
+	if err := hydrateManyToMany(c, inst, reg, []map[string]any{item}); err != nil {
+		internalError(c, "hydrate "+reg.Manifest.Name, err)
+		return
+	}
 	c.JSON(http.StatusCreated, item)
 }
 
@@ -529,29 +560,86 @@ func updateHandler(c *gin.Context, inst *module.ModuleInstance, reg *module.Mode
 		return
 	}
 
-	qb := module.NewQueryBuilder(*reg)
-	query, args, err := qb.BuildUpdate(c.Param("id"), tenantID, body)
+	stored, m2m, err := relationalFields(reg, body)
 	if err != nil {
-		internalError(c, "update "+reg.Manifest.Name, err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := checkRelatedExist(c, inst, reg, stored); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	cols := returningColumns(reg)
-	item, err := rowToMap(db.Executor(c).QueryRowContext(ctx, query, args...), cols)
-	if err == sql.ErrNoRows {
-		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+	var item map[string]any
+	if len(stored) > 0 {
+		qb := module.NewQueryBuilder(*reg)
+		query, args, err := qb.BuildUpdate(c.Param("id"), tenantID, c.GetString("user_id"), stored)
+		if err != nil {
+			internalError(c, "update "+reg.Manifest.Name, err)
+			return
+		}
+
+		cols := returningColumns(reg)
+		item, err = rowToMap(db.Executor(c).QueryRowContext(ctx, query, args...), cols)
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
+		if err != nil {
+			internalError(c, "update "+reg.Manifest.Name, err)
+			return
+		}
+	}
+
+	if err := applyManyToMany(c, inst, reg, c.Param("id"), m2m); err != nil {
+		internalError(c, "update m2m "+reg.Manifest.Name, err)
 		return
 	}
-	if err != nil {
-		internalError(c, "update "+reg.Manifest.Name, err)
+
+	if item == nil {
+		// Solo cambiaron relaciones: se devuelve el registro actualizado.
+		qb := module.NewQueryBuilder(*reg).
+			Where("id", "=", c.Param("id")).
+			Where("tenant_id", "=", tenantID)
+		cols, query, args, err := qb.BuildSelect()
+		if err != nil {
+			internalError(c, "update "+reg.Manifest.Name, err)
+			return
+		}
+		item, err = rowToMap(db.Executor(c).QueryRowContext(ctx, query, args...), cols)
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
+		if err != nil {
+			internalError(c, "update "+reg.Manifest.Name, err)
+			return
+		}
+	}
+	if err := hydrateManyToMany(c, inst, reg, []map[string]any{item}); err != nil {
+		internalError(c, "hydrate "+reg.Manifest.Name, err)
 		return
 	}
 	c.JSON(http.StatusOK, item)
 }
 
 // deleteHandler borra un registro.
-func deleteHandler(c *gin.Context, _ *module.ModuleInstance, reg *module.ModelRegistration) {
+func deleteHandler(c *gin.Context, inst *module.ModuleInstance, reg *module.ModelRegistration) {
 	ctx, tenantID := c.Request.Context(), c.GetString("tenant_id")
+
+	// Borra primero los enlaces m2m: la tabla asociativa no tiene FK con ON
+	// DELETE CASCADE y quedarían huérfanos.
+	for _, f := range reg.Manifest.Fields {
+		if module.IsManyToMany(f.Type) {
+			join := module.M2MTableName(inst.Manifest.Name, reg.Manifest.Name, f.Name)
+			if _, err := db.Executor(c).ExecContext(ctx,
+				fmt.Sprintf("DELETE FROM %s WHERE left_id = $1 AND tenant_id = $2", quoteIdent(join)),
+				c.Param("id"), tenantID); err != nil {
+				internalError(c, "delete m2m "+reg.Manifest.Name, err)
+				return
+			}
+		}
+	}
 
 	qb := module.NewQueryBuilder(*reg)
 	query, _, err := qb.BuildDelete()
@@ -731,9 +819,141 @@ func importHandler(c *gin.Context, inst *module.ModuleInstance, reg *module.Mode
 func returningColumns(reg *module.ModelRegistration) []string {
 	cols := []string{"id"}
 	for _, f := range reg.Manifest.OrderedFields() {
+		if !module.IsStored(f.Type) {
+			continue
+		}
 		cols = append(cols, f.Name)
 	}
-	return append(cols, "created_at", "updated_at")
+	return append(cols, "created_at", "updated_at", "created_by", "updated_by")
+}
+
+// relationalFields separa del cuerpo los campos que no son columnas: los
+// many2many se aplican a su tabla asociativa y no entran en el INSERT/UPDATE,
+// y los one2many no se aceptan como escritura directa.
+func relationalFields(reg *module.ModelRegistration, body map[string]any) (stored, m2m map[string]any, err error) {
+	stored = make(map[string]any, len(body))
+	m2m = make(map[string]any)
+	for _, f := range reg.Manifest.Fields {
+		v, ok := body[f.Name]
+		if !ok {
+			continue
+		}
+		switch {
+		case module.IsManyToMany(f.Type):
+			m2m[f.Name] = v
+		case module.IsRelational(f.Type) && !module.IsStored(f.Type):
+			return nil, nil, fmt.Errorf("%s es one2many: se deriva del otro lado y no se escribe", f.Name)
+		default:
+			stored[f.Name] = v
+		}
+	}
+	return stored, m2m, nil
+}
+
+// checkRelatedExist valida que los UUIDs de los many2one apunten a filas que
+// existen en el modelo relacionado (mismo tenant, por RLS). Sin esto, un
+// product_id inventado quedaba guardado y el join solo devolvía de NULL.
+func checkRelatedExist(c *gin.Context, inst *module.ModuleInstance, reg *module.ModelRegistration, body map[string]any) error {
+	for _, f := range reg.Manifest.Fields {
+		if !strings.EqualFold(f.Type, "many2one") && !strings.EqualFold(f.Type, "m2o") {
+			continue
+		}
+		v, ok := body[f.Name]
+		if !ok || v == nil {
+			continue
+		}
+		id, _ := v.(string)
+		relatedModule := f.RelatedModule
+		if relatedModule == "" {
+			relatedModule = inst.Manifest.Name
+		}
+		table := fmt.Sprintf("mod_%s_%s", relatedModule, f.RelatedModel)
+		var one int
+		err := db.Executor(c).QueryRowContext(c.Request.Context(),
+			fmt.Sprintf("SELECT 1 FROM %s WHERE id = $1", quoteIdent(table)), id,
+		).Scan(&one)
+		if err != nil {
+			return fmt.Errorf("%s: la referencia no existe en %s", f.Name, f.RelatedModel)
+		}
+	}
+	return nil
+}
+
+// applyManyToMany persiste los enlaces m2m de un registro: borra los suyos y
+// inserta los recibidos. El cuerpo llega validado por validateInput.
+func applyManyToMany(c *gin.Context, inst *module.ModuleInstance, reg *module.ModelRegistration, id string, links map[string]any) error {
+	ctx := c.Request.Context()
+	for _, f := range reg.Manifest.Fields {
+		if !module.IsManyToMany(f.Type) {
+			continue
+		}
+		raw, ok := links[f.Name]
+		if !ok {
+			continue
+		}
+		arr, _ := raw.([]any)
+		join := module.M2MTableName(inst.Manifest.Name, reg.Manifest.Name, f.Name)
+		if _, err := db.Executor(c).ExecContext(ctx,
+			fmt.Sprintf("DELETE FROM %s WHERE left_id = $1 AND tenant_id = $2", quoteIdent(join)),
+			id, c.GetString("tenant_id")); err != nil {
+			return fmt.Errorf("many2many %s: %w", f.Name, err)
+		}
+		for _, item := range arr {
+			s, _ := item.(string)
+			if _, err := db.Executor(c).ExecContext(ctx,
+				fmt.Sprintf("INSERT INTO %s (tenant_id, left_id, right_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING", quoteIdent(join)),
+				c.GetString("tenant_id"), id, s); err != nil {
+				return fmt.Errorf("many2many %s: %w", f.Name, err)
+			}
+		}
+	}
+	return nil
+}
+
+// hydrateManyToMany rellena, en cada item, los campos m2m con la lista de ids
+// enlazados. Sin esto, la API devolvería la relación como columna inexistente.
+func hydrateManyToMany(c *gin.Context, inst *module.ModuleInstance, reg *module.ModelRegistration, items []map[string]any) error {
+	if len(items) == 0 {
+		return nil
+	}
+	ctx := c.Request.Context()
+	for _, f := range reg.Manifest.Fields {
+		if !module.IsManyToMany(f.Type) {
+			continue
+		}
+		join := module.M2MTableName(inst.Manifest.Name, reg.Manifest.Name, f.Name)
+		ids := make([]any, 0, len(items))
+		params := make([]string, 0, len(items))
+		for i, it := range items {
+			ids = append(ids, it["id"])
+			params = append(params, fmt.Sprintf("$%d", i+2))
+		}
+		rows, err := db.Executor(c).QueryContext(ctx,
+			fmt.Sprintf("SELECT left_id::text, right_id::text FROM %s WHERE tenant_id = $1 AND left_id IN (%s)", quoteIdent(join), strings.Join(params, ",")),
+			append([]any{c.GetString("tenant_id")}, ids...)...)
+		if err != nil {
+			return err
+		}
+		links := make(map[string][]string)
+		for rows.Next() {
+			var left, right string
+			if err := rows.Scan(&left, &right); err != nil {
+				rows.Close()
+				return err
+			}
+			links[left] = append(links[left], right)
+		}
+		rows.Close()
+		for _, it := range items {
+			id, _ := it["id"].(string)
+			if lst, ok := links[id]; ok {
+				it[f.Name] = lst
+			} else {
+				it[f.Name] = []string{}
+			}
+		}
+	}
+	return nil
 }
 
 // quoteIdent entrecomilla un identificador para Postgres.

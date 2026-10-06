@@ -58,6 +58,36 @@ type FieldDef struct {
 	Sequence int `json:"sequence,omitempty" yaml:"sequence,omitempty"`
 }
 
+// IsRelational dice si el tipo es una relación, que no es una columna directa:
+// many2many vive en su tabla asociativa y one2many es la inversa de un many2one
+// declarado en el otro lado.
+func IsRelational(t string) bool {
+	switch strings.ToLower(strings.TrimSpace(t)) {
+	case "many2one", "m2o", "one2many", "o2m", "many2many", "m2m":
+		return true
+	}
+	return false
+}
+
+// IsManyToMany identifica los campos cuya relación vive en tabla aparte.
+func IsManyToMany(t string) bool {
+	switch strings.ToLower(strings.TrimSpace(t)) {
+	case "many2many", "m2m":
+		return true
+	}
+	return false
+}
+
+// IsStored dice si el campo es una columna real de la tabla del modelo.
+// Las relaciones m2m/o2m no lo son: o2m es derivada y m2m tiene su tabla.
+func IsStored(t string) bool {
+	switch strings.ToLower(strings.TrimSpace(t)) {
+	case "many2many", "m2m", "one2many", "o2m":
+		return false
+	}
+	return true
+}
+
 // WorkflowDef convierte un campo de opciones en una máquina de estados.
 //
 // El campo de "field" debe existir y traer "options": los mismos valores que ya
@@ -231,9 +261,9 @@ func (m *ModelDef) validate(moduleName string) error {
 		if strings.TrimSpace(f.Type) == "" {
 			return fmt.Errorf("el campo %q del modelo %q no declara tipo", f.Name, m.Name)
 		}
-		if strings.EqualFold(f.Type, "many2one") {
+		if IsRelational(f.Type) {
 			if f.RelatedModel == "" {
-				return fmt.Errorf("el campo %q es many2one pero no declara related_model", f.Name)
+				return fmt.Errorf("el campo %q es %s pero no declara related_model", f.Name, f.Type)
 			}
 			if !safeIdentRe.MatchString(f.RelatedModel) {
 				return fmt.Errorf("related_model inválido %q en el campo %q", f.RelatedModel, f.Name)

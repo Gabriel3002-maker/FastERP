@@ -81,6 +81,7 @@ func TestExportHandlerRouting(t *testing.T) {
 		c.Set("tenant_id", "test-tenant")
 		c.Set("db_conn", &mockQueryExec{})
 		c.Set("bypass_installed_check", true)
+		c.Set("is_admin", true)
 	})
 	h.RegisterModuleDataRoutes(apiGroup)
 
@@ -129,6 +130,7 @@ func TestImportHandlerMultipartRouting(t *testing.T) {
 		c.Set("tenant_id", "test-tenant")
 		c.Set("db_conn", &mockQueryExec{})
 		c.Set("bypass_installed_check", true)
+		c.Set("is_admin", true)
 	})
 	h.RegisterModuleDataRoutes(apiGroup)
 
