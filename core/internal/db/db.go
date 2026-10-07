@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -47,6 +48,20 @@ func Executor(c *gin.Context) QueryExecutor {
 		panic(fmt.Sprintf("db.Executor: unexpected db_conn type %T", v))
 	}
 	return conn
+}
+
+// BeginTenantTx abre una transacción sobre una conexión de tenant.
+//
+// QueryExecutor solo expone las tres operaciones de siempre; *sql.Tx también las
+// satisface, así que devolverlo permite encadenar escrituras atómicas en un
+// handler sin salir del aislamiento por tenant de la conexión. app.tenant_id se
+// fijó a nivel de sesión, y la transacción lo ve igual que las consultas sueltas.
+func BeginTenantTx(ctx context.Context, x QueryExecutor) (*sql.Tx, error) {
+	conn, ok := x.(*TenantConn)
+	if !ok {
+		return nil, fmt.Errorf("db.BeginTenantTx: esperaba TenantConn, recibió %T", x)
+	}
+	return conn.BeginTx(ctx, nil)
 }
 
 type ConnConfig struct {
@@ -175,6 +190,63 @@ func WithTenant(ctx context.Context, tenantID string, fn func(QueryExecutor) err
 	}
 	defer conn.Close()
 	return fn(conn)
+}
+
+// InstanceHasUsers reports whether any tenant on this instance already has at
+// least one user.
+//
+// It exists for the two moments where "the first account" is the whole question:
+// the setup wizard, which must refuse to run twice, and the seed, which must not
+// bolt an extra admin onto an instance that someone already set up through
+// /setup.
+//
+// The per-tenant walk is not a performance quirk. users carries FORCE ROW LEVEL
+// SECURITY, so from the shared pool — no app.tenant_id set — a plain COUNT(*)
+// returns 0 no matter how many rows exist, and both call sites would conclude
+// the instance is empty exactly when it is not. tenants itself is the registry
+// and is deliberately unprotected, so it is safe to enumerate from DB.
+func InstanceHasUsers(ctx context.Context) (bool, error) {
+	rows, err := DB.QueryContext(ctx, "SELECT id FROM tenants ORDER BY created_at, id")
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return false, err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+
+	for _, id := range ids {
+		var n int
+		if err := WithTenant(ctx, id, func(x QueryExecutor) error {
+			return x.QueryRowContext(ctx, "SELECT COUNT(*) FROM users").Scan(&n)
+		}); err != nil {
+			return false, err
+		}
+		if n > 0 {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// IsUniqueViolation reports whether err is a Postgres unique-constraint breach
+// (SQLSTATE 23505).
+//
+// Handlers translate it into a 409 instead of a 500, and doing that from the
+// driver error rather than from a prior SELECT closes the window where two
+// concurrent inserts both pass the check.
+func IsUniqueViolation(err error) bool {
+	var pqErr *pq.Error
+	return errors.As(err, &pqErr) && pqErr.Code == "23505"
 }
 
 // CheckRLSEnforcement reports whether the connecting role can bypass row-level

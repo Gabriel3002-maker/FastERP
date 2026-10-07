@@ -1,0 +1,103 @@
+name: CI
+
+# Dos trabajos, y el segundo no depende del primero: si el build está roto
+# conviene verlo en paralelo, no esperar al test.
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build, vet y gofmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        # Sin submodules: modules/ apunta a un repositorio privado y este
+        # workflow no lleva credenciales para él. Ninguna prueba de core lo
+        # necesita — las que miran el repositorio real se saltan solas.
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: core/go.mod
+          cache-dependency-path: core/go.sum
+
+      - name: gofmt
+        working-directory: core
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then
+            echo "Estos ficheros no pasan gofmt:"
+            echo "$out"
+            exit 1
+          fi
+
+      - name: go build
+        working-directory: core
+        run: go build ./...
+
+      - name: go vet
+        working-directory: core
+        run: go vet ./...
+
+  test:
+    name: go test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          # Superusuario de la base, solo para crear el rol de pruebas. Los
+          # tests se conectan con fasterp_test (ver docker/ci-test-role.sql).
+          POSTGRES_USER: fasterp_ci
+          POSTGRES_PASSWORD: fasterp_ci_pw
+          POSTGRES_DB: fasterp_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U fasterp_ci -d fasterp_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+          -v ${{ github.workspace }}/docker/ci-test-role.sql:/docker-entrypoint-initdb.d/99-ci-test-role.sql:ro
+
+    env:
+      # Los tests de esquema, RLS y búsqueda leen esta variable y si no está
+      # se saltan: sin ella la suite pasa en verde sin haber tocado Postgres
+      # ni una vez.
+      FASTERP_TEST_DATABASE_URL: postgres://fasterp_test:fasterp_test_pw@127.0.0.1:5432/fasterp_test?sslmode=disable
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: core/go.mod
+          cache-dependency-path: core/go.sum
+
+      - name: go test
+        shell: bash
+        run: |
+          set -o pipefail
+          cd core
+          go test -race -count=1 -v ./... | tee "$RUNNER_TEMP/test.log"
+
+      # Un test de RLS se salta, no falla, si el rol es superusuario o tiene
+      # BYPASSRLS: pasaría en verde sin medir nada. Este paso convierte ese
+      # salto en un rojo, que es para lo que existe.
+      - name: ningún test de RLS saltado por rol privilegiado
+        shell: bash
+        run: |
+          if grep -q 'puede saltarse RLS' "$RUNNER_TEMP/test.log"; then
+            echo "Un test de RLS se saltó porque el rol de la conexión puede saltarse las políticas."
+            grep -B2 -A6 'puede saltarse RLS' "$RUNNER_TEMP/test.log"
+            exit 1
+          fi
+          echo "Ningún test de RLS se saltó por privilegios del rol."

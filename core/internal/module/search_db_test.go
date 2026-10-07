@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -82,6 +83,8 @@ func TestDBSearchGroupIsAcceptedByPostgres(t *testing.T) {
 	t.Cleanup(func() { clearBusq(t, db) })
 
 	const tenant = "11111111-1111-1111-1111-111111111111"
+	conn := conTenant(t, db, tenant)
+
 	// Tres filas: una casa, una que trae el comodín, y otra que trae el escape.
 	rows := []struct{ name, email, notes string }{
 		{"Acme Industrial", "info@acme.test", "lluvia"},
@@ -90,7 +93,7 @@ func TestDBSearchGroupIsAcceptedByPostgres(t *testing.T) {
 		{"Otra", "otra@x.test", "nada"},
 	}
 	for _, r := range rows {
-		_, err := db.ExecContext(ctx,
+		_, err := conn.ExecContext(ctx,
 			`INSERT INTO mod_busq_lead (tenant_id, name, email, notes, state) VALUES ($1,$2,$3,$4,'nuevo')`,
 			tenant, r.name, r.email, r.notes)
 		if err != nil {
@@ -108,7 +111,7 @@ func TestDBSearchGroupIsAcceptedByPostgres(t *testing.T) {
 			if !f.Searchable {
 				continue
 			}
-			group = append(group, quoteIdent(f.Name)+" ILIKE ?")
+			group = append(group, quoteIdent(f.Name)+` ILIKE ? ESCAPE '\'`)
 			args = append(args, pattern)
 		}
 		if len(group) == 0 {
@@ -117,13 +120,13 @@ func TestDBSearchGroupIsAcceptedByPostgres(t *testing.T) {
 
 		qb := NewQueryBuilder(reg)
 		qb.Where("tenant_id", "=", tenant)
-		qb.WhereRaw("("+joinForTest(group, " OR ")+") ESCAPE '\\'", args...)
+		qb.WhereRaw("("+joinForTest(group, " OR ")+")", args...)
 
 		cols, query, qargs, err := qb.BuildSelect()
 		if err != nil {
 			t.Fatalf("BuildSelect: %v", err)
 		}
-		out, err := db.QueryContext(ctx, query, qargs...)
+		out, err := conn.QueryContext(ctx, query, qargs...)
 		if err != nil {
 			t.Fatalf("query %q: %v", query, err)
 		}
@@ -181,11 +184,20 @@ func TestDBSearchCannotEscapeItsTenant(t *testing.T) {
 		tenantA = "11111111-1111-1111-1111-111111111111"
 		tenantB = "22222222-2222-2222-2222-222222222222"
 	)
-	_, err := db.ExecContext(ctx,
-		`INSERT INTO mod_busq_lead (tenant_id, name, state) VALUES ($1,'Privado A','nuevo'), ($2,'Privado B','nuevo')`,
-		tenantA, tenantB)
-	if err != nil {
-		t.Fatalf("insert: %v", err)
+	// Cada fila se escribe con su tenant fijado en una conexión dedicada, que
+	// es como lo hace el middleware. Con FORCE ROW LEVEL SECURITY la política
+	// también cubre al dueño de la tabla, así que un INSERT sin contexto de
+	// tenant no es un estorbo del test: es exactamente lo que hay que impedir.
+	for _, r := range []struct{ tenant, name string }{
+		{tenantA, "Privado A"},
+		{tenantB, "Privado B"},
+	} {
+		conn := conTenant(t, db, r.tenant)
+		if _, err := conn.ExecContext(ctx,
+			`INSERT INTO mod_busq_lead (tenant_id, name, state) VALUES ($1,$2,'nuevo')`,
+			r.tenant, r.name); err != nil {
+			t.Fatalf("insert: %v", err)
+		}
 	}
 
 	// El módulo aplica RLS, así que la sesión necesita el tenant fijado para
@@ -210,12 +222,12 @@ func TestDBSearchCannotEscapeItsTenant(t *testing.T) {
 			if !f.Searchable {
 				continue
 			}
-			group = append(group, quoteIdent(f.Name)+" ILIKE ?")
+			group = append(group, quoteIdent(f.Name)+` ILIKE ? ESCAPE '\'`)
 			args = append(args, pattern)
 		}
 		qb := NewQueryBuilder(reg)
 		qb.Where("tenant_id", "=", tenant)
-		qb.WhereRaw("("+joinForTest(group, " OR ")+") ESCAPE '\\'", args...)
+		qb.WhereRaw("("+joinForTest(group, " OR ")+")", args...)
 
 		cols, query, qargs, err := qb.BuildSelect()
 		if err != nil {
@@ -272,8 +284,9 @@ func TestDBHistoryTableExistsAndRecordsTransitions(t *testing.T) {
 	}
 
 	const tenant = "11111111-1111-1111-1111-111111111111"
+	conn := conTenant(t, db, tenant)
 	var id string
-	if err := db.QueryRowContext(ctx,
+	if err := conn.QueryRowContext(ctx,
 		`INSERT INTO mod_busq_lead (tenant_id, name, state) VALUES ($1,'X','nuevo') RETURNING id`,
 		tenant).Scan(&id); err != nil {
 		t.Fatal(err)
@@ -283,7 +296,7 @@ func TestDBHistoryTableExistsAndRecordsTransitions(t *testing.T) {
 	// es lo que impide que dos personas a la vez se pisen.
 	wf := reg.Manifest.Workflow
 	tr := wf.Transitions["enviar"]
-	res, err := db.ExecContext(ctx,
+	res, err := conn.ExecContext(ctx,
 		fmt.Sprintf("UPDATE %s SET %s=$1 WHERE id=$2 AND tenant_id=$3 AND %s=$4",
 			table2(reg.TableName), quoteIdent(wf.Field), quoteIdent(wf.Field)),
 		tr.To, id, tenant, wf.Initial)
@@ -295,7 +308,7 @@ func TestDBHistoryTableExistsAndRecordsTransitions(t *testing.T) {
 	}
 
 	// Repetir la misma transición ya no vale: el registro está en "enviado".
-	res, err = db.ExecContext(ctx,
+	res, err = conn.ExecContext(ctx,
 		fmt.Sprintf("UPDATE %s SET %s=$1 WHERE id=$2 AND tenant_id=$3 AND %s=$4",
 			table2(reg.TableName), quoteIdent(wf.Field), quoteIdent(wf.Field)),
 		tr.To, id, tenant, wf.Initial)
@@ -306,14 +319,14 @@ func TestDBHistoryTableExistsAndRecordsTransitions(t *testing.T) {
 		t.Fatalf("replaying a transition updated %d rows, want 0", rows)
 	}
 
-	if _, err := db.ExecContext(ctx, fmt.Sprintf(
+	if _, err := conn.ExecContext(ctx, fmt.Sprintf(
 		`INSERT INTO %s (tenant_id, module_name, model_name, record_id, action, from_state, to_state)
 		 VALUES ($1,'busq','lead',$2,'enviar','nuevo','enviado')`, table), tenant, id); err != nil {
 		t.Fatal(err)
 	}
 
 	var from, to string
-	if err := db.QueryRowContext(ctx,
+	if err := conn.QueryRowContext(ctx,
 		fmt.Sprintf("SELECT from_state, to_state FROM %s WHERE record_id=$1", table), id).
 		Scan(&from, &to); err != nil {
 		t.Fatal(err)
@@ -350,12 +363,23 @@ func joinForTest(parts []string, sep string) string {
 
 func table2(name string) string { return quoteIdent(name) }
 
+// unqualify quita el alias de tabla de un nombre de columna devuelto por
+// Postgres: `base."name"` → `"name"`.
+func unqualify(col string) string {
+	if i := strings.LastIndex(col, "."); i >= 0 {
+		return col[i+1:]
+	}
+	return col
+}
+
 func readNames(rows *sql.Rows, cols []string) ([]string, error) {
 	var names []string
 	for rows.Next() {
 		idx := -1
 		for i, c := range cols {
-			if c == `"name"` {
+			// BuildSelect califica cada columna con el alias de la tabla
+			// (base."name"), y Postgres devuelve ese texto tal cual.
+			if strings.Trim(unqualify(c), `"`) == "name" {
 				idx = i
 			}
 		}
@@ -370,7 +394,14 @@ func readNames(rows *sql.Rows, cols []string) ([]string, error) {
 		if err := rows.Scan(ptrs...); err != nil {
 			return nil, err
 		}
-		names = append(names, string(vals[idx].([]byte)))
+		switch v := vals[idx].(type) {
+		case []byte:
+			names = append(names, string(v))
+		case string:
+			names = append(names, v)
+		default:
+			return nil, fmt.Errorf("unexpected type %T for name column", v)
+		}
 	}
 	return names, rows.Err()
 }

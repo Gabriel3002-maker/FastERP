@@ -219,7 +219,7 @@ func checkSecrets(cfg *config.Config) error {
 		return nil
 	}
 
-	msg := fmt.Sprintf("secretos de firma.mk debil o por defecto: %s", strings.Join(weak, ", "))
+	msg := fmt.Sprintf("secretos de firma débil o por defecto: %s", strings.Join(weak, ", "))
 	if cfg.Dev {
 		log.Printf("[WARN] %s; arranca solo porque FASTERP_DEV=true", msg)
 		return nil
@@ -233,7 +233,21 @@ func seedDefaultUsers(ctx context.Context) {
 		return
 	}
 
-	err := db.WithTenant(ctx, defaultTenantID, func(x db.QueryExecutor) error {
+	// Mirar solo el tenant default no basta: el asistente de /setup crea su
+	// cuenta en el slug que el operador escriba, y ese puede no ser "default".
+	// Sin esta comprobación, una instalación hecha desde /setup acabaría con un
+	// segundo administrador nuevo en cada arranque, con una contraseña sacada
+	// del entorno y sin que nadie lo pidiera.
+	anywhere, err := db.InstanceHasUsers(ctx)
+	if err != nil {
+		log.Printf("[WARN] Failed to check for existing users: %v", err)
+		return
+	}
+	if anywhere {
+		return
+	}
+
+	err = db.WithTenant(ctx, defaultTenantID, func(x db.QueryExecutor) error {
 		var count int
 		if err := x.QueryRowContext(ctx, "SELECT COUNT(*) FROM users").Scan(&count); err != nil {
 			return err
@@ -324,11 +338,11 @@ func seedDefaultModules(ctx context.Context, modulesDir string) {
 
 func moduleSeedPresets(modulesDir string) []struct {
 	name, version, label, description, author string
-	active bool
+	active                                    bool
 } {
 	presets := []struct {
 		name, version, label, description, author string
-		active bool
+		active                                    bool
 	}{
 		{"hello", "1.0.0", "Hello", "Hello World example module", "FastERP Team", true},
 		{"contacts", "1.0.0", "Contacts", "Simple contact management", "FastERP Team", true},
@@ -340,7 +354,7 @@ func moduleSeedPresets(modulesDir string) []struct {
 
 	out := make([]struct {
 		name, version, label, description, author string
-		active bool
+		active                                    bool
 	}, 0, len(presets))
 	for _, p := range presets {
 		if moduleSeedAssetPath(modulesDir, p.name) != "" {

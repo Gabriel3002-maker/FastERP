@@ -303,15 +303,26 @@
                     <span>Module Store</span>
                 </a>
                 {{/* El árbol del menú se resuelve en el servidor (module.Global.MenuTree())
-                     y se renderiza aquí una sola vez. Si el cliente lo vuelve a pintar a
-                     partir de /api/menus, aparece duplicado y rompe la fuente de verdad.
-                     La lista del tenant no está escrita en esta plantilla; está en el
-                     registry del core y el módulo activo se decide por installed_modules. */}}
+                     y se renderiza aquí una sola vez. El cliente no lo repinta a
+                     partir de /api/menus (aparecería duplicado); /api/menus solo
+                     dice qué entradas ocultar, y filterMenuByPermissions()
+                     (más abajo) las tacha sin tocar el resto de la estructura.
+                     La lista del tenant no está escrita en esta plantilla; está
+                     en el registry del core y el módulo activo se decide por
+                     installed_modules. */}}
                 {{template "menuTree" .Menus}}
             </div>
 
             <div class="nav-section">
                 <div class="nav-title">Administración</div>
+                <a href="/admin/usuarios" class="nav-item {{if eq .CurrentPage "usuarios"}}active{{end}}">
+                    <span class="nav-icon">👥</span>
+                    <span>Usuarios</span>
+                </a>
+                <a href="/admin/roles" class="nav-item {{if eq .CurrentPage "roles"}}active{{end}}">
+                    <span class="nav-icon">🎛️</span>
+                    <span>Roles</span>
+                </a>
                 <a href="/admin/audit" class="nav-item {{if eq .CurrentPage "audit"}}active{{end}}">
                     <span class="nav-icon">🔍</span>
                     <span>Auditoría</span>
@@ -364,6 +375,36 @@
             });
         }
 
+        // Oculta del sidebar las entradas de módulos que el usuario no puede leer.
+        //
+        // El árbol del menú se renderiza en el servidor (layout.html) y no se
+        // repinta: /api/menus es la lista de lo readable para este usuario, y aquí
+        // solo se tachan las entradas que no vienen. El servidor no puede filtrar
+        // al pintar porque las páginas /admin se sirven sin sesión.
+        async function filterMenuByPermissions() {
+            try {
+                const items = await FastClient.get('/api/menus');
+                const readable = new Set((items || []).map(i => (i.route || '').replace(/\/+$/, '')));
+                document.querySelectorAll('.nav-item[data-route]').forEach(a => {
+                    const route = (a.dataset.route || '').replace(/\/+$/, '');
+                    if (!readable.has(route)) a.style.display = 'none';
+                });
+                // Una sección sin entradas visibles no aporta nada: se quita del
+                // todo en vez de dejar un título huérfano sobre el vacío.
+                document.querySelectorAll('.nav-section').forEach(s => {
+                    const visible = Array.from(s.querySelectorAll('.nav-item'))
+                        .some(a => a.style.display !== 'none');
+                    if (!visible) s.style.display = 'none';
+                });
+            } catch (e) {
+                // Sin permiso para preguntar (o red a medias) el menú se queda
+                // como está: fallar en el filtrado no debe vaciar la navegación.
+                if (e && e.status !== 401 && e.status !== 403) {
+                    console.error('No se pudo filtrar el menú:', e);
+                }
+            }
+        }
+
         function escapeHtml(value) {
             return String(value ?? '').replace(/[&<>\"']/g, (char) => ({
                 '&': '&amp;',
@@ -376,6 +417,7 @@
 
         loadUserInfo();
         markActiveMenuItem();
+        filterMenuByPermissions();
 
         // ── Notificaciones (Chatter) ──
         const NOTIF_API = '/api/chatter/notifications';

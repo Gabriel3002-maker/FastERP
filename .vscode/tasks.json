@@ -25,13 +25,6 @@
       "problemMatcher": ["$go"]
     },
     {
-      "label": "Módulos: recompilar WASM",
-      "type": "shell",
-      "command": "for d in ../modules/*/; do if [ -f \"$d/main.go\" ]; then echo \"==> $(basename $d)\"; (cd \"$d\" && GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared -o module.wasm main.go) || echo \"    FALLO\"; fi; done",
-      "cwd": "${workspaceFolder}/core",
-      "problemMatcher": []
-    },
-    {
       "label": "Módulos: actualizar submodule",
       "type": "shell",
       "command": "git submodule update --init --recursive",

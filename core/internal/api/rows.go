@@ -200,7 +200,7 @@ func checkValue(f module.FieldMeta, val any) error {
 		if err != nil {
 			return fmt.Errorf("%s debe ser un número entero", f.Name)
 		}
-		if n > 1<<31-1 || n < -(1 << 31) {
+		if n > 1<<31-1 || n < -(1<<31) {
 			return fmt.Errorf("%s no cabe en un integer (32 bits)", f.Name)
 		}
 

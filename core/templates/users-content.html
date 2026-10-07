@@ -1,0 +1,553 @@
+<!-- Header -->
+<div class="header">
+    <h1>👥 Usuarios</h1>
+    <p>Cuentas de este tenant, sus privilegios de administrador y su estado</p>
+</div>
+
+<!-- Toolbar -->
+<div class="users-toolbar">
+    <input type="search" id="userSearch" placeholder="Buscar por nombre o email…" autocomplete="off">
+    <button type="button" class="users-btn users-btn-primary" id="btnNewUser">+ Nuevo usuario</button>
+</div>
+
+<!-- Aviso -->
+<div id="usersAlert" class="users-alert" style="display:none;"></div>
+
+<!-- Loading -->
+<div id="usersLoading" class="loading">
+    <div class="spinner"></div>
+</div>
+
+<!-- Table -->
+<div id="usersTableWrap" style="display:none;">
+    <table class="users-table">
+        <thead>
+            <tr>
+                <th>Usuario</th>
+                <th>Email</th>
+                <th>Rol</th>
+                <th>Estado</th>
+                <th>Creado</th>
+                <th class="users-actions-col">Acciones</th>
+            </tr>
+        </thead>
+        <tbody id="usersTbody"></tbody>
+    </table>
+</div>
+
+<!-- Empty State -->
+<div id="usersEmpty" class="empty-state" style="display:none;">
+    <div class="empty-state-icon">👥</div>
+    <h2>Sin usuarios</h2>
+    <p id="usersEmptyDetail">Todavía no hay cuentas en este tenant.</p>
+</div>
+
+<!-- Modal: crear / editar -->
+<div id="userModal" class="users-modal" style="display:none;">
+    <div class="users-modal-box">
+        <div class="users-modal-head">
+            <h3 id="userModalTitle">Nuevo usuario</h3>
+            <button type="button" class="users-close" data-close="userModal" aria-label="Cerrar">×</button>
+        </div>
+        <form id="userForm" novalidate>
+            <label class="users-field">
+                <span>Usuario</span>
+                <input type="text" id="f_username" autocomplete="off" required>
+            </label>
+            <label class="users-field">
+                <span>Email</span>
+                <input type="email" id="f_email" autocomplete="off" required>
+            </label>
+            <label class="users-field" id="passwordField">
+                <span>Contraseña</span>
+                <input type="password" id="f_password" autocomplete="new-password" placeholder="Entre 8 y 72 caracteres">
+            </label>
+            <label class="users-check">
+                <input type="checkbox" id="f_is_admin">
+                <span>Administrador (puede gestionar usuarios, módulos y copias)</span>
+            </label>
+            <label class="users-check" id="activeField">
+                <input type="checkbox" id="f_active" checked>
+                <span>Cuenta activa</span>
+            </label>
+            <div class="users-modal-actions">
+                <button type="button" class="users-btn" data-close="userModal">Cancelar</button>
+                <button type="submit" class="users-btn users-btn-primary" id="userSubmit">Guardar</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal: restablecer contraseña -->
+<div id="passwordModal" class="users-modal" style="display:none;">
+    <div class="users-modal-box">
+        <div class="users-modal-head">
+            <h3>Restablecer contraseña</h3>
+            <button type="button" class="users-close" data-close="passwordModal" aria-label="Cerrar">×</button>
+        </div>
+        <p class="users-hint">De <strong id="pwTarget"></strong>. Al guardar se cierran las sesiones abiertas de esa cuenta.</p>
+        <form id="passwordForm" novalidate>
+            <label class="users-field">
+                <span>Nueva contraseña</span>
+                <input type="password" id="f_new_password" autocomplete="new-password" required>
+            </label>
+            <div class="users-modal-actions">
+                <button type="button" class="users-btn" data-close="passwordModal">Cancelar</button>
+                <button type="submit" class="users-btn users-btn-primary">Restablecer</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<style>
+.users-toolbar {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.users-toolbar input {
+    flex: 1;
+    max-width: 340px;
+    padding: 10px 14px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 14px;
+}
+
+.users-btn {
+    padding: 10px 16px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.users-btn:hover:not(:disabled) {
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
+.users-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.users-btn-primary {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
+}
+
+.users-btn-primary:hover:not(:disabled) {
+    background: var(--primary-hover);
+    color: #fff;
+}
+
+.users-btn-danger {
+    color: #ae2a19;
+}
+
+.users-btn-danger:hover:not(:disabled) {
+    border-color: #ae2a19;
+    color: #ae2a19;
+}
+
+.users-alert {
+    padding: 12px 16px;
+    border-radius: 6px;
+    margin-bottom: 20px;
+    font-size: 14px;
+    background: rgba(174, 42, 25, 0.12);
+    border: 1px solid rgba(174, 42, 25, 0.3);
+    color: #ae2a19;
+}
+
+.users-alert.is-ok {
+    background: rgba(46, 125, 50, 0.12);
+    border-color: rgba(46, 125, 50, 0.3);
+    color: #2e7d32;
+}
+
+.users-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.users-table th,
+.users-table td {
+    padding: 12px 14px;
+    text-align: left;
+    font-size: 14px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+}
+
+.users-table th {
+    background: var(--bg-primary);
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-secondary);
+}
+
+.users-table tr:last-child td {
+    border-bottom: none;
+}
+
+.users-actions-col {
+    text-align: right !important;
+}
+
+.users-actions {
+    display: flex;
+    gap: 6px;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+}
+
+.users-actions .users-btn {
+    padding: 5px 10px;
+    font-size: 12px;
+}
+
+.users-tag {
+    display: inline-block;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+}
+
+.users-tag-admin {
+    background: rgba(102, 126, 234, 0.15);
+    border-color: rgba(102, 126, 234, 0.4);
+    color: #667eea;
+}
+
+.users-tag-on {
+    background: rgba(46, 125, 50, 0.15);
+    border-color: rgba(46, 125, 50, 0.4);
+    color: #2e7d32;
+}
+
+.users-tag-off {
+    background: rgba(174, 42, 25, 0.15);
+    border-color: rgba(174, 42, 25, 0.4);
+    color: #ae2a19;
+}
+
+.users-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+}
+
+.users-modal-box {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 26px;
+    width: min(440px, 92vw);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+}
+
+.users-modal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 18px;
+}
+
+.users-modal-head h3 {
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.users-close {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 24px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.users-field {
+    display: block;
+    margin-bottom: 14px;
+}
+
+.users-field span {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 5px;
+}
+
+.users-field input {
+    width: 100%;
+    padding: 9px 12px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 14px;
+    box-sizing: border-box;
+}
+
+.users-check {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    font-size: 13px;
+    color: var(--text-primary);
+    margin-bottom: 10px;
+    cursor: pointer;
+}
+
+.users-check input {
+    margin-top: 2px;
+}
+
+.users-hint {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 16px;
+}
+
+.users-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 20px;
+}
+</style>
+
+<script nonce="{{.Nonce}}">
+// Todas las llamadas van por FastClient, que añade el token, el tenant y
+// refresca si hace falta. Ninguna contraseña se guarda ni se reenvía desde aquí:
+// la del formulario solo viaja al crear o al restablecer.
+let usersCache = [];
+let editingId = null;
+let resetTarget = null;
+let meId = null;
+
+const $ = (id) => document.getElementById(id);
+
+function esc(value) {
+    return String(value ?? '').replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    })[c]);
+}
+
+function alertMsg(text, ok) {
+    const box = $('usersAlert');
+    if (!text) { box.style.display = 'none'; box.textContent = ''; return; }
+    box.textContent = text;
+    box.className = 'users-alert' + (ok ? ' is-ok' : '');
+    box.style.display = 'block';
+    if (ok) setTimeout(() => alertMsg(''), 4000);
+}
+
+function show(id, on) { $(id).style.display = on ? 'flex' : 'none'; }
+
+function render() {
+    const q = $('userSearch').value.trim().toLowerCase();
+    const rows = usersCache.filter(u =>
+        !q || u.username.toLowerCase().includes(q) || (u.email || '').toLowerCase().includes(q)
+    );
+
+    $('usersLoading').style.display = 'none';
+
+    if (rows.length === 0) {
+        $('usersTableWrap').style.display = 'none';
+        $('usersEmpty').style.display = 'block';
+        $('usersEmptyDetail').textContent = q
+            ? 'Ningún usuario coincide con la búsqueda.'
+            : 'Todavía no hay cuentas en este tenant.';
+        return;
+    }
+
+    $('usersTbody').innerHTML = rows.map(u => {
+        const self = u.id === meId;
+        const actions = [
+            `<button type="button" class="users-btn" data-edit="${esc(u.id)}">Editar</button>`,
+            `<button type="button" class="users-btn" data-pw="${esc(u.id)}">Contraseña</button>`,
+            // No se puede desactivar la propia cuenta ni, sin más administradores
+            // vivos, a un admin: el servidor también lo rechaza, pero el botón
+            // no se ofrece para que no haya un error que el usuario no puede
+            // evitar. id="me" se marca después de cargar /api/me.
+            `<button type="button" class="users-btn ${u.active ? 'users-btn-danger' : ''}" data-toggle="${esc(u.id)}" ${self ? 'disabled' : ''}>${u.active ? 'Desactivar' : 'Activar'}</button>`,
+        ].join('');
+
+        return `<tr>
+            <td><strong>${esc(u.username)}</strong>${self ? ' <span class="users-tag">tú</span>' : ''}</td>
+            <td>${esc(u.email)}</td>
+            <td>${u.is_admin ? '<span class="users-tag users-tag-admin">Administrador</span>' : '<span class="users-tag">Usuario</span>'}</td>
+            <td>${u.active ? '<span class="users-tag users-tag-on">Activo</span>' : '<span class="users-tag users-tag-off">Inactivo</span>'}</td>
+            <td>${esc(new Date(u.created_at).toLocaleDateString('es-ES'))}</td>
+            <td><div class="users-actions">${actions}</div></td>
+        </tr>`;
+    }).join('');
+
+    $('usersTableWrap').style.display = 'block';
+    $('usersEmpty').style.display = 'none';
+}
+
+async function load() {
+    try {
+        const [list, me] = await Promise.all([
+            FastClient.get('/api/admin/users'),
+            FastClient.get('/api/me'),
+        ]);
+        usersCache = Array.isArray(list) ? list : [];
+        meId = me && me.id;
+    } catch (error) {
+        $('usersLoading').style.display = 'none';
+        $('usersEmpty').style.display = 'block';
+        $('usersEmptyDetail').textContent = error.status === 403
+            ? 'Solo un administrador puede ver las cuentas del tenant.'
+            : 'No se pudieron cargar los usuarios: ' + error.message;
+        return;
+    }
+    render();
+}
+
+function openUserModal(user) {
+    editingId = user ? user.id : null;
+    $('userModalTitle').textContent = user ? 'Editar usuario' : 'Nuevo usuario';
+    $('f_username').value = user ? user.username : '';
+    $('f_email').value = user ? user.email : '';
+    $('f_password').value = '';
+    $('f_is_admin').checked = user ? !!user.is_admin : false;
+    $('f_active').checked = user ? !!user.active : true;
+    // La contraseña solo se pide al crear. Editarla es el botón "Contraseña".
+    $('passwordField').style.display = user ? 'none' : 'block';
+    // Ocultar "cuenta activa" al crear: siempre nace activa.
+    $('activeField').style.display = user ? 'flex' : 'none';
+    $('userSubmit').disabled = false;
+    show('userModal', true);
+    $('f_username').focus();
+}
+
+async function submitUser(e) {
+    e.preventDefault();
+    const username = $('f_username').value.trim();
+    const email = $('f_email').value.trim();
+
+    if (!username || !email) { alertMsg('Usuario y email son obligatorios.'); return; }
+
+    const payload = { username, email, is_admin: $('f_is_admin').checked };
+    if (editingId) {
+        payload.active = $('f_active').checked;
+    } else {
+        payload.password = $('f_password').value;
+        if (!payload.password) { alertMsg('La contraseña es obligatoria.'); return; }
+    }
+
+    $('userSubmit').disabled = true;
+    try {
+        if (editingId) {
+            await FastClient.put('/api/admin/users/' + encodeURIComponent(editingId), payload);
+            alertMsg('Usuario actualizado.', true);
+        } else {
+            await FastClient.post('/api/admin/users', payload);
+            alertMsg('Usuario creado.', true);
+        }
+        show('userModal', false);
+        await load();
+    } catch (error) {
+        alertMsg(error.message);
+    } finally {
+        $('userSubmit').disabled = false;
+    }
+}
+
+async function submitPassword(e) {
+    e.preventDefault();
+    if (!resetTarget) return;
+    const password = $('f_new_password').value;
+    if (!password) { alertMsg('La contraseña es obligatoria.'); return; }
+
+    try {
+        await FastClient.post(
+            '/api/admin/users/' + encodeURIComponent(resetTarget) + '/password',
+            { password },
+        );
+        show('passwordModal', false);
+        $('f_new_password').value = '';
+        alertMsg('Contraseña restablecida. Las sesiones de esa cuenta se han cerrado.', true);
+    } catch (error) {
+        alertMsg(error.message);
+    }
+}
+
+async function toggle(id) {
+    try {
+        await FastClient.post('/api/admin/users/' + encodeURIComponent(id) + '/toggle');
+        await load();
+    } catch (error) {
+        alertMsg(error.message);
+    }
+}
+
+document.addEventListener('click', (e) => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+
+    if (btn.dataset.close) { show(btn.dataset.close, false); return; }
+    if (btn.id === 'btnNewUser') { alertMsg(''); openUserModal(null); return; }
+    if (btn.dataset.edit) {
+        const u = usersCache.find(x => x.id === btn.dataset.edit);
+        if (u) { alertMsg(''); openUserModal(u); }
+        return;
+    }
+    if (btn.dataset.pw) {
+        const u = usersCache.find(x => x.id === btn.dataset.pw);
+        if (!u) return;
+        resetTarget = u.id;
+        $('pwTarget').textContent = u.username;
+        $('f_new_password').value = '';
+        show('passwordModal', true);
+        $('f_new_password').focus();
+        return;
+    }
+    if (btn.dataset.toggle) { alertMsg(''); toggle(btn.dataset.toggle); }
+});
+
+// Cerrar con Escape y al pulsar fuera de la caja. Es lo que la gente espera de
+// un modal, y sin ello hay que acertar al botón "Cancelar" o a la ×.
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { show('userModal', false); show('passwordModal', false); }
+});
+
+document.querySelectorAll('.users-modal').forEach(m => {
+    m.addEventListener('click', (e) => { if (e.target === m) m.style.display = 'none'; });
+});
+
+$('userForm').addEventListener('submit', submitUser);
+$('passwordForm').addEventListener('submit', submitPassword);
+$('userSearch').addEventListener('input', render);
+
+load();
+</script>

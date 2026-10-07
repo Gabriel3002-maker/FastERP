@@ -61,6 +61,8 @@ func TestRegisterRoutesNoRompeElArbol(t *testing.T) {
 		{"/admin", "Dashboard-fm"},
 		{"/admin/modules", "ModuleStore-fm"},
 		{"/admin/audit", "Audit-fm"},
+		{"/admin/usuarios", "Usuarios-fm"},
+		{"/admin/roles", "Roles-fm"},
 		{"/admin/:page", "ModulePage-fm"},
 		{"/admin/:page/*rest", "ModulePage-fm"},
 		{"/modules/*path", "serveModuleAsset"},
@@ -73,7 +75,7 @@ func TestRegisterRoutesNoRompeElArbol(t *testing.T) {
 	// Las literales tienen que existir por su cuenta. Si "/admin/modules" se
 	// sirviera con el parámetro ":page", el parámetro gana en gin y la tienda de
 	// módulos quedaría inalcanzable.
-	for _, path := range []string{"/admin/modules", "/admin/audit"} {
+	for _, path := range []string{"/admin/modules", "/admin/audit", "/admin/usuarios", "/admin/roles"} {
 		for _, ri := range r.Routes() {
 			if ri.Path == path && strings.Contains(ri.Handler, "ModulePage") {
 				t.Errorf("%s no debe resolver a ModulePage", path)

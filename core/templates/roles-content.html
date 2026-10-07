@@ -1,0 +1,755 @@
+<!-- Cabecera -->
+<div class="header">
+    <h1>🎛️ Roles</h1>
+    <p>Agrupa permisos en roles y asígnalos a los usuarios del tenant</p>
+</div>
+
+<!-- Barra de acciones -->
+<div class="roles-toolbar">
+    <input type="search" id="roleSearch" placeholder="Buscar por nombre…" autocomplete="off">
+    <button type="button" class="roles-btn roles-btn-primary" id="btnNewRole">+ Nuevo rol</button>
+</div>
+
+<!-- Avisos -->
+<div id="rolesAlert" class="roles-alert" style="display:none;"></div>
+
+<!-- Carga -->
+<div id="rolesLoading" class="loading">
+    <div class="spinner"></div>
+</div>
+
+<!-- Tabla -->
+<div id="rolesTableWrap" style="display:none;">
+    <table class="roles-table">
+        <thead>
+            <tr>
+                <th>Rol</th>
+                <th>Descripción</th>
+                <th>Creado</th>
+                <th class="roles-actions-col">Acciones</th>
+            </tr>
+        </thead>
+        <tbody id="rolesTbody"></tbody>
+    </table>
+</div>
+
+<!-- Estado vacío -->
+<div id="rolesEmpty" class="empty-state" style="display:none;">
+    <div class="empty-state-icon">🎛️</div>
+    <h2>Sin roles</h2>
+    <p id="rolesEmptyDetail">Todavía no hay roles en este tenant. Crea el primero para empezar a conceder permisos.</p>
+</div>
+
+<!-- Modal: crear / editar rol -->
+<div id="roleModal" class="roles-modal" style="display:none;">
+    <div class="roles-modal-box">
+        <div class="roles-modal-head">
+            <h3 id="roleModalTitle">Nuevo rol</h3>
+            <button type="button" class="roles-close" data-close="roleModal" aria-label="Cerrar">×</button>
+        </div>
+        <form id="roleForm" novalidate>
+            <label class="roles-field">
+                <span>Nombre</span>
+                <input type="text" id="f_name" autocomplete="off" maxlength="100" required>
+            </label>
+            <label class="roles-field">
+                <span>Descripción</span>
+                <textarea id="f_description" rows="3" maxlength="500" placeholder="Qué puede hacer este rol…"></textarea>
+            </label>
+            <div class="roles-modal-actions">
+                <button type="button" class="roles-btn" data-close="roleModal">Cancelar</button>
+                <button type="submit" class="roles-btn roles-btn-primary" id="roleSubmit">Guardar</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal: permisos de un rol -->
+<div id="permModal" class="roles-modal" style="display:none;">
+    <div class="roles-modal-box roles-modal-wide">
+        <div class="roles-modal-head">
+            <h3 id="permModalTitle">Permisos</h3>
+            <button type="button" class="roles-close" data-close="permModal" aria-label="Cerrar">×</button>
+        </div>
+        <p class="roles-hint" id="permHint"></p>
+        <div id="permBody" class="roles-loading-block">Cargando…</div>
+        <div class="roles-modal-actions">
+            <button type="button" class="roles-btn" data-close="permModal">Cancelar</button>
+            <button type="submit" class="roles-btn roles-btn-primary" id="permSave">Guardar</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: usuarios con este rol -->
+<div id="assignModal" class="roles-modal" style="display:none;">
+    <div class="roles-modal-box roles-modal-wide">
+        <div class="roles-modal-head">
+            <h3 id="assignModalTitle">Usuarios</h3>
+            <button type="button" class="roles-close" data-close="assignModal" aria-label="Cerrar">×</button>
+        </div>
+        <p class="roles-hint" id="assignHint"></p>
+        <div id="assignBody" class="roles-loading-block">Cargando…</div>
+        <div class="roles-modal-actions">
+            <button type="button" class="roles-btn" data-close="assignModal">Cancelar</button>
+            <button type="button" class="roles-btn roles-btn-primary" id="assignSave">Guardar</button>
+        </div>
+    </div>
+</div>
+
+<style>
+.roles-toolbar {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.roles-toolbar input {
+    flex: 1;
+    max-width: 340px;
+    padding: 10px 14px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 14px;
+}
+
+.roles-btn {
+    padding: 10px 16px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.roles-btn:hover:not(:disabled) {
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
+.roles-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.roles-btn-primary {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
+}
+
+.roles-btn-primary:hover:not(:disabled) {
+    background: var(--primary-hover);
+    color: #fff;
+}
+
+.roles-btn-danger {
+    color: #ae2a19;
+}
+
+.roles-btn-danger:hover:not(:disabled) {
+    border-color: #ae2a19;
+    color: #ae2a19;
+}
+
+.roles-alert {
+    padding: 12px 16px;
+    border-radius: 6px;
+    margin-bottom: 20px;
+    font-size: 14px;
+    background: rgba(174, 42, 25, 0.12);
+    border: 1px solid rgba(174, 42, 25, 0.3);
+    color: #ae2a19;
+}
+
+.roles-alert.is-ok {
+    background: rgba(46, 125, 50, 0.12);
+    border-color: rgba(46, 125, 50, 0.3);
+    color: #2e7d32;
+}
+
+.roles-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.roles-table th,
+.roles-table td {
+    padding: 12px 14px;
+    text-align: left;
+    font-size: 14px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+}
+
+.roles-table th {
+    background: var(--bg-primary);
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-secondary);
+}
+
+.roles-table tr:last-child td {
+    border-bottom: none;
+}
+
+.roles-actions-col {
+    text-align: right !important;
+}
+
+.roles-actions {
+    display: flex;
+    gap: 6px;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+}
+
+.roles-actions .roles-btn {
+    padding: 5px 10px;
+    font-size: 12px;
+}
+
+.roles-desc {
+    color: var(--text-secondary);
+    font-size: 13px;
+    max-width: 420px;
+}
+
+.roles-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+}
+
+.roles-modal-box {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 26px;
+    width: min(440px, 92vw);
+    max-height: 88vh;
+    overflow-y: auto;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+}
+
+.roles-modal-wide {
+    width: min(860px, 94vw);
+}
+
+.roles-modal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 18px;
+}
+
+.roles-modal-head h3 {
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.roles-close {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 24px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.roles-field {
+    display: block;
+    margin-bottom: 14px;
+}
+
+.roles-field span {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 5px;
+}
+
+.roles-field input,
+.roles-field textarea {
+    width: 100%;
+    padding: 9px 12px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 14px;
+    box-sizing: border-box;
+    font-family: inherit;
+    resize: vertical;
+}
+
+.roles-hint {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 16px;
+}
+
+.roles-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 20px;
+}
+
+/* Editor de permisos */
+.roles-perm-module {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 14px;
+    overflow: hidden;
+}
+
+.roles-perm-module-head {
+    padding: 10px 14px;
+    background: var(--bg-primary);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.roles-perm-module-head strong {
+    font-size: 14px;
+    color: var(--text-primary);
+}
+
+.roles-perm-module-head code {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.roles-perm-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border);
+}
+
+.roles-perm-row:last-child {
+    border-bottom: none;
+}
+
+.roles-perm-row-label {
+    font-size: 13px;
+    color: var(--text-primary);
+    min-width: 150px;
+}
+
+.roles-perm-actions {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+}
+
+.roles-perm-actions label {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.roles-perm-actions input {
+    accent-color: var(--primary);
+}
+
+/* Asignación de usuarios */
+.roles-assign-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.roles-assign-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 4px;
+    border-bottom: 1px solid var(--border);
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.roles-assign-row:last-child {
+    border-bottom: none;
+}
+
+.roles-assign-row input[type="checkbox"] {
+    accent-color: var(--primary);
+}
+
+.roles-assign-name {
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.roles-assign-email {
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.roles-loading-block {
+    padding: 24px 0;
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+</style>
+
+<script nonce="{{.Nonce}}">
+// Todas las llamadas van por FastClient (token + tenant + refresco). El editor
+// de permisos trabaja sobre una copia y solo contacta con /api/admin al guardar.
+let rolesCache = [];
+let editingRoleId = null;
+
+// Estado de los dos editores mientras el modal está abierto.
+let permTarget = null;   // rol cuyos permisos se editan
+let assignTarget = null; // rol que se está asignando
+let userRoles = {};      // user_id -> Set(rol_ids) actuales en la base
+let assignState = {};    // user_id -> checkbox del modal (lo que se va a guardar)
+
+const $ = (id) => document.getElementById(id);
+
+function esc(value) {
+    return String(value ?? '').replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    })[c]);
+}
+
+function alertMsg(text, ok) {
+    const box = $('rolesAlert');
+    if (!text) { box.style.display = 'none'; box.textContent = ''; return; }
+    box.textContent = text;
+    box.className = 'roles-alert' + (ok ? ' is-ok' : '');
+    box.style.display = 'block';
+    if (ok) setTimeout(() => alertMsg(''), 4000);
+}
+
+function show(id, on) { $(id).style.display = on ? 'flex' : 'none'; }
+
+function render() {
+    const q = $('roleSearch').value.trim().toLowerCase();
+    const rows = rolesCache.filter(r =>
+        !q || r.name.toLowerCase().includes(q) || (r.description || '').toLowerCase().includes(q)
+    );
+
+    $('rolesLoading').style.display = 'none';
+
+    if (rows.length === 0) {
+        $('rolesTableWrap').style.display = 'none';
+        $('rolesEmpty').style.display = 'block';
+        $('rolesEmptyDetail').textContent = q
+            ? 'Ningún rol coincide con la búsqueda.'
+            : 'Todavía no hay roles en este tenant.';
+        return;
+    }
+
+    $('rolesTbody').innerHTML = rows.map(r => {
+        const actions = [
+            `<button type="button" class="roles-btn" data-perms="${esc(r.id)}">Permisos</button>`,
+            `<button type="button" class="roles-btn" data-assign="${esc(r.id)}">Usuarios</button>`,
+            `<button type="button" class="roles-btn" data-edit="${esc(r.id)}">Editar</button>`,
+            `<button type="button" class="roles-btn roles-btn-danger" data-del="${esc(r.id)}">Borrar</button>`,
+        ].join('');
+
+        return `<tr>
+            <td><strong>${esc(r.name)}</strong></td>
+            <td class="roles-desc">${esc(r.description || '—')}</td>
+            <td>${esc(new Date(r.created_at).toLocaleDateString('es-ES'))}</td>
+            <td><div class="roles-actions">${actions}</div></td>
+        </tr>`;
+    }).join('');
+
+    $('rolesTableWrap').style.display = 'block';
+    $('rolesEmpty').style.display = 'none';
+}
+
+async function load() {
+    try {
+        const list = await FastClient.get('/api/admin/roles');
+        rolesCache = Array.isArray(list) ? list : [];
+    } catch (error) {
+        $('rolesLoading').style.display = 'none';
+        $('rolesEmpty').style.display = 'block';
+        $('rolesEmptyDetail').textContent = error.status === 403
+            ? 'Solo un administrador puede ver los roles del tenant.'
+            : 'No se pudieron cargar los roles: ' + error.message;
+        return;
+    }
+    render();
+}
+
+function openRoleModal(role) {
+    editingRoleId = role ? role.id : null;
+    $('roleModalTitle').textContent = role ? 'Editar rol' : 'Nuevo rol';
+    $('f_name').value = role ? role.name : '';
+    $('f_description').value = role ? (role.description || '') : '';
+    $('roleSubmit').disabled = false;
+    show('roleModal', true);
+    $('f_name').focus();
+}
+
+async function submitRole(e) {
+    e.preventDefault();
+    const name = $('f_name').value.trim();
+    if (!name) { alertMsg('El nombre es obligatorio.'); return; }
+
+    const payload = { name, description: $('f_description').value.trim() };
+    $('roleSubmit').disabled = true;
+    try {
+        if (editingRoleId) {
+            await FastClient.put('/api/admin/roles/' + encodeURIComponent(editingRoleId), payload);
+            alertMsg('Rol actualizado.', true);
+        } else {
+            await FastClient.post('/api/admin/roles', payload);
+            alertMsg('Rol creado.', true);
+        }
+        show('roleModal', false);
+        await load();
+    } catch (error) {
+        alertMsg(error.message);
+    } finally {
+        $('roleSubmit').disabled = false;
+    }
+}
+
+async function delRole(id) {
+    const role = rolesCache.find(r => r.id === id);
+    if (!role) return false;
+    if (!confirm('¿Borrar el rol "' + role.name + '"? Se quitará de todos los usuarios que lo tengan.')) return;
+    try {
+        await FastClient.del('/api/admin/roles/' + encodeURIComponent(id));
+        alertMsg('Rol borrado.', true);
+        await load();
+    } catch (error) {
+        alertMsg(error.message);
+    }
+}
+
+// ── Editor de permisos ──────────────────────────────────────────────────────
+// El catálogo es la única fuente de lo concedible: viene de los módulos activos
+// y de los modelos que declaran. Los recuadros de abajo se pintan desde él y
+// las acciones que marque el admin solo pueden ser read/create/update/delete.
+async function renderPermModal(role) {
+    $('permModalTitle').textContent = 'Permisos de ' + role.name;
+    $('permHint').textContent = 'Solo lo que marques aquí contará: los usuarios que hereden este rol podrán hacer exactamente estas acciones sobre estos modelos.';
+    $('permBody').textContent = 'Cargando…';
+
+    let catalog, current;
+    try {
+        [catalog, current] = await Promise.all([
+            FastClient.get('/api/admin/permissions/catalog'),
+            FastClient.get('/api/admin/roles/' + encodeURIComponent(role.id) + '/permissions'),
+        ]);
+    } catch (error) {
+        $('permBody').textContent = 'No se pudo cargar el catálogo de permisos: ' + error.message;
+        return;
+    }
+
+    const granted = new Set((current || []).map(p => `${p.module}|${p.model}|${p.action}`));
+
+    const labelMap = { read: 'Leer', create: 'Crear', update: 'Editar', delete: 'Borrar' };
+    const actionOrder = ['read', 'create', 'update', 'delete'];
+
+    if (!catalog || catalog.length === 0) {
+        $('permBody').innerHTML = '<p class="roles-hint">No hay módulos activos en este tenant: no hay nada que conceder todavía.</p>';
+        return;
+    }
+
+    $('permBody').innerHTML = catalog.map(mod => `
+        <div class="roles-perm-module">
+            <div class="roles-perm-module-head">
+                <strong>${esc(mod.label || mod.module)}</strong>
+                <code>${esc(mod.module)}</code>
+            </div>
+            ${(mod.models || []).map(m => `
+                <div class="roles-perm-row">
+                    <span class="roles-perm-row-label">${esc(m.label || m.model)}</span>
+                    <span class="roles-perm-actions">
+                        ${actionOrder.map(a => `
+                            <label>
+                                <input type="checkbox" data-key="${esc(mod.module)}|${esc(m.model)}|${a}" ${granted.has(`${mod.module}|${m.model}|${a}`) ? 'checked' : ''}>
+                                ${esc(labelMap[a] || a)}
+                            </label>
+                        `).join('')}
+                    </span>
+                </div>
+            `).join('')}
+        </div>
+    `).join('');
+}
+
+async function savePerms() {
+    const perms = [];
+    $('permBody').querySelectorAll('input[type="checkbox"]:checked').forEach(cb => {
+        const [module, model, action] = cb.dataset.key.split('|');
+        perms.push({ module, model, action });
+    });
+    perms.sort((a, b) =>
+        a.module.localeCompare(b.module) || a.model.localeCompare(b.model) || a.action.localeCompare(b.action));
+
+    $('permSave').disabled = true;
+    try {
+        await FastClient.put(
+            '/api/admin/roles/' + encodeURIComponent(permTarget.id) + '/permissions',
+            { permissions: perms },
+        );
+        show('permModal', false);
+        alertMsg('Permisos guardados.', true);
+    } catch (error) {
+        alertMsg(error.message);
+    } finally {
+        $('permSave').disabled = false;
+    }
+}
+
+// ── Asignación de usuarios ───────────────────────────────────────────────────
+// El backend trata las roles de un usuario como un conjunto: PUT con lo que no
+// venga, desaparece. Aquí se trabaja con el conjunto completo de cada usuario y
+// se reenvía entero solo a los que muevan algo.
+async function renderAssignModal(role) {
+    $('assignModalTitle').textContent = 'Usuarios con el rol ' + role.name;
+    $('assignHint').textContent = 'Ojo: a un usuario sin ningún rol el backend le da acceso completo por defecto. La primera asignación enciende el modo restrictivo para esa cuenta: a partir de ahí solo verá lo que los roles concedan.';
+    $('assignBody').textContent = 'Cargando…';
+
+    let users;
+    try {
+        users = Array.isArray(await FastClient.get('/api/admin/users')) ? await FastClient.get('/api/admin/users') : [];
+    } catch (error) {
+        $('assignBody').textContent = 'No se pudieron cargar los usuarios: ' + error.message;
+        return;
+    }
+
+    userRoles = {};
+    assignState = {};
+    try {
+        await Promise.all(users.map(async u => {
+            const roles = await FastClient.get('/api/admin/users/' + encodeURIComponent(u.id) + '/roles');
+            userRoles[u.id] = new Set((roles || []).map(r => r.id));
+            assignState[u.id] = userRoles[u.id].has(role.id);
+        }));
+    } catch (error) {
+        $('assignBody').textContent = 'No se pudieron leer los roles de los usuarios: ' + error.message;
+        return;
+    }
+
+    $('assignBody').innerHTML = '<div class="roles-assign-list">' + users.map(u => `
+        <label class="roles-assign-row">
+            <input type="checkbox" data-user="${esc(u.id)}" ${assignState[u.id] ? 'checked' : ''}>
+            <span class="roles-assign-name">${esc(u.username)}</span>
+            <span class="roles-assign-email">${esc(u.email || '')}</span>
+        </label>
+    `).join('') + '</div>';
+}
+
+$('assignBody').addEventListener('change', (e) => {
+    const cb = e.target.closest('input[data-user]');
+    if (cb) assignState[cb.dataset.user] = cb.checked;
+});
+
+async function saveAssign() {
+    const touched = Object.keys(assignState).filter(uid => {
+        const state = !!assignState[uid];
+        const actual = (userRoles[uid] || new Set()).has(assignTarget.id);
+        return state !== actual;
+    });
+
+    if (touched.length === 0) {
+        show('assignModal', false);
+        return;
+    }
+
+    $('assignSave').disabled = true;
+    try {
+        for (const uid of touched) {
+            const set = new Set(userRoles[uid] || []);
+            if (assignState[uid]) set.add(assignTarget.id);
+            else set.delete(assignTarget.id);
+            await FastClient.put('/api/admin/users/' + encodeURIComponent(uid) + '/roles', {
+                role_ids: [...set],
+            });
+        }
+        show('assignModal', false);
+        alertMsg(touched.length === 1 ? 'Asignación actualizada.' : touched.length + ' usuarios actualizados.', true);
+    } catch (error) {
+        alertMsg(error.message);
+    } finally {
+        $('assignSave').disabled = false;
+    }
+}
+
+// ── Eventos globales ─────────────────────────────────────────────────────────
+document.addEventListener('click', (e) => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+
+    if (btn.dataset.close) { show(btn.dataset.close, false); return; }
+    if (btn.id === 'btnNewRole') { alertMsg(''); openRoleModal(null); return; }
+    if (btn.dataset.edit) {
+        const role = rolesCache.find(r => r.id === btn.dataset.edit);
+        if (role) { alertMsg(''); openRoleModal(role); }
+        return;
+    }
+    if (btn.dataset.del) { alertMsg(''); delRole(btn.dataset.del); return; }
+    if (btn.dataset.perms) {
+        const role = rolesCache.find(r => r.id === btn.dataset.perms);
+        if (!role) return;
+        permTarget = role;
+        show('permModal', true);
+        renderPermModal(role);
+        return;
+    }
+    if (btn.dataset.assign) {
+        const role = rolesCache.find(r => r.id === btn.dataset.assign);
+        if (!role) return;
+        assignTarget = role;
+        show('assignModal', true);
+        renderAssignModal(role);
+        return;
+    }
+    if (btn.id === 'permSave') { permTarget && savePerms(); }
+    if (btn.id === 'assignSave') { assignTarget && saveAssign(); }
+});
+
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        show('roleModal', false);
+        show('permModal', false);
+        show('assignModal', false);
+    }
+});
+
+document.querySelectorAll('.roles-modal').forEach(m => {
+    m.addEventListener('click', (e) => { if (e.target === m) m.style.display = 'none'; });
+});
+
+$('roleForm').addEventListener('submit', submitRole);
+$('roleSearch').addEventListener('input', render);
+
+load();
+</script>

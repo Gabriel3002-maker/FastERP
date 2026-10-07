@@ -114,6 +114,8 @@ func (ui *UI) RegisterRoutes(r *gin.Engine) {
 		admin.GET("", ui.Dashboard)
 		admin.GET("/modules", ui.ModuleStore)
 		admin.GET("/audit", ui.Audit)
+		admin.GET("/usuarios", ui.Usuarios)
+		admin.GET("/roles", ui.Roles)
 		// Cualquier otra cosa bajo /admin es la página de un módulo. Se resuelve
 		// por lo que el manifest declara, no por lo que haya en disco: un
 		// directorio sin manifest no es un módulo y no merece una página.
@@ -252,6 +254,30 @@ func (ui *UI) Audit(c *gin.Context) {
 	ui.page(c, "audit-content.html", PageData{
 		Title:       "Auditoría",
 		CurrentPage: "audit",
+	})
+}
+
+// Usuarios es la pantalla de cuentas del tenant.
+//
+// La página se sirve sin sesión (como todo /admin): el HTML es una carcasa y
+// los datos los pide FastClient a /api/admin/users, que sí exige admin. Por eso
+// el enlace del menú no puede ocultarse en el servidor — se oculta después,
+// cuando hay token.
+func (ui *UI) Usuarios(c *gin.Context) {
+	ui.page(c, "users-content.html", PageData{
+		Title:       "Usuarios",
+		CurrentPage: "usuarios",
+	})
+}
+
+// Roles es la pantalla de roles y permisos del tenant.
+//
+// Igual que Usuarios: carcasa sin datos en /admin/roles, y el CRUD detrás de
+// /api/admin/roles y /api/admin/permissions/catalog, que exigen admin.
+func (ui *UI) Roles(c *gin.Context) {
+	ui.page(c, "roles-content.html", PageData{
+		Title:       "Roles",
+		CurrentPage: "roles",
 	})
 }
 

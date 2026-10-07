@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -324,10 +325,64 @@ func (h *Handler) AuthMiddleware() gin.HandlerFunc {
 	}
 }
 
-// requirePermission aplica la lista de permisos por acción sobre el CRUD de
-// módulos. is_admin pasa siempre; quien no tenga ninguna fila en
-// user_permissions para ese (module, model) queda en modo compatible y puede
-// todo — en cuanto exista una fila para ese recurso, solo lo declarado.
+// permissionVerdict reúne en una fila los cinco hechos que deciden un permiso.
+//
+// Se pide todo en la misma consulta y con EXISTS: no hay tablas que unir ni
+// resultados que juntar en Go, y la precedencia la aplica allow, no la forma
+// del SQL.
+type permissionVerdict struct {
+	// managed es true en cuanto el tenant tiene al menos un rol asignado. Es la
+	// frontera entre el modo compatible y el default-deny: no depende del
+	// usuario que pregunta, sino del tenant entero.
+	managed bool
+	// directGrant: el usuario tiene el permiso otorgado explícitamente.
+	directGrant bool
+	// directDeny: el usuario tiene el permiso revocado explícitamente. Gana
+	// sobre cualquier rol: una revocación es una instrucción personal.
+	directDeny bool
+	// roleGranted: algún rol del usuario concede el permiso.
+	roleGranted bool
+	// resourceTracked: existe alguna fila directa para el recurso. En modo
+	// compatible convierte el "todo permitido" en "solo lo declarado".
+	resourceTracked bool
+}
+
+// allow resuelve el veredicto con la precedencia entera:
+//
+//  1. lo directo gana al rol: un allow directo abre, un deny directo cierra;
+//  2. el rol concede;
+//  3. si el tenant tiene roles asignados, lo que no está concedido está
+//     prohibido (default-deny);
+//  4. sin roles, el recurso con filas directas solo deja pasar lo declarado, y
+//     el recurso sin filas deja pasar todo: el comportamiento histórico.
+func (v permissionVerdict) allow() bool {
+	if v.directGrant {
+		return true
+	}
+	if v.directDeny {
+		return false
+	}
+	if v.roleGranted {
+		return true
+	}
+	if v.managed {
+		return false
+	}
+	if v.resourceTracked {
+		return false
+	}
+	return true
+}
+
+// requirePermission comprueba una acción sobre el CRUD de módulos. is_admin
+// pasa siempre.
+//
+// reg decide el nivel de la consulta: con un modelo se pregunta por el permiso
+// exacto (modelo + acción); con reg nil se pregunta a nivel de módulo, "¿tiene
+// el usuario algún permiso en este módulo?", que es lo que protege la lista de
+// modelos del _meta.
+//
+// Los rechazos no son errores: 403. Solo el fallo de base de datos es 500.
 func (h *Handler) requirePermission(c *gin.Context, inst *module.ModuleInstance, reg *module.ModelRegistration, action string) bool {
 	if a, _ := c.Get("is_admin"); a == true {
 		return true
@@ -340,32 +395,97 @@ func (h *Handler) requirePermission(c *gin.Context, inst *module.ModuleInstance,
 		return false
 	}
 
-	var entries int
-	err := db.Executor(c).QueryRowContext(c.Request.Context(),
-		`SELECT COUNT(*) FROM user_permissions
-		 WHERE user_id = $1 AND module = $2 AND model = $3`,
-		userID, inst.Manifest.Name, reg.Manifest.Name,
-	).Scan(&entries)
+	v, err := h.permissionVerdict(c, userID, inst.Manifest.Name, reg, action)
 	if err != nil {
 		log.Printf("[RBAC] permission check failed: %v", err)
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "permission check failed"})
 		return false
 	}
-	if entries == 0 {
+	if v.allow() {
 		return true
 	}
+	c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "permission denied"})
+	return false
+}
 
-	var allowed int
-	err = db.Executor(c).QueryRowContext(c.Request.Context(),
-		`SELECT COUNT(*) FROM user_permissions
-		 WHERE user_id = $1 AND module = $2 AND model = $3 AND action = $4`,
-		userID, inst.Manifest.Name, reg.Manifest.Name, action,
-	).Scan(&allowed)
-	if err != nil || allowed == 0 {
-		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "permission denied"})
+// permissionVerdict executa la consulta que rellena el veredicto.
+//
+// La consulta filtra por modelo y acción solo cuando reg no es nil; a nivel de
+// módulo reduce las condiciones a "algún permiso directo" y "algún permiso por
+// rol", y se montan los placeholders $-1 una sola vez para los dos niveles.
+func (h *Handler) permissionVerdict(c *gin.Context, userID, moduleName string, reg *module.ModelRegistration, action string) (permissionVerdict, error) {
+	ctx := c.Request.Context()
+
+	modelWhere, actionWhere, roleWhere := "", "", ""
+	args := []any{userID, moduleName}
+	if reg != nil {
+		next := len(args) + 1
+		modelWhere = " AND model = $" + strconv.Itoa(next)
+		actionWhere = " AND action = $" + strconv.Itoa(next+1)
+		roleWhere = modelWhere + actionWhere
+		args = append(args, reg.Manifest.Name, action)
+	}
+	args = append(args, c.GetString("tenant_id"))
+	managedParam := "$" + strconv.Itoa(len(args))
+
+	query := `SELECT
+		(SELECT EXISTS(SELECT 1 FROM user_roles WHERE tenant_id = ` + managedParam + `)) AS managed,
+		(SELECT EXISTS(SELECT 1 FROM user_permissions WHERE user_id = $1 AND module = $2` + actionWhere + ` AND allow)) AS direct_grant,
+		(SELECT EXISTS(SELECT 1 FROM user_permissions WHERE user_id = $1 AND module = $2` + actionWhere + ` AND NOT allow)) AS direct_deny,
+		(SELECT EXISTS(
+			SELECT 1 FROM user_roles ur
+			JOIN role_permissions rp ON rp.tenant_id = ur.tenant_id AND rp.role_id = ur.role_id
+			WHERE ur.user_id = $1 AND rp.module = $2` + roleWhere + `)) AS role_granted,
+		(SELECT EXISTS(SELECT 1 FROM user_permissions WHERE user_id = $1 AND module = $2` + modelWhere + `)) AS resource_tracked`
+
+	var v permissionVerdict
+	err := db.Executor(c).QueryRowContext(ctx, query, args...).Scan(
+		&v.managed, &v.directGrant, &v.directDeny, &v.roleGranted, &v.resourceTracked,
+	)
+	return v, err
+}
+
+// moduleReadable es la pregunta "¿puede este usuario ver este módulo?" sin
+// escribir la respuesta: renuncia a tinta, solo devuelve un booleano. Lo usa el
+// filtro del menú lateral, donde un "no" no es un fallo de la petición, solo
+// una entrada que se omite.
+//
+// Con modelName filtra por el modelo de la entrada (un rizo del menú que apunta
+// al CRUD de un modelo); sin él, por el módulo entero: "algún permiso en este
+// módulo", que es la misma frontera que protege el _meta.
+func (h *Handler) moduleReadable(c *gin.Context, inst *module.ModuleInstance, modelName string) bool {
+	if a, _ := c.Get("is_admin"); a == true {
+		return true
+	}
+	userIDVal, _ := c.Get("user_id")
+	userID, _ := userIDVal.(string)
+	if userID == "" {
 		return false
 	}
-	return true
+
+	var reg *module.ModelRegistration
+	if modelName != "" {
+		reg = findModelReg(inst, modelName)
+	}
+	v, err := h.permissionVerdict(c, userID, inst.Manifest.Name, reg, "read")
+	if err != nil {
+		log.Printf("[RBAC] no se pudo filtrar el menú para %s: %v", inst.Manifest.Name, err)
+		// Ante la duda se muestra: esconder una entrada por un fallo de lectura
+		// ocultaría módulos sin que nadie lo pida.
+		return true
+	}
+	return v.allow()
+}
+
+// findModelReg localiza el registro de modelo por su nombre de manifest. Los
+// nombres de permiso son los del manifest, sin prefijo de módulo.
+func findModelReg(inst *module.ModuleInstance, modelName string) *module.ModelRegistration {
+	for i := range inst.Models {
+		if inst.Models[i].Manifest != nil && inst.Models[i].Manifest.Name == modelName {
+			return &inst.Models[i]
+		}
+	}
+	return nil
 }
 
 func (h *Handler) ListModules(c *gin.Context) {
@@ -626,8 +746,32 @@ func (h *Handler) ModuleRoutes(c *gin.Context) {
 	})
 }
 
+// GetMenus devuelve el menú lateral del tenant filtrado por lo que el usuario
+// puede leer.
+//
+// La barra lateral se renderiza en el servidor sin sesión (las páginas /admin
+// son carcasas), así que este endpoint es quien le dice al cliente qué entradas
+// ocultar: el cliente no repinta el árbol, solo tacha lo que aquí no viene.
 func (h *Handler) GetMenus(c *gin.Context) {
-	c.JSON(http.StatusOK, module.Global.MenusForTenant(c.GetString("tenant_id")))
+	items := module.Global.MenusForTenant(c.GetString("tenant_id"))
+	out := make([]module.MenuItem, 0, len(items))
+	for _, it := range items {
+		inst := module.Global.Get(it.Module)
+		if inst == nil || h.moduleReadable(c, inst, menuModelName(it.Model)) {
+			out = append(out, it)
+		}
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+// menuModelName quita el prefijo "módulo/" del modelo de una entrada de menú.
+// Los permisos guardan el nombre del manifest solo; el menú lo lleva completo.
+func menuModelName(model string) string {
+	_, name, found := strings.Cut(model, "/")
+	if !found {
+		return model
+	}
+	return name
 }
 
 func (h *Handler) GetCurrentUser(c *gin.Context) {

@@ -88,13 +88,18 @@ func (h *Handler) resolveModule(c *gin.Context, name string) (*module.ModuleInst
 }
 
 // dispatchModuleList opera a nivel de módulo, para el _meta que lista sus
-// modelos.
-// dispatchModuleList opera a nivel de módulo, para el _meta que lista sus
 // modelos. El modelo de la ruta no se usa aquí: es nil.
+//
+// El _meta es la puerta al resto de la API del módulo: sin "read" no debería
+// poderse ni enumerar sus modelos. requirePermission con reg nil resuelve el
+// permiso como "¿tiene el usuario algún permiso en el módulo?".
 func (h *Handler) dispatchModuleList(build moduleAction) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		inst, ok := h.resolveModule(c, c.Param("module"))
 		if !ok {
+			return
+		}
+		if !h.requirePermission(c, inst, nil, "read") {
 			return
 		}
 		build(c, inst, nil)

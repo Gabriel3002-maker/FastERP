@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/fasterp/backend/internal/db"
+	"github.com/lib/pq"
 )
 
 // AppVersion es la versión del formato, no de la app. Si cambia el layout del
@@ -87,11 +88,15 @@ func DumpTable(ctx context.Context, qe db.QueryExecutor, table, where string, ar
 		return "", nil
 	}
 
+	// Los identificadores pasan por pq.QuoteIdentifier, no por %q ni por
+	// comillas a mano: %q escapa como un literal de Go, y un nombre con una
+	// comilla doble produce SQL con un backslash que Postgres no acepta.
+	// QuoteIdentifier duplica la comilla, que es la regla del parser.
 	casts := make([]string, len(cols))
 	for i, c := range cols {
-		casts[i] = `"` + c + `"::text`
+		casts[i] = pq.QuoteIdentifier(c) + "::text"
 	}
-	query := fmt.Sprintf("SELECT %s FROM %q WHERE %s", strings.Join(casts, ", "), table, where)
+	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s", strings.Join(casts, ", "), pq.QuoteIdentifier(table), where)
 	rows, err := qe.QueryContext(ctx, query, args...)
 	if err != nil {
 		return "", fmt.Errorf("backup: dump %s: %w", table, err)
@@ -99,6 +104,10 @@ func DumpTable(ctx context.Context, qe db.QueryExecutor, table, where string, ar
 	defer rows.Close()
 
 	var b strings.Builder
+	quotedCols := make([]string, len(cols))
+	for i, c := range cols {
+		quotedCols[i] = pq.QuoteIdentifier(c)
+	}
 	vals := make([]sql.NullString, len(cols))
 	ptrs := make([]any, len(cols))
 	for i := range vals {
@@ -108,7 +117,7 @@ func DumpTable(ctx context.Context, qe db.QueryExecutor, table, where string, ar
 		if err := rows.Scan(ptrs...); err != nil {
 			return "", err
 		}
-		b.WriteString(`INSERT INTO "` + table + `" ("` + strings.Join(cols, `", "`) + `") VALUES (`)
+		b.WriteString("INSERT INTO " + pq.QuoteIdentifier(table) + " (" + strings.Join(quotedCols, ", ") + ") VALUES (")
 		for i, v := range vals {
 			if i > 0 {
 				b.WriteString(", ")
@@ -332,8 +341,15 @@ func ExtractResources(zr *zip.Reader, dest string) (int, error) {
 // en el INSERT del dump rompería la FK de users, y sin ella el tenant destino
 // ya no existe. En su lugar se borran las filas enlazadas y las mod_*.
 func PurgeTenant(ctx context.Context, tx db.QueryExecutor, tenantID string) error {
-	for _, t := range []string{"users", "installed_modules", "refresh_tokens", "user_permissions"} {
-		if _, err := tx.ExecContext(ctx, fmt.Sprintf(`DELETE FROM "%s" WHERE tenant_id = $1`, t), tenantID); err != nil {
+	// Hijos primero para no depender del cascada al borrar: si el FORCE RLS
+	// cortara el ON DELETE CASCADE (los triggers de integridad corren como el
+	// dueño, que aquí también está sujeto a la política), las tablas intermedias
+	// quedarían huérfanas sin que nadie avise.
+	for _, t := range []string{
+		"user_roles", "role_permissions", "user_permissions",
+		"users", "roles", "installed_modules", "refresh_tokens",
+	} {
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf("DELETE FROM %s WHERE tenant_id = $1", pq.QuoteIdentifier(t)), tenantID); err != nil {
 			return fmt.Errorf("purge %s: %w", t, err)
 		}
 	}
@@ -354,7 +370,7 @@ func PurgeTenant(ctx context.Context, tx db.QueryExecutor, tenantID string) erro
 	}
 	rows.Close()
 	for _, t := range tables {
-		if _, err := tx.ExecContext(ctx, fmt.Sprintf(`DELETE FROM "%s" WHERE tenant_id = $1`, t), tenantID); err != nil {
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf("DELETE FROM %s WHERE tenant_id = $1", pq.QuoteIdentifier(t)), tenantID); err != nil {
 			return fmt.Errorf("purge %s: %w", t, err)
 		}
 	}

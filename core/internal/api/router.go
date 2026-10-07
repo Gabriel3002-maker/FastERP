@@ -24,6 +24,15 @@ func SetupRouter(cfg *config.Config, modManager *module.ModuleManager) *gin.Engi
 	r := gin.New()
 	r.Use(gin.Recovery())
 
+	// Observabilidad.
+	//
+	// Van antes que todos los demás middleware para que midan también lo que
+	// se descarta antes de llegar a los handlers: una petición que rebasa el
+	// rate limit o que el CORS ni contesta sigue siendo una petición, y es
+	// justo la que interesa contar.
+	r.Use(accessLogMiddleware())
+	r.Use(metricsMiddleware())
+
 	// gin trusts X-Forwarded-For from ANY address unless told otherwise, and the
 	// rate limiter keys on that value. Left at the default, an attacker rotates
 	// the header and gets an unlimited supply of attempts against /api/auth/login.
@@ -64,6 +73,15 @@ func SetupRouter(cfg *config.Config, modManager *module.ModuleManager) *gin.Engi
 		authPublic.POST("/refresh", h.RefreshToken)
 	}
 
+	// Instalación inicial.
+	//
+	// Fuera de authPublic a propósito: ese grupo pasa por TenantMiddleware y
+	// quien llega aquí justamente no tiene tenant todavía, porque es el que lo
+	// va a crear. Lleva su propio límite porque es la otra mitad de la superficie
+	// de fuerza bruta junto al login, y encima no pide credenciales conocidas:
+	// adivinar es innecesario, basta con llegar primero.
+	r.Group("/api/setup", rateLimiterMiddleware(cfg.AuthRateLimit)).POST("/initial", h.SetupInitial)
+
 	// Protected routes
 	api := r.Group("/api", h.TenantMiddleware(), h.AuthMiddleware())
 	{
@@ -73,14 +91,46 @@ func SetupRouter(cfg *config.Config, modManager *module.ModuleManager) *gin.Engi
 		api.POST("/me/change-password", h.ChangePassword)
 		api.POST("/me/logout", h.Logout)
 
-		// Admin-only routes
-		admin := api.Group("", h.AdminMiddleware())
+		// Admin-only routes.
+		//
+		// Van bajo /api/admin y no en una cabecera que palmee junto a /api/users:
+		// la UI (users-content.html) y las páginas del admin hablan con esta
+		// familia de endpoints, y fuera del prefijo /admin la API se reserva
+		// para los datos de los módulos (/api/:module/:model...).
+		admin := api.Group("/admin", h.AdminMiddleware())
 		{
 			admin.GET("/tenants", h.ListTenants)
 			admin.GET("/tenants/:id", h.GetTenant)
 			backupLimiter := rateLimiterMiddleware(cfg.BackupRateLimit)
 			admin.GET("/tenants/:id/backup", backupLimiter, h.Backup)
 			admin.POST("/tenants/:id/restore", backupLimiter, h.Restore)
+
+			// Cuentas del tenant. Van aquí y no en su propio grupo porque la
+			// única distinción que necesitan es "quién es administrador", que es
+			// exactamente lo que AdminMiddleware comprueba. /users va antes que
+			// /tenants/:id por legibilidad, no por resolución: gin desempata con
+			// el número de segmentos.
+			admin.GET("/users", h.ListUsers)
+			admin.POST("/users", h.CreateUser)
+			admin.GET("/users/:id", h.GetUser)
+			admin.PUT("/users/:id", h.UpdateUser)
+			admin.POST("/users/:id/password", h.SetUserPassword)
+			admin.POST("/users/:id/toggle", h.ToggleUser)
+
+			// Roles y su relación con los usuarios. /permissions/catalog es un
+			// literal y va antes que /roles/:id por legibilidad: gin resuelve
+			// los segmentos estáticos antes que los comodines. /roles/:id/* y
+			// /users/:id/* cuelgan de prefijos distintos y no compiten.
+			admin.GET("/permissions/catalog", h.PermissionsCatalog)
+			admin.GET("/roles", h.ListRoles)
+			admin.POST("/roles", h.CreateRole)
+			admin.GET("/roles/:id", h.GetRole)
+			admin.PUT("/roles/:id", h.UpdateRole)
+			admin.DELETE("/roles/:id", h.DeleteRole)
+			admin.GET("/roles/:id/permissions", h.ListRolePermissions)
+			admin.PUT("/roles/:id/permissions", h.ReplaceRolePermissions)
+			admin.GET("/users/:id/roles", h.ListUserRoles)
+			admin.PUT("/users/:id/roles", h.ReplaceUserRoles)
 
 			// Installing a module writes its schema into the database and
 			// executes code inside this process. That is an administrative
@@ -97,6 +147,10 @@ func SetupRouter(cfg *config.Config, modManager *module.ModuleManager) *gin.Engi
 		// segments ahead of wildcards.
 		h.RegisterModuleDataRoutes(api)
 	}
+
+	// Métricas: ver observability.go. Pública y sin autenticación porque el
+	// scraper no lleva JWT; el compose solo publica el puerto en 127.0.0.1.
+	registerMetricsRoute(r)
 
 	// Liveness: el proceso responde. No toca la base a propósito — si Postgres
 	// cae, reiniciar el backend no arregla nada y solo genera un bucle de reinicios.
