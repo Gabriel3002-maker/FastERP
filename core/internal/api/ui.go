@@ -116,6 +116,7 @@ func (ui *UI) RegisterRoutes(r *gin.Engine) {
 		admin.GET("/audit", ui.Audit)
 		admin.GET("/usuarios", ui.Usuarios)
 		admin.GET("/roles", ui.Roles)
+		admin.GET("/backup", ui.Backup)
 		// Cualquier otra cosa bajo /admin es la página de un módulo. Se resuelve
 		// por lo que el manifest declara, no por lo que haya en disco: un
 		// directorio sin manifest no es un módulo y no merece una página.
@@ -278,6 +279,14 @@ func (ui *UI) Roles(c *gin.Context) {
 	ui.page(c, "roles-content.html", PageData{
 		Title:       "Roles",
 		CurrentPage: "roles",
+	})
+}
+
+// Backup es la pantalla de exportar/restaurar.
+func (ui *UI) Backup(c *gin.Context) {
+	ui.page(c, "backup-content.html", PageData{
+		Title:       "Backup",
+		CurrentPage: "backup",
 	})
 }
 

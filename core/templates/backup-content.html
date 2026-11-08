@@ -1,0 +1,82 @@
+<!-- Header -->
+<div class="header">
+    <h1>💾 Backup</h1>
+    <p>Exporta o restaura todos los datos de tu tenant: tablas, adjuntos y configuración</p>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:20px;">
+
+    <!-- Exportar -->
+    <div style="background:white;border-radius:12px;padding:24px;box-shadow:0 1px 3px rgba(0,0,0,.08);">
+        <h2 style="margin-top:0">⬇️ Exportar</h2>
+        <p style="color:#64748b">Descarga un <code>.zip</code> con <code>database.sql</code>, los módulos instalados y todos los archivos subidos (imágenes, PDFs, documentos). Para llevar tu tenant a otro servidor.</p>
+        <button id="btnExport" type="button" style="background:#2563eb;color:white;border:none;padding:10px 18px;border-radius:8px;cursor:pointer;font-weight:600">Descargar backup</button>
+        <div id="exportMsg" style="margin-top:10px;color:#64748b"></div>
+    </div>
+
+    <!-- Restaurar -->
+    <div style="background:white;border-radius:12px;padding:24px;box-shadow:0 1px 3px rgba(0,0,0,.08);">
+        <h2 style="margin-top:0">⬆️ Restaurar</h2>
+        <p style="color:#64748b">Sube un <code>.zip</code> de backup. <strong>Borra los datos actuales del tenant</strong> y los sustituye. Todos deberán volver a iniciar sesión.</p>
+        <input type="file" id="restoreFile" accept=".zip" style="margin-bottom:10px">
+        <label style="display:block;margin-bottom:10px"><input type="checkbox" id="restoreConfirm"> Entiendo que se borran los datos actuales</label>
+        <button id="btnRestore" type="button" style="background:#dc2626;color:white;border:none;padding:10px 18px;border-radius:8px;cursor:pointer;font-weight:600">Restaurar</button>
+        <div id="restoreMsg" style="margin-top:10px;color:#64748b"></div>
+    </div>
+</div>
+
+<script>
+(function () {
+    var tenantID = window.localStorage.getItem('tenant_id');
+    var token = window.localStorage.getItem('access_token');
+
+    function tenantFromUser() {
+        try { return JSON.parse(window.localStorage.getItem('fast_user') || '{}').tenant_id; } catch (e) { return null; }
+    }
+    if (!tenantID) tenantID = tenantFromUser();
+
+    document.getElementById('btnExport').addEventListener('click', async function () {
+        var msg = document.getElementById('exportMsg');
+        msg.textContent = 'Generando backup…';
+        try {
+            var res = await fetch('/api/tenants/' + tenantID + '/backup', {
+                headers: { 'Authorization': 'Bearer ' + (window.localStorage.getItem('access_token') || ''), 'X-Tenant-ID': tenantID }
+            });
+            if (!res.ok) {
+                var data = await res.json().catch(function () { return {}; });
+                throw new Error(data.error || ('error ' + res.status));
+            }
+            var blob = await res.blob();
+            var a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'backup-' + new Date().toISOString().slice(0, 10) + '.zip';
+            document.body.appendChild(a); a.click(); a.remove();
+            msg.textContent = '✓ Backup descargado';
+        } catch (e) {
+            msg.textContent = '✗ ' + e.message;
+        }
+    });
+
+    document.getElementById('btnRestore').addEventListener('click', async function () {
+        var msg = document.getElementById('restoreMsg');
+        var file = document.getElementById('restoreFile').files[0];
+        if (!file) { msg.textContent = 'Elige un archivo .zip'; return; }
+        if (!document.getElementById('restoreConfirm').checked) { msg.textContent = 'Marca la confirmación'; return; }
+        msg.textContent = 'Restaurando…';
+        try {
+            var form = new FormData();
+            form.append('file', file);
+            var res = await fetch('/api/tenants/' + tenantID + '/restore?confirm=true', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + (window.localStorage.getItem('access_token') || ''), 'X-Tenant-ID': tenantID },
+                body: form
+            });
+            var data = await res.json().catch(function () { return {}; });
+            if (!res.ok) throw new Error(data.error || ('error ' + res.status));
+            msg.textContent = '✓ ' + data.message + ' (' + data.rows_restored + ' filas, ' + data.files + ' archivos' + (data.warnings && data.warnings.length ? '; avisos: ' + data.warnings.join(', ') : '') + ')';
+        } catch (e) {
+            msg.textContent = '✗ ' + e.message;
+        }
+    });
+})();
+</script>
